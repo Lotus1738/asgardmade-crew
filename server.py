@@ -21,6 +21,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 import memory.obsidian as mem
+import memory.brain as brain
 
 _anthropic_client: anthropic.AsyncAnthropic | None = None
 
@@ -208,6 +209,15 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
                 mem.heimdall_write_approved(idea)
             except Exception:
                 pass
+            try:
+                brain.record_outcome(
+                    "HEIMDALL",
+                    f"Queued idea: '{idea.get('title')}' ({idea.get('niche')}, {idea.get('productType')})",
+                    "Commander approved — pipeline triggered",
+                    9,
+                )
+            except Exception:
+                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "ideas", "id": item_id, "status": "approved"}})
             asyncio.create_task(run_idea_pipeline(idea, manager, state))
 
@@ -219,6 +229,15 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
             state.save_queue()
             try:
                 mem.vulcan_write_approved(design)
+            except Exception:
+                pass
+            try:
+                brain.record_outcome(
+                    "VULCAN",
+                    f"Generated design for '{design.get('ideaTitle')}' ({design.get('niche')}) — variant {design.get('variantIndex')}",
+                    "Commander approved — uploading to Printify",
+                    9,
+                )
             except Exception:
                 pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "approved"}})
@@ -234,6 +253,15 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
                 mem.heimdall_write_rejected(item)
             except Exception:
                 pass
+            try:
+                brain.record_outcome(
+                    "HEIMDALL",
+                    f"Queued idea: '{item.get('title')}' ({item.get('niche')}, {item.get('productType')})",
+                    "Commander rejected — avoid similar ideas",
+                    2,
+                )
+            except Exception:
+                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "ideas", "id": item_id, "status": "rejected"}})
 
     elif msg_type == "reject_design":
@@ -244,6 +272,15 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
             state.save_queue()
             try:
                 mem.vulcan_write_rejected(item)
+            except Exception:
+                pass
+            try:
+                brain.record_outcome(
+                    "VULCAN",
+                    f"Generated design for '{item.get('ideaTitle')}' ({item.get('niche')}) — variant {item.get('variantIndex')}",
+                    "Commander rejected — avoid this visual approach",
+                    2,
+                )
             except Exception:
                 pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "rejected"}})
@@ -294,6 +331,14 @@ async def chat(req: ChatRequest):
     except Exception:
         pass
 
+    # Inject distilled lessons from the brain synthesis loop
+    try:
+        lessons = brain.get_agent_lessons(agent_name)
+        if lessons:
+            ctx["agentLessons"] = lessons
+    except Exception:
+        pass
+
     system_prompt = get_system_prompt(agent_name, ctx)
 
     # Build message list for Anthropic API
@@ -310,7 +355,7 @@ async def chat(req: ChatRequest):
         client = get_anthropic_client()
         response = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
+            max_tokens=450,
             system=system_prompt,
             messages=messages,
         )
@@ -411,6 +456,25 @@ async def reject_item(item_id: str):
 @app.get("/api/vault")
 async def get_vault():
     return _build_vault_report(state)
+
+
+@app.get("/api/brain/status")
+async def get_brain_status():
+    """Shows which agents have learned lessons and how many outcomes are tracked."""
+    return brain.brain_status()
+
+
+@app.get("/api/brain/lessons/{agent_name}")
+async def get_agent_lessons(agent_name: str):
+    """Read current distilled lessons for one agent."""
+    name = agent_name.upper()
+    lessons_text = brain.get_agent_lessons(name)
+    outcomes = brain.get_all_outcomes(name, limit=10)
+    return {
+        "agent": name,
+        "lessons": lessons_text,
+        "recent_outcomes": outcomes,
+    }
 
 
 @app.post("/api/vulcan/generate")
@@ -953,6 +1017,71 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
         await asyncio.sleep(21600)  # 6 hours
 
 
+async def _brain_synthesis_loop():
+    """
+    Every 6 hours: read each agent's memory + outcome history,
+    use Claude Haiku to extract lessons, write them back.
+    Agents inject these lessons into their system prompt automatically.
+    """
+    await asyncio.sleep(180)  # First run 3 minutes after startup
+    while True:
+        try:
+            from crew.agents import ALL_AGENTS
+            for agent_name in ALL_AGENTS:
+                try:
+                    memories = mem.read_folder(f"Agent Memory/{agent_name}", limit=5)
+                    outcomes = brain.get_all_outcomes(agent_name, limit=15)
+
+                    if not memories and not outcomes:
+                        continue
+
+                    memory_text = "\n\n---\n\n".join(m["content"][:400] for m in memories)
+                    outcome_text = "\n".join(
+                        f"- [{o.get('score', 5)}/10] {o.get('action', '')} → {o.get('outcome', '')}"
+                        for o in outcomes
+                    )
+
+                    synthesis_prompt = brain.build_synthesis_prompt(agent_name, memory_text, outcome_text)
+
+                    client = get_anthropic_client()
+                    response = await client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=600,
+                        system=f"You distill agent memory into actionable lessons. Return only valid JSON.",
+                        messages=[{"role": "user", "content": synthesis_prompt}],
+                    )
+                    raw = response.content[0].text.strip()
+                    if raw.startswith("```"):
+                        parts = raw.split("```")
+                        raw = parts[1] if len(parts) > 1 else raw
+                        if raw.startswith("json"):
+                            raw = raw[4:]
+                    raw = raw.strip()
+                    data = json.loads(raw)
+                    lessons = data.get("lessons", [])
+                    summary = data.get("summary", "")
+                    brain.write_agent_lessons(agent_name, lessons, summary)
+
+                    await manager.broadcast({
+                        "type": "agent_log",
+                        "agent": "ODIN",
+                        "message": f"Brain: {agent_name} synthesized — {len(lessons)} lesson(s) distilled. {summary}",
+                        "level": "info",
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                    await asyncio.sleep(3)  # Don't hammer the API between agents
+
+                except Exception as e:
+                    print(f"[BRAIN] synthesis error for {agent_name}: {type(e).__name__}: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"[BRAIN LOOP] error: {type(e).__name__}: {e}")
+            traceback.print_exc()
+
+        await asyncio.sleep(21600)  # 6 hours
+
+
 async def _odin_loop():
     await asyncio.sleep(30)
     while True:
@@ -1021,6 +1150,7 @@ async def startup():
     asyncio.create_task(_tyr_loop())
     asyncio.create_task(_vault_loop())
     asyncio.create_task(_odin_loop())
+    asyncio.create_task(_brain_synthesis_loop())
 
     log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"
     log_file.write_text(f"[{datetime.now().isoformat()}] AsgardMade Pantheon started\n")

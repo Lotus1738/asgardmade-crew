@@ -1,0 +1,14 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uvicorn server:app --host 0.0.0.0 --port $PORT --workers 1"
+healthcheckPath = "/api/status"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# IMPORTANT: After deploying, go to Railway dashboard → your service → Volumes tab
+# Add a Volume: mount path = /data, size = 1GB (costs ~$0.25/month, within free credit)
+# Then add this env var in Railway Variables:
+#   OBSIDIAN_VAULT_PATH = /data/memory
