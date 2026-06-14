@@ -17,8 +17,10 @@ except ImportError:
     _GENERATOR = "DALL-E"
 
 generate_variants = _gen_variants
-from integrations.printify import upload_image, create_product, publish_product
+from integrations.printify import upload_image, create_product, publish_product, generate_mockups
 from integrations.etsy import create_listing, build_tags, build_title, build_description, LISTING_FEE
+from integrations import pinterest, discord
+from integrations.publisher import publish_everywhere, format_publish_log
 import memory.obsidian as mem
 
 if TYPE_CHECKING:
@@ -163,6 +165,19 @@ async def run_design_pipeline(
         await _log(manager, "VULCAN", f"Printify product creation failed: {e}", "warning")
         product_id = f"demo_{uuid.uuid4().hex[:8]}"
 
+    # ── Mockup generation ─────────────────────────────────────────────────────
+    # Fetch Printify-generated mockup images after product creation.
+    # Falls back to the raw design image URL if credentials are missing / demo run.
+    mockup_urls: list[str] = []
+    try:
+        mockup_urls = await generate_mockups(product_id, image_url=image_url)
+        if mockup_urls:
+            await _log(manager, "VULCAN",
+                       f"Mockup pipeline: {len(mockup_urls)} mockup image(s) generated for '{title}'.")
+    except Exception as e:
+        await _log(manager, "VULCAN", f"Mockup generation skipped: {e}", "warning")
+        mockup_urls = [image_url]
+
     await manager.broadcast({
         "type": "vulcan_published",
         "agent": "VULCAN",
@@ -207,6 +222,24 @@ async def run_design_pipeline(
                f"ID: {listing_id}. Tags: {len(etsy_tags)} applied. "
                f"Price: ${price_usd}. Listing fee logged to Vault.")
 
+    # ── Pinterest auto-pin ─────────────────────────────────────────────────────
+    # Pin the listing to Pinterest using the first mockup image (or raw design).
+    if not listing_demo:
+        try:
+            listing_url = listing_result.get("url", f"https://www.etsy.com/listing/{listing_id}")
+            pin_image = (mockup_urls[0] if mockup_urls else image_url)
+            pin_id = await pinterest.create_pin(
+                title=etsy_title,
+                description=etsy_desc,
+                image_url=pin_image,
+                link=listing_url,
+            )
+            if pin_id:
+                await _log(manager, "LOKI",
+                           f"Pinterest pin created (ID: {pin_id}) for '{title}'.")
+        except Exception as e:
+            await _log(manager, "LOKI", f"Pinterest pin skipped: {e}", "warning")
+
     # Feed listing success back to HEIMDALL's niche memory so future scoring improves
     try:
         import memory.brain as brain
@@ -238,6 +271,23 @@ async def run_design_pipeline(
     await _award_xp(manager, state, "LOKI", 50, "listing_created")
     await _update_status(manager, state, "LOKI", "active",
                          f"Listing {listing_id} live for '{title}'")
+
+    # ── Multi-platform publish (Redbubble + Amazon Merch) ─────────────────────
+    # Fire-and-forget after Etsy confirm. Never raises — each platform is independent.
+    try:
+        etsy_url = listing_result.get("url", f"https://www.etsy.com/listing/{listing_id}") if not listing_demo else None
+        multi_results = await publish_everywhere(
+            title=etsy_title,
+            description=etsy_desc,
+            tags=etsy_tags,
+            image_url=image_url,
+            etsy_url=etsy_url,
+        )
+        publish_summary = format_publish_log(multi_results)
+        await _log(manager, "LOKI",
+                   f"Multi-platform publish: {publish_summary}")
+    except Exception as e:
+        await _log(manager, "LOKI", f"Multi-platform publish error: {e}", "warning")
 
     # Record LOKI outcome so the brain can learn what listing approaches work
     try:
@@ -285,12 +335,14 @@ async def run_design_pipeline(
                    f"Demo run — no real expense logged for '{title}'. "
                    f"Production cost (${total_expense}) only applies to live Printify+Etsy listings.")
 
-    await _log(manager, "VAULT",
-               f"Logged ${total_expense} expense for '{title}'. "
-               f"Breakdown: Printify ${printify_cost}, "
-               f"listing fee ${LISTING_FEE}, "
-               f"transaction fee ${etsy_txn_fee}. "
-               f"Net profit: ${state.vault['netProfit']:.2f}.")
+    # Only log the real expense breakdown for production runs — demo runs already logged above.
+    if not is_demo_run:
+        await _log(manager, "VAULT",
+                   f"Logged ${total_expense} expense for '{title}'. "
+                   f"Breakdown: Printify ${printify_cost}, "
+                   f"listing fee ${LISTING_FEE}, "
+                   f"transaction fee ${etsy_txn_fee}. "
+                   f"Net profit: ${state.vault['netProfit']:.2f}.")
     await _award_xp(manager, state, "VAULT", 20, "expense_logged")
 
     vault_report = _build_vault_report(state)
@@ -301,6 +353,7 @@ async def run_design_pipeline(
                f"Product {product_id[:12]} → Listing {listing_id}. "
                f"Running P&L: ${state.vault['netProfit']:.2f} net. "
                f"All agents confirmed.")
+
 
     strategy_text = (
         f"New product live: '{title}'. Total products in pipeline: "

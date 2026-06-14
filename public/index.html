@@ -2170,7 +2170,7 @@ const PERSONAS = {
     greet(s){ return `The forge burns bright, Commander. I generate designs with gpt-image-1 (OpenAI's latest image model) and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
     respond(m,s){
       m=m.toLowerCase();
-      if(/design|create|generate/.test(m)) return `When you approve an idea, I build a DALL-E prompt optimized for POD: flat vector illustration, transparent background, centered composition. I generate 2 variants per idea — you pick which one goes to Printify.`;
+      if(/design|create|generate/.test(m)) return `When you approve an idea, I build a gpt-image-1 prompt optimized for POD: flat vector illustration, transparent background, centered composition. I generate 2 variants per idea — you pick which one goes to Printify.`;
       if(/dalle|openai|ai|model/.test(m)) return `I call gpt-image-1 (OpenAI's latest image model). Without an API key I run in demo mode — placeholder images so you can test the full approval flow. Set OPENAI_API_KEY in your .env to ignite real generation.`;
       if(/printify|upload|product/.test(m)) return `Approved design → upload image to Printify CDN → create product with your blueprint → publish it → notify Loki to create the Etsy listing. End-to-end in seconds, fully automated.`;
       return ['The forge creates what the mind imagines.','Art is not made — it is forged.','Every design begins with a vision. I translate vision into product.','Give me an approved idea and I will give you a product.'][Math.floor(Math.random()*4)];
@@ -2930,7 +2930,7 @@ function initFromState(s,strategy){
       profitMargin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100).toFixed(1)+'%':'0%',
       totalTransactions:(f.transactions||[]).length,
       daysRunning:Math.max(1,Math.floor((Date.now()-new Date(f.startDate||Date.now()).getTime())/86400000)+1),
-      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),recentTransactions:(f.transactions||[]).slice(0,15)
+      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),recentTransactions:[...(f.transactions||[])].sort((a,b)=>(b.timestamp||'').localeCompare(a.timestamp||'')).slice(0,15)
     });
   }
   if(s.metrics) updateArgusBar(s.metrics);
@@ -2999,8 +2999,8 @@ const ODIN_PERSONA = {
       return {text:`BEST MOVE NOW.\n\n${move}`,recs};
     }
     if(/guide heimdall|heimdall|niche|research/.test(m)){
-      const recs=['Dark academia — high demand, low saturation','Mental health — consistently trending','Retro gaming — loyal buyer base','Custom pet portraits — highest conversion rates in POD'];
-      return {text:`HEIMDALL GUIDANCE.\n\nHeimdall currently cycles through 12 niche seeds. To direct his attention, approve high-demand ideas quickly — this signals the pipeline to prioritize those niches in future cycles.\n\nNiches with strongest current demand signals:`,recs};
+      const recs=['Dark academia — high demand, low saturation','Mental health — consistently trending','Retro gaming + Y2K nostalgia — loyal buyer bases','Dog mom / cat mom — top conversion in POD gifts','Nurse & teacher gifts — evergreen with seasonal spikes','Coastal grandmother + boho aesthetic — growing demographics'];
+      return {text:`HEIMDALL GUIDANCE.\n\nHeimdall cycles through 24 niche seeds across hourly deep-research and 2-minute rapid cycles. Ideas scoring 85+ demand with low competition are auto-approved directly to the design pipeline. To direct his attention, approve high-demand ideas quickly — this reinforces those niches via brain feedback.\n\nNiches with strongest current demand signals:`,recs};
     }
     if(/improve agents|upgrade|optimize/.test(m)){
       const recs=['Set ANTHROPIC_API_KEY to enable Claude-powered ODIN strategies and Heimdall ideas','Set OPENAI_API_KEY to enable real DALL-E design generation','Set ETSY_* vars to connect live Etsy shop data','Add PRINTIFY_* vars to publish directly to your store'];

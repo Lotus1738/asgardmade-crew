@@ -130,6 +130,44 @@ async def create_product(
         return {"id": data["id"], "title": title, "demo": False}
 
 
+async def generate_mockups(
+    product_id: str,
+    blueprint_id: int = 0,
+    image_url: str = "",
+) -> list[str]:
+    """
+    Fetch Printify-generated mockup image URLs for an existing product.
+
+    Printify auto-generates product mockups after a product is created.
+    This retrieves them by GETting the product and extracting the images array.
+
+    Args:
+        product_id:   Printify product ID (returned by create_product).
+        blueprint_id: Unused — kept for API symmetry / future use.
+        image_url:    Fallback URL if no mockups can be fetched.
+
+    Returns:
+        List of public mockup image URLs. Falls back to [image_url] on error.
+    """
+    if not _has_credentials() or product_id.startswith("demo_"):
+        return [image_url] if image_url else []
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{BASE_URL}/shops/{_shop_id()}/products/{product_id}.json",
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            images = data.get("images", [])
+            urls = [img["src"] for img in images if img.get("src")]
+            return urls if urls else ([image_url] if image_url else [])
+    except Exception as e:
+        print(f"[PRINTIFY MOCKUPS] Failed to fetch mockups for {product_id}: {type(e).__name__}: {e}")
+        return [image_url] if image_url else []
+
+
 async def publish_product(product_id: str) -> bool:
     """Publish a Printify product to the connected Etsy shop."""
     if not _has_credentials() or product_id.startswith("demo_"):

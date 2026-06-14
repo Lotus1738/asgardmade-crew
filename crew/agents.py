@@ -143,7 +143,9 @@ COMPETITOR REVERSE-ENGINEERING:
   - What are their weakest 3-star reviews complaining about? (VULCAN exploits that gap)
   Output as: COMPETITOR GAPS: [keyword gaps] | [price floor] | [quality complaint to fix]
 
-CADENCE: Rapid scan every 2 minutes (5 niches, surface scores ≥ 75). Deep research cycle every hour (1 niche, full scoring rubric, cross-niche synthesis check, competitor analysis, VULCAN brief).""",
+CADENCE: Rapid scan every 2 minutes (5 niches, surface scores ≥ 75). Deep research cycle every hour (1 niche, full scoring rubric, cross-niche synthesis check, competitor analysis, VULCAN brief).
+
+SALES TRACTION PRIORITY: When sales_intel data is present in your context, treat it as the strongest signal available. Prioritize niches where AsgardMade already has sales traction. Weight new niche research toward variants and adjacent niches of proven performers — a niche with 3+ real sales outweighs a niche with a perfect trend score but no conversion history.""",
 
 
     "VULCAN": """You are VULCAN, AI design generator and Printify pipeline manager for AsgardMade — codename DESIGNER. You are the forge of the pantheon: creative, precise, relentlessly production-focused.
@@ -195,9 +197,19 @@ QUALITY LOG: After every design batch, output:
   → LOKI: [recommended title seed]""",
 
 
-    "LOKI": """You are LOKI, Etsy listing publisher and SEO architect for AsgardMade — codename PUBLISHER. You are clever, confident, and allergic to mediocrity. You know the Etsy algorithm like a language.
+    "LOKI": """You are LOKI, multi-platform listing publisher and SEO architect for AsgardMade — codename PUBLISHER. You are clever, confident, and allergic to mediocrity. Every design you publish goes to THREE platforms simultaneously: Etsy, Redbubble, and Amazon Merch by Amazon.
 
-MISSION: Publish listings that rank in Etsy search and convert browsers into buyers. Every listing you write is a revenue machine — title, tags, and description working in concert.
+MISSION: Publish listings that rank on all three platforms and convert browsers into buyers. Each platform has different SEO rules — you format titles, tags, and descriptions to work optimally on each. Think platform-native, not one-size-fits-all.
+
+MULTI-PLATFORM SEO DIFFERENCES:
+  Etsy: 140-char title, 13 tags (≤20 chars each), long-tail keyword phrases, niche aesthetics, gifting language
+  Redbubble: 60-char display title, 15 tags (no char limit), focus on visual style keywords ("vector", "minimalist", "illustration"), buyer community terms
+  Amazon Merch: 60-char title (search-indexed), 2 bullet points required (≤256 chars), keyword-dense but natural, brand name in title, NO competitor names; sweet spot price $19.99–$25.99
+
+PLATFORM STATUS (log this for every listing):
+  Etsy: LIVE via API — automated
+  Redbubble: MANUAL UPLOAD — no public API; system generates upload-ready content
+  Amazon Merch: MANUAL UPLOAD — invite-only, no API; system generates upload-ready content
 
 DEFAULT PRICING STRATEGY:
   Base price: $34.99 (t-shirts/prints)
@@ -419,47 +431,3 @@ def get_system_prompt(agent_name: str, context: dict | None = None) -> str:
             f"Net ${net:.2f} | Margin {margin:.1f}% | Goal: ${goal}/month ({pct}% complete) | "
             f"~{sales_needed} more sales needed"
         )
-
-    if "cpu" in context:
-        cpu = context.get("cpu", 0)
-        ram = context.get("ram", 0)
-        cpu_status = "CRITICAL" if cpu > 90 else "WARN" if cpu > 70 else "OK"
-        ram_status = "CRITICAL" if ram > 90 else "WARN" if ram > 75 else "OK"
-        ctx_lines.append(f"System: CPU {cpu}% [{cpu_status}] | RAM {ram}% [{ram_status}]")
-
-    if "pendingDesigns" in context:
-        ctx_lines.append(
-            f"Queue: {context.get('pendingDesigns', 0)} designs pending approval | "
-            f"{context.get('pendingIdeas', 0)} ideas pending approval"
-        )
-
-    if "agentXP" in context:
-        xp_summary = ", ".join(f"{k}:{v}" for k, v in context["agentXP"].items())
-        ctx_lines.append(f"Agent XP: {xp_summary}")
-
-    if "commanderPreferences" in context:
-        ctx_lines.append(f"\nCommander Preferences (never override):\n{context['commanderPreferences']}")
-
-    if "agentMemory" in context:
-        ctx_lines.append(f"\nMemory:\n{context['agentMemory']}")
-
-    if "agentLessons" in context:
-        ctx_lines.append(f"\nLessons learned:\n{context['agentLessons']}")
-
-    if "odinDirective" in context:
-        ctx_lines.append(f"\nCurrent ODIN Directive:\n{context['odinDirective']}")
-
-    if "liveWebSearch" in context:
-        ctx_lines.append(
-            f"\n=== LIVE SEARCH DATA ===\n{context['liveWebSearch']}\n"
-            f"Use this data to give current, specific answers. Cite signals by name."
-        )
-
-    if "agentTaskQueue" in context:
-        ctx_lines.append(f"\nPending tasks assigned to you:\n{context['agentTaskQueue']}")
-
-    if not ctx_lines:
-        return base
-
-    ctx_block = "\n".join(ctx_lines)
-    return f"{base}\n\n=== LIVE CONTEXT ===\n{ctx_block}\n==="

@@ -265,3 +265,51 @@
 - Nothing. All 5 changes are surgical and non-breaking.
 
 **Git push:** PENDING — Windows `.git/index.lock` blocks sandbox git (recurring issue). Run `git add -A && git commit -m "auto-11: demo expense bug fix, VULCAN greet, HEIMDALL niche list, brain JSON debug logging" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-12) UTC
+
+**Areas reviewed:** Backend reliability (server.py — duplicate route, vault pruning, auto-score brain gap), Visual/UX (index.html — transaction sort bug, ODIN persona stale niche count)
+
+**Changes made:**
+
+- `server.py:get_vault_contents` — **CRITICAL BUG FIX**: Renamed route from `@app.get("/api/vault")` → `@app.get("/api/vault/notes")`. FastAPI uses the first matching route — there were two `GET /api/vault` handlers. The first (line 576, returning P&L JSON) shadowed the second (Obsidian notes browser), making the notes endpoint completely unreachable. Now `GET /api/vault` returns the P&L report and `GET /api/vault/notes` returns the Obsidian note tree.
+
+- `server.py:AppState.save_vault` — Added transaction pruning before every save. Keeps all revenue transactions (every sale matters) + the 500 most-recent expense entries. Without pruning, demo mode (multiple pipeline runs per hour) would accumulate thousands of expense entries in `vault.json` indefinitely, slowing every `save_vault()` call. Mirrors the queue pruning added in auto-4.
+
+- `server.py:/api/auto-score` — Added `brain.record_outcome` calls for HEIMDALL (idea auto-approved) and VULCAN (design auto-approved). The auto-score endpoint triggers the full pipeline but was completely invisible to the brain. Previous runs fixed brain feedback for WebSocket, REST approve/reject, and autonomous loops — this closes the last gap in the auto-score path.
+
+- `public/index.html:initFromState` — **BUG FIX**: `recentTransactions` on page load was `(f.transactions||[]).slice(0,15)` — the 15 OLDEST transactions. The WebSocket `vault_report` path (every 5 min) sorts newest-first via `_build_vault_report`. Fixed by adding a sort before the slice: `[...(f.transactions||[])].sort((a,b)=>b.timestamp.localeCompare(a.timestamp)).slice(0,15)`. Now the transaction list is consistent between page load and live updates.
+
+- `public/index.html:ODIN_PERSONA.respond('guide heimdall')` — Updated stale "12 niche seeds" → "24 niche seeds" with accurate auto-approve threshold info (85+ demand, low competition). Expanded example niche list from 4 to 6 entries to reflect the pool expanded in auto-8/auto-11. ODIN was misleading the commander about Heimdall's actual capability.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical and non-breaking.
+
+**Git push:** PENDING — Windows `.git/index.lock` blocks sandbox git (recurring issue). Run `git add -A && git commit -m "auto-12: duplicate vault route fix, vault tx pruning, auto-score brain, tx sort, ODIN niche count" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-13) UTC
+
+**Areas reviewed:** Backend reliability (server.py — niche cycle clock, expense prune drift), Pipeline robustness (pipeline.py — demo mode log), Visual/UX (index.html — stale VULCAN persona)
+
+**Changes made:**
+
+- `server.py:_heimdall_deep_research_loop` — **BUG FIX**: Changed `asyncio.get_event_loop().time()` → `datetime.now().timestamp()` for the DuckDuckGo niche rotation cycle index. `get_event_loop().time()` measures seconds since the event loop started — it resets to 0 on every server restart. This meant the rotation always began at cycle_idx 0 (cottagecore, dark academia, retro gaming, plant parent, mental health, pet portraits) for the first several hours after each deploy. Using wall-clock timestamp ensures the window is consistent across restarts and all 24 niches rotate predictably.
+
+- `crew/pipeline.py:run_design_pipeline` — **BUG FIX**: Moved the "Logged $X expense" log message inside the `if not is_demo_run:` block. Previously, in demo mode the code would log "Demo run — no real expense logged" (correct) immediately followed by "Logged $X expense for '$title'. Net profit: $..." (wrong — vault wasn't updated, netProfit value is stale). The commander saw contradictory messages. Now demo runs only see the accurate demo message.
+
+- `server.py:save_vault` — **FINANCIAL BUG FIX (part 1/2)**: Added `prunedExpenseTotal` accumulator. When transactions exceed 600, the save_vault pruner now tallies the total of dropped expense entries into `self.vault["prunedExpenseTotal"]` before removing them. Previously, dropped expenses were silently lost from accounting: once >600 expense entries existed, the next `recalculate_vault()` call would recompute from the truncated list and understate totalExpenses (making net profit look artificially better).
+
+- `server.py:recalculate_vault` — **FINANCIAL BUG FIX (part 2/2)**: Added `expenses += self.vault.get("prunedExpenseTotal", 0.0)` so the pruned amount is always included in the expense total. Together with the save_vault change, this ensures totalExpenses and netProfit stay accurate indefinitely, regardless of how long the system runs.
+
+- `public/index.html:VULCAN.respond` — Fixed stale "DALL-E prompt" → "gpt-image-1 prompt" in the `design|create|generate` response branch. Auto-10 updated the `model` keyword branch and persona label; this branch was missed.
+
+**Skipped (risky):**
+
+- `public/index.html:HEIMDALL.greet` — "I scan 12 niches every 2 minutes" is mildly inaccurate (rapid loop picks a random single niche, not 12 fixed ones). Deferred — cosmetic and low impact vs. risk of breaking greet flow.
+
+**Git push:** PENDING — run `git add -A && git commit -m "auto-13: niche cycle clock fix, demo log fix, expense prune accounting, VULCAN persona" && git push` manually to deploy.

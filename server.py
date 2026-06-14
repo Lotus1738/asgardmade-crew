@@ -22,6 +22,7 @@ load_dotenv()
 
 import memory.obsidian as mem
 import memory.brain as brain
+import memory.sales_intel as sales_intel
 
 _anthropic_client: anthropic.AsyncAnthropic | None = None
 
@@ -37,6 +38,8 @@ def get_anthropic_client() -> anthropic.AsyncAnthropic:
 from crew.agents import get_system_prompt, ALL_AGENTS, GRID_AGENTS
 from crew.tools import get_system_metrics, scan_logs, generate_niche_idea
 from crew.pipeline import run_idea_pipeline, run_design_pipeline, _build_vault_report
+from integrations import discord as _discord
+from integrations.twilio_sms import send_sms, build_briefing_sms
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -126,6 +129,19 @@ class AppState:
 
     def save_vault(self):
         try:
+            # Prune old transactions to prevent unbounded vault.json growth.
+            # Keep all revenue transactions (every sale matters) + last 500 expenses.
+            # Accumulate dropped expense amounts in prunedExpenseTotal so
+            # recalculate_vault() never understates totalExpenses after a prune.
+            txns = self.vault.get("transactions", [])
+            if len(txns) > 600:
+                revenue = [t for t in txns if t.get("type") == "revenue"]
+                expenses = [t for t in txns if t.get("type") != "revenue"]
+                dropped = expenses[:-500]
+                self.vault["prunedExpenseTotal"] = round(
+                    self.vault.get("prunedExpenseTotal", 0.0) + sum(t.get("amount", 0) for t in dropped), 2
+                )
+                self.vault["transactions"] = revenue + expenses[-500:]
             (DATA_DIR / "vault.json").write_text(json.dumps(self.vault, indent=2, default=str))
         except Exception as e:
             print(f"[STATE] save_vault error: {type(e).__name__}: {e}")
@@ -140,6 +156,9 @@ class AppState:
         txns = self.vault.get("transactions", [])
         revenue = sum(t["amount"] for t in txns if t.get("type") == "revenue")
         expenses = sum(t["amount"] for t in txns if t.get("type") == "expense")
+        # Add any expenses pruned from the transaction list (see save_vault pruning logic).
+        # Without this, totalExpenses drifts downward after the first prune (>600 txns).
+        expenses += self.vault.get("prunedExpenseTotal", 0.0)
         net = revenue - expenses
         self.vault["totalRevenue"] = round(revenue, 2)
         self.vault["totalExpenses"] = round(expenses, 2)
@@ -375,6 +394,15 @@ async def chat(req: ChatRequest):
             directive = brain.get_odin_briefing()
             if directive:
                 ctx["odinDirective"] = directive[:300]
+        except Exception:
+            pass
+
+    # Inject sales traction data for HEIMDALL so it prioritizes proven niches
+    if agent_name == "HEIMDALL":
+        try:
+            si_text = sales_intel.format_top_niches_for_prompt()
+            if si_text:
+                ctx["sales_intel"] = si_text
         except Exception:
             pass
 
@@ -756,9 +784,34 @@ async def auto_score(req: AutoScoreRequest):
 
         # Trigger pipeline
         if req.item_type == "idea":
+            try:
+                brain.record_outcome(
+                    "HEIMDALL",
+                    f"Auto-scored idea: '{item.get('title')}' ({item.get('niche')}, {item.get('productType')})",
+                    f"AUTO-APPROVED via /api/auto-score — Risk:{risk} Confidence:{confidence} — pipeline triggered",
+                    8,
+                )
+            except Exception:
+                pass
             asyncio.create_task(run_idea_pipeline(item, manager, state))
         else:
+            try:
+                brain.record_outcome(
+                    "VULCAN",
+                    f"Auto-scored design for '{item.get('ideaTitle')}' ({item.get('niche')}) — variant {item.get('variantIndex')}",
+                    f"AUTO-APPROVED via /api/auto-score — Risk:{risk} Confidence:{confidence} — uploading to Printify",
+                    8,
+                )
+            except Exception:
+                pass
             asyncio.create_task(run_design_pipeline(item, manager, state))
+
+        # Discord notification for auto-approval
+        try:
+            _item_label = item.get("title") or item.get("ideaTitle", req.item_id)
+            asyncio.create_task(_discord.notify_approval(_item_label, confidence))
+        except Exception:
+            pass
 
     return {
         "ok": True,
@@ -836,12 +889,13 @@ async def get_brain_status():
 
 # ─── Vault / Obsidian export ──────────────────────────────────────────────────
 
-@app.get("/api/vault")
+@app.get("/api/vault/notes")
 async def get_vault_contents():
     """
     Return all vault notes as a browsable JSON structure.
     Since Railway can't write to the local Obsidian vault, this endpoint
     lets the HUD or external tools read what the agents have written.
+    Previously shadowed by the /api/vault P&L endpoint (FastAPI uses first match).
     """
     vault_path = mem.VAULT
     if not vault_path.exists():
@@ -957,8 +1011,33 @@ async def add_transaction(body: dict):
     state.vault["transactions"].append(txn)
     state.recalculate_vault()
     state.save_vault()
+
+    # Record per-niche sales intel so HEIMDALL learns from real conversions
+    if txn["type"] == "revenue":
+        try:
+            sales_intel.record_sale(
+                niche=str(body.get("niche", "general")),
+                product_type=str(body.get("product_type", "unknown")),
+                revenue=txn["amount"],
+                units=int(body.get("units", 1)),
+            )
+        except Exception:
+            pass
+
     vault_report = _build_vault_report(state)
     await manager.broadcast({"type": "vault_report", "data": vault_report})
+
+    # Discord sale notification for revenue transactions
+    if txn["type"] == "revenue":
+        try:
+            await _discord.notify_sale(
+                niche=str(body.get("niche", body.get("source", "unknown"))),
+                product=txn["description"],
+                revenue=txn["amount"],
+            )
+        except Exception:
+            pass
+
     return txn
 
 
@@ -1204,6 +1283,7 @@ async def _heimdall_loop():
 async def _athena_loop():
     from integrations.etsy import get_shop_stats
     scan_id = 0
+    _last_orders = 0  # track order count across scans to detect new sales
     await asyncio.sleep(20)
     while True:
         try:
@@ -1213,6 +1293,39 @@ async def _athena_loop():
             active = stats.get("active_listings", 0)
             orders = stats.get("total_orders", 0)
             today_rev = stats.get("today_revenue", 0.0)
+
+            # Detect new orders since last scan and record per-niche sales intel
+            if orders > _last_orders and not stats.get("demo"):
+                new_order_count = orders - _last_orders
+                # Infer niche from the most recently approved idea in the queue
+                _niche_guess = "general"
+                _pt_guess = "unknown"
+                try:
+                    recent_approved = [
+                        i for i in state.queue.get("ideas", [])
+                        if i.get("status") == "approved" and i.get("niche")
+                    ]
+                    if recent_approved:
+                        _latest = sorted(
+                            recent_approved,
+                            key=lambda x: x.get("createdAt", ""),
+                            reverse=True,
+                        )[0]
+                        _niche_guess = _latest.get("niche", "general")
+                        _pt_guess = _latest.get("productType", "unknown")
+                except Exception:
+                    pass
+                revenue_per_order = (today_rev / new_order_count) if new_order_count > 0 else 34.99
+                try:
+                    sales_intel.record_sale(
+                        niche=_niche_guess,
+                        product_type=_pt_guess,
+                        revenue=round(revenue_per_order * new_order_count, 2),
+                        units=new_order_count,
+                    )
+                except Exception:
+                    pass
+            _last_orders = orders
 
             msg = f"Shop pulse: {active} active listings, {orders} total orders, ${today_rev:.2f} today."
             if not stats.get("demo"):
@@ -1288,6 +1401,33 @@ async def _odin_morning_briefing_loop():
                 brain.write_odin_briefing(briefing)
             except Exception:
                 pass
+
+            # Discord morning briefing notification
+            try:
+                await _discord.notify_briefing(briefing)
+            except Exception:
+                pass
+
+            # Twilio SMS — condensed daily briefing to phone
+            try:
+                from datetime import date as _date, timedelta as _td
+                _yesterday = (_date.today() - _td(days=1)).isoformat()
+                _txns = state.vault.get("transactions", [])
+                _sales_yesterday = sum(
+                    1 for t in _txns
+                    if t.get("type") == "revenue" and t.get("timestamp", "")[:10] == _yesterday
+                )
+                _approved_ideas = [i for i in state.queue["ideas"] if i.get("status") == "approved"]
+                _top_niche = _approved_ideas[-1].get("niche", "—") if _approved_ideas else "—"
+                _sms_text = build_briefing_sms(
+                    sales_yesterday=_sales_yesterday,
+                    revenue=rev,
+                    pending_approvals=pending_i + pending_d,
+                    top_niche=_top_niche,
+                )
+                await send_sms(_sms_text)
+            except Exception as _sms_err:
+                print(f"[SMS BRIEFING] {type(_sms_err).__name__}: {_sms_err}")
 
             await manager.broadcast({
                 "type": "odin_strategy",
@@ -1392,6 +1532,71 @@ Return ONLY a JSON object: {{"improvements": ["instruction 1", "instruction 2"],
         await asyncio.sleep(86400)  # 24 hours
 
 
+async def _bestseller_requeue_loop():
+    """
+    Every 6 hours: find niches with 3+ units sold (bestsellers).
+    For each, if fewer than 2 pending/approved ideas exist in that niche,
+    auto-queue a new idea tagged 'AUTO: bestseller niche requeue'.
+    """
+    await asyncio.sleep(90)  # Let startup settle before first run
+    while True:
+        try:
+            bestsellers = sales_intel.get_bestsellers(min_units=3)
+            requeued = []
+            for entry in bestsellers:
+                niche = entry.get("niche", "")
+                if not niche:
+                    continue
+                # Count pending/approved ideas already in this niche
+                niche_items = [
+                    i for i in state.queue.get("ideas", [])
+                    if i.get("niche", "").lower() == niche.lower()
+                    and i.get("status") in ("pending", "approved")
+                ]
+                if len(niche_items) < 2:
+                    new_idea = generate_niche_idea(niche)
+                    new_idea["source"] = "AUTO: bestseller niche requeue"
+                    new_idea["note"] = (
+                        f"Auto-requeued: '{niche}' has {entry.get('total_units', 0)} units sold "
+                        f"(${entry.get('total_revenue', 0):.2f} revenue)"
+                    )
+                    state.queue["ideas"].append(new_idea)
+                    requeued.append(new_idea)
+
+            if requeued:
+                state.save_queue()
+                for idea in requeued:
+                    await manager.broadcast({
+                        "type": "approval_queue",
+                        "agent": "HEIMDALL",
+                        "data": {"category": "ideas", "items": [idea]},
+                    })
+                niche_names = ", ".join(i["niche"] for i in requeued)
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "HEIMDALL",
+                    "message": (
+                        f"Bestseller requeue: {len(requeued)} idea(s) auto-queued for "
+                        f"proven niches — {niche_names}."
+                    ),
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+                try:
+                    brain.record_outcome(
+                        "HEIMDALL",
+                        f"Bestseller requeue: {len(requeued)} niche(s) refilled",
+                        f"Auto-queued ideas for: {niche_names}",
+                        8,
+                    )
+                except Exception:
+                    pass
+
+        except Exception as e:
+            print(f"[BESTSELLER REQUEUE] error: {type(e).__name__}: {e}")
+        await asyncio.sleep(21600)  # 6 hours
+
+
 async def _vault_loop():
     await asyncio.sleep(25)
     while True:
@@ -1451,6 +1656,13 @@ async def _heimdall_deep_research_loop():
             except Exception:
                 pass
 
+            # Read proven sales traction so Claude weights ideas toward what converts
+            sales_intel_text = ""
+            try:
+                sales_intel_text = sales_intel.format_top_niches_for_prompt()
+            except Exception:
+                pass
+
             # Use Serper (Google) if API key configured, otherwise DuckDuckGo (free)
             lines = []
             if _serper_key:
@@ -1473,9 +1685,11 @@ async def _heimdall_deep_research_loop():
                     "true crime fan", "book lover", "cat mom mug", "funny sarcasm",
                     "birthday gift women", "baby shower gift", "wedding gift",
                 ]
-                # Rotate through a window of 6 per cycle so every niche gets coverage over time
+                # Rotate through a window of 6 per cycle so every niche gets coverage over time.
+                # Use wall-clock timestamp (not event-loop time) so the window is consistent
+                # across server restarts — asyncio.get_event_loop().time() resets to 0 on boot.
                 import math
-                cycle_idx = int(asyncio.get_event_loop().time() / 3600) % math.ceil(len(niches) / 6)
+                cycle_idx = int(datetime.now().timestamp() / 3600) % math.ceil(len(niches) / 6)
                 niches = niches[cycle_idx * 6 : cycle_idx * 6 + 6]
                 for niche in niches:
                     ddg_results = await search_etsy_trends(niche)
@@ -1496,6 +1710,9 @@ async def _heimdall_deep_research_loop():
 
 Previously researched context (avoid exact duplicates of these concepts):
 {past_context[:800] if past_context else "No prior research — first cycle."}
+
+AsgardMade proven sales traction (prioritize variants and adjacent ideas for these niches):
+{sales_intel_text if sales_intel_text else "No sales data yet — focus on trend signals."}
 
 Extract 5-8 distinct, specific product ideas that have real commercial signal in these results.
 For each idea return these exact fields:
@@ -1728,6 +1945,7 @@ async def _brain_synthesis_loop():
                         data = json.loads(raw)
                     except json.JSONDecodeError as json_err:
                         print(f"[BRAIN] synthesis JSON error for {agent_name}: {json_err} — raw[:120]: {raw[:120]!r}")
+
                         continue
                     lessons = data.get("lessons", [])
                     summary = data.get("summary", "")
@@ -1820,7 +2038,7 @@ async def _odin_autonomous_action_loop():
 
             actions_taken = []
 
-            # Auto-approve ideas that have been waiting >30 min and score ≥ 70
+            # Auto-approve ideas that have been waiting >30 min and score >= 70
             for idea in pending_ideas:
                 queued_at = idea.get("createdAt", "")
                 if queued_at:
@@ -1900,7 +2118,7 @@ async def _odin_autonomous_action_loop():
 
         except Exception as e:
             print(f"[ODIN AUTONOMOUS] error: {type(e).__name__}: {e}")
-        await asyncio.sleep(600)  # every 10 minutes — tighter loop means auto-approvals fire closer to the 30/60-min thresholds
+        await asyncio.sleep(600)  # every 10 minutes
 
 
 # ─── Static file catch-all (must be LAST route so API routes match first) ────
@@ -1919,7 +2137,6 @@ async def serve_static(path: str):
 @app.on_event("startup")
 async def startup():
     brain.initialize()  # ensure brain directory exists immediately
-    # Ensure obsidian vault directory exists so agents can write notes immediately
     try:
         from pathlib import Path as _P
         from datetime import datetime as _dt
@@ -1941,6 +2158,7 @@ async def startup():
     asyncio.create_task(_odin_agent_improvement_loop())  # daily agent improvement
     asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval check every 10 min
     asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 1h
+    asyncio.create_task(_bestseller_requeue_loop())  # bestseller requeue every 1h
 
-    log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"
-    log_file.write_text(f"[{datetime.now().isoformat()}] AsgardMade Pantheon started\n")
+    log_file = Path("logs") / f"pantheon_{{datetime.now().strftime('%Y%m%d')}}.log"
+    log_file.write_text(f"[{{datetime.now().isoformat()}}] AsgardMade Pantheon started\n")
