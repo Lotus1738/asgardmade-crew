@@ -2724,4 +2724,604 @@ function renderIdeas(ideas){
       <div class="approval-meta">${esc((idea.description||'').slice(0,100))}${(idea.description||'').length>100?'...':''}</div>
       <div class="idea-tags">${(idea.keywords||[]).slice(0,6).map(k=>`<span class="tag">${esc(k)}</span>`).join('')}</div>
       <div class="approval-actions" style="margin-top:8px">
-        <button class="btn-approve" 
+        <button class="btn-approve" onclick="approveIdea('${idea.id}')">✓ APPROVE</button>
+        <button class="btn-reject"  onclick="rejectItem('idea','${idea.id}')">✗ REJECT</button>
+      </div>`;
+    tab.appendChild(c);
+    addSwipeToCard(c,
+      ()=>{ approveIdea(idea.id); },
+      ()=>{ rejectItem('idea',idea.id); }
+    );
+  });
+  updateMissionStrip();
+}
+
+function approveDesign(id){ ws&&ws.send(JSON.stringify({type:'approve_design',id})); rmCard('design',id); addLog('COMMANDER','Design approved → uploading to Printify','info'); }
+function approveIdea(id){ ws&&ws.send(JSON.stringify({type:'approve_idea',id})); rmCard('idea',id); addLog('COMMANDER','Idea approved → Vulcan generating designs','info'); }
+function rejectItem(type,id){ ws&&ws.send(JSON.stringify({type:`reject_${type}`,id})); rmCard(type,id); }
+function rmCard(type,id){
+  const el=document.getElementById(`${type}-${id}`);
+  if(el){ el.style.opacity='0'; el.style.transform='scale(.9)'; el.style.transition='.28s'; setTimeout(()=>el.remove(),300); }
+}
+
+function approveAllIdeas(){
+  const pend=(state.approvals?.ideas||[]).filter(i=>i.status==='pending');
+  if(!pend.length){ addLog('COMMANDER','No pending ideas to approve','info'); return; }
+  pend.forEach(i=>{ ws&&ws.send(JSON.stringify({type:'approve_idea',id:i.id})); i.status='approved'; });
+  renderIdeas(state.approvals.ideas);
+  addLog('COMMANDER',`${pend.length} idea(s) bulk-approved → Vulcan generating designs`,'info');
+  updateMissionStrip();
+}
+
+function approveAllDesigns(){
+  const pend=(state.approvals?.designs||[]).filter(d=>d.status==='pending');
+  if(!pend.length){ addLog('COMMANDER','No pending designs to approve','info'); return; }
+  pend.forEach(d=>{ ws&&ws.send(JSON.stringify({type:'approve_design',id:d.id})); d.status='approved'; });
+  renderDesigns(state.approvals.designs);
+  addLog('COMMANDER',`${pend.length} design(s) bulk-approved → uploading to Printify`,'info');
+  updateMissionStrip();
+}
+
+/* ── Push Action Alerts ── */
+function pushActionAlert({icon='⚡',title='ALERT',msg,primaryLabel,primaryFn,secondaryLabel,secondaryFn,severity='info',timeout=10000}){
+  const c=document.getElementById('alert-container');
+  const el=document.createElement('div'); el.className=`push-alert ${severity}`;
+  el.innerHTML=`<div class="pa-header">
+    <span class="pa-icon">${icon}</span>
+    <span class="pa-title">${esc(title)}</span>
+    <button class="pa-close" onclick="this.closest('.push-alert').remove()">✕</button>
+  </div>
+  <div class="pa-msg">${esc(msg)}</div>
+  ${(primaryLabel||secondaryLabel)?`<div class="pa-actions">
+    ${primaryLabel?`<button class="pa-btn primary" id="_pp">${esc(primaryLabel)}</button>`:''}
+    ${secondaryLabel?`<button class="pa-btn approve" id="_ps">${esc(secondaryLabel)}</button>`:''}
+  </div>`:''}`;
+  c.insertBefore(el,c.firstChild);
+  if(primaryFn) el.querySelector('#_pp')?.addEventListener('click',()=>{ primaryFn(); el.remove(); });
+  if(secondaryFn) el.querySelector('#_ps')?.addEventListener('click',()=>{ secondaryFn(); el.remove(); });
+  if(timeout>0) setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateX(24px)'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); },timeout);
+}
+
+/* ── Mission Strip ── */
+function initMissionAgentDots(){
+  const wrap=document.getElementById('ms-agent-lights'); if(!wrap) return;
+  wrap.innerHTML=GRID_AGENTS.map(n=>{
+    const m=AGENT_META[n];
+    return `<div class="ms-adot" onclick="openChat('${n}')" title="Open ${m.display||n}">
+      <div class="ms-adot-ring idle" id="ms-dot-${n}"></div>
+      <div class="ms-adot-label">${m.icon} ${(m.display||n).slice(0,4)}</div>
+    </div>`;
+  }).join('');
+}
+
+function updateMissionStrip(){
+  // Sales + revenue
+  const f=state.vault||state.finance||{};
+  const rev=parseFloat(f.totalRevenue||0);
+  // Estimate sales from revenue ÷ listing price; fall back to approved-design count before any sales
+  const sales=rev>0?Math.round(rev/34.99):(state.approvals?.designs||[]).filter(d=>d.status==='approved').length||0;
+  const goalPct=Math.min(100,(rev/200)*100).toFixed(1);
+  const el_sales=document.getElementById('ms-sales-num');
+  const el_bar=document.getElementById('ms-goal-bar');
+  const el_rev=document.getElementById('ms-revenue');
+  if(el_sales) el_sales.textContent=sales;
+  if(el_bar) el_bar.style.width=goalPct+'%';
+  if(el_rev) el_rev.textContent=rev.toFixed(2);
+  // Update idea/design badges in strip
+  const pendI=(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length;
+  const pendD=(state.approvals?.designs||[]).filter(d=>d.status==='pending').length;
+  const ib=document.getElementById('ms-ideas-badge'); if(ib) ib.textContent=pendI;
+  const db=document.getElementById('ms-designs-badge'); if(db) db.textContent=pendD;
+}
+
+function updateMissionAgentDot(name,status){
+  const dot=document.getElementById(`ms-dot-${name}`); if(!dot) return;
+  dot.className='ms-adot-ring '+(status||'idle');
+}
+
+/* ── Swipe-to-approve for idea cards ── */
+function addSwipeToCard(el,onApprove,onReject){
+  // Insert overlays
+  el.insertAdjacentHTML('afterbegin',`<div class="swipe-overlay ov-approve">✓ APPROVE</div><div class="swipe-overlay ov-reject">✗ REJECT</div>`);
+  el.insertAdjacentHTML('beforeend',`<div class="swipe-hint-bar">← REJECT &nbsp;|&nbsp; APPROVE →</div>`);
+
+  let startX=0,dx=0,dragging=false,isTouch=false;
+  const THRESHOLD=70;
+
+  function onStart(e){
+    if(e.target.closest('button')) return;
+    startX=e.touches?e.touches[0].clientX:e.clientX;
+    dx=0; dragging=true; isTouch=!!e.touches;
+    el.classList.add('swiping');
+  }
+  function onMove(e){
+    if(!dragging) return;
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    dx=cx-startX;
+    const dy=cy-(e.touches?e.touches[0].clientY:e.clientY);
+    el.style.transform=`translateX(${dx}px) rotate(${dx*0.025}deg)`;
+    el.classList.toggle('swipe-right',dx>THRESHOLD*0.5);
+    el.classList.toggle('swipe-left',dx<-THRESHOLD*0.5);
+    if(isTouch&&Math.abs(dx)>8&&e.cancelable) e.preventDefault();
+  }
+  function onEnd(){
+    if(!dragging) return;
+    dragging=false; el.classList.remove('swiping');
+    if(dx>THRESHOLD){ onApprove(); }
+    else if(dx<-THRESHOLD){ onReject(); }
+    else{
+      el.style.transition='transform .25s cubic-bezier(.22,.61,.36,1)';
+      el.style.transform=''; el.classList.remove('swipe-right','swipe-left');
+      setTimeout(()=>el.style.transition='',280);
+    }
+  }
+  el.addEventListener('touchstart',onStart,{passive:true});
+  el.addEventListener('touchmove',onMove,{passive:false});
+  el.addEventListener('touchend',onEnd);
+  el.addEventListener('mousedown',onStart);
+  window.addEventListener('mousemove',onMove);
+  window.addEventListener('mouseup',onEnd);
+}
+
+function updateArgusBar(metrics){
+  const {cpu=0,ram=0,disk=0,network={}}=metrics;
+  function sm(fi,vi,val){
+    const f=document.getElementById(fi),v=document.getElementById(vi); if(!f||!v) return;
+    f.style.width=val+'%'; f.className='m-fill'+(val>=90?' crit':val>=70?' warn':''); v.textContent=val+'%';
+  }
+  sm('cpu-fill','cpu-val',cpu); sm('ram-fill','ram-val',ram); sm('disk-fill','disk-val',disk);
+  document.getElementById('net-rx').textContent=(network.rx||0)+'KB/s';
+  setAgentChips('GUARDIAN',[{label:'CPU',val:cpu+'%'},{label:'RAM',val:ram+'%'},{label:'DISK',val:disk+'%'},{label:'NET↓',val:(network.rx||0)+'KB/s'}]);
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['vault','designs','ideas'][i]===name));
+  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',['vault-tab','designs-tab','ideas-tab'][i]===`${name}-tab`));
+}
+
+function initFromState(s,strategy){
+  if(!s) return;
+  if(s.agentStats&&s.agentStats.agents) Object.entries(s.agentStats.agents).forEach(([n,d])=>{ state.agents[n]=d; updateAgentCard(n,d); });
+  if(s.approvals){ state.approvals=s.approvals; renderDesigns(s.approvals.designs||[]); renderIdeas(s.approvals.ideas||[]); }
+  if(s.finance){
+    const f=s.finance;
+    updateVault({
+      totalRevenue:(f.totalRevenue||0).toFixed(2),totalExpenses:(f.totalExpenses||0).toFixed(2),
+      netProfit:(f.netProfit||0).toFixed(2),
+      profitMargin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100).toFixed(1)+'%':'0%',
+      totalTransactions:(f.transactions||[]).length,
+      daysRunning:Math.max(1,Math.floor((Date.now()-new Date(f.startDate||Date.now()).getTime())/86400000)+1),
+      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),recentTransactions:(f.transactions||[]).slice(0,15)
+    });
+  }
+  if(s.metrics) updateArgusBar(s.metrics);
+  if(strategy) document.getElementById('odin-text').textContent=strategy;
+  updateMissionStrip();
+  addLog('NEXUS','State synchronized — Pantheon online','info');
+}
+
+/* ═══════════════════════════════════════════════
+   ODIN INLINE CHAT
+═══════════════════════════════════════════════ */
+function odinGreet(){
+  const greet=`All systems initializing, Commander. I am ODIN — master orchestrator of the Pantheon. I synthesize intelligence from all 9 agents and translate it into strategy. Ask me anything: system health, revenue outlook, what to do next, or how to push growth. I am your strategic second brain.`;
+  odinAppendAgent(greet);
+}
+
+const ODIN_PERSONA = {
+  respond(msg){
+    const m=msg.toLowerCase(), f=state.vault||{}, mt=state.metrics||{}, agents=state.agents||{};
+    const rev=parseFloat(f.totalRevenue||0), exp=parseFloat(f.totalExpenses||0), profit=rev-exp;
+    const pendD=(state.approvals?.designs||[]).filter(d=>d.status==='pending').length;
+    const pendI=(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length;
+    const agentList=GRID_AGENTS.map(n=>({name:n,xp:agents[n]?.xp||0,level:agents[n]?.level||1,status:agents[n]?.status||'idle'}));
+    const topAgent=agentList.sort((a,b)=>b.xp-a.xp)[0];
+    const weakAgent=agentList.sort((a,b)=>a.xp-b.xp)[0];
+    const errAgents=agentList.filter(a=>a.status==='error').map(a=>a.name);
+
+    if(/daily briefing|briefing|morning|today/.test(m)){
+      const recs=['Review the '+pendI+' pending idea'+(pendI!==1?'s':''),'Check agent logs for errors','Consider raising listing price by $2 if margin is below 40%'];
+      return {text:`DAILY BRIEFING — ${new Date().toLocaleDateString('en',{weekday:'long',month:'short',day:'numeric'})}.\n\nFinancials: Revenue $${rev.toFixed(2)}, Expenses $${exp.toFixed(2)}, Net $${profit.toFixed(2)}.\n\nSystem: CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%${errAgents.length?' ⚠ ERROR in '+errAgents.join(', '):''}.\n\nQueues: ${pendD} design(s) and ${pendI} idea(s) pending approval.\n\nTop performer: ${topAgent?.name} at ${topAgent?.xp} XP. Today's recommended actions:`,recs};
+    }
+    if(/system audit|audit|health/.test(m)){
+      const cpu=mt.cpu||0, ram=mt.ram||0, disk=mt.disk||0;
+      const issues=[];
+      if(cpu>70) issues.push('CPU elevated at '+cpu+'%');
+      if(ram>75) issues.push('RAM pressure at '+ram+'%');
+      if(disk>80) issues.push('Disk usage at '+disk+'%');
+      if(errAgents.length) issues.push('Agent errors: '+errAgents.join(', '));
+      const recs=issues.length?['Run Hephaestus manual patch cycle','Check agent logs for root cause']:['System running cleanly — no action required'];
+      return {text:`SYSTEM AUDIT COMPLETE.\n\nInfrastructure: CPU ${cpu}%, RAM ${ram}%, Disk ${disk}%, Net ${mt.network?.rx||0}KB/s.\n\n${issues.length?'⚠ Issues found:\n'+issues.map(i=>'• '+i).join('\n'):'✓ All thresholds nominal.'}\n\nAgent statuses: ${agentList.map(a=>a.name+'('+a.status+')').join(', ')}.\n\nRecommended:`,recs};
+    }
+    if(/revenue forecast|forecast|project/.test(m)){
+      const daily=rev/Math.max(1,state.vault?.daysRunning||1);
+      const monthly=(daily*30).toFixed(2), annual=(daily*365).toFixed(2);
+      const recs=['Approve '+pendI+' pending idea(s) to increase listing count','Each new Etsy listing adds ~$0.80 average daily revenue','Raise prices on top-performing listings by $2-3'];
+      return {text:`REVENUE FORECAST.\n\nCurrent: $${rev.toFixed(2)} total, ~$${daily.toFixed(2)}/day run rate.\n\nProjections at current pace:\n• 30-day: $${monthly}\n• 90-day: $${(daily*90).toFixed(2)}\n• Annual: $${annual}\n\nProfit margin: ${rev>0?((profit/rev)*100).toFixed(1):0}%.\n\nGrowth levers:`,recs};
+    }
+    if(/weak point|weakness|problem|gap|improve/.test(m)){
+      const recs=[];
+      if(pendI>0) recs.push('Approve '+pendI+' idea(s) — Vulcan is waiting to generate designs');
+      if(pendD>0) recs.push('Approve '+pendD+' design(s) — Loki is waiting to publish listings');
+      if(profit<0) recs.push('Expenses exceed revenue — review Printify costs or raise prices');
+      if((mt.cpu||0)>60) recs.push('CPU above 60% — consider reducing agent cycle frequency');
+      if(recs.length===0) recs.push('No critical weak points detected. Focus on throughput.');
+      return {text:`WEAK POINT ANALYSIS.\n\n${weakAgent?'Lowest XP agent: '+weakAgent.name+' ('+weakAgent.xp+' XP) — may need attention.':''}\n\nIdentified gaps:`,recs};
+    }
+    if(/agent review|agent performance|who is/.test(m)){
+      const rows=agentList.sort((a,b)=>b.xp-a.xp).map((a,i)=>`${i+1}. ${a.name} — ${a.xp} XP, Lvl ${a.level}, ${a.status}`).join('\n');
+      return {text:`AGENT PERFORMANCE REVIEW.\n\n${rows}\n\nTop performer: ${topAgent?.name}.\nLowest activity: ${weakAgent?.name}.\n\nRecommendations:`,recs:['Click any agent room to interface directly','Approve pending queues to give Vulcan and Loki work']};
+    }
+    if(/best move|what should|next step|action/.test(m)){
+      let move='', recs=[];
+      if(pendD>0){ move=`You have ${pendD} design(s) ready to review. Approving them launches the Loki publishing pipeline immediately — this is your highest-leverage action right now.`; recs=['Switch to DESIGN QUEUE tab and approve','Each approved design = one new Etsy listing within minutes']; }
+      else if(pendI>0){ move=`You have ${pendI} idea(s) from Heimdall pending. Approving them triggers Vulcan to generate DALL-E designs.`; recs=['Switch to IDEA QUEUE tab and approve','High demand-score ideas should be prioritized first']; }
+      else { move='No pending approvals. The system is autonomous and running. Focus on growth: add more product niches, raise prices on top listings, or wait for Heimdall\'s next research cycle.'; recs=['Ask Heimdall to focus on a specific niche','Review top Etsy listings in Athena\'s report']; }
+      return {text:`BEST MOVE NOW.\n\n${move}`,recs};
+    }
+    if(/guide heimdall|heimdall|niche|research/.test(m)){
+      const recs=['Dark academia — high demand, low saturation','Mental health — consistently trending','Retro gaming — loyal buyer base','Custom pet portraits — highest conversion rates in POD'];
+      return {text:`HEIMDALL GUIDANCE.\n\nHeimdall currently cycles through 12 niche seeds. To direct his attention, approve high-demand ideas quickly — this signals the pipeline to prioritize those niches in future cycles.\n\nNiches with strongest current demand signals:`,recs};
+    }
+    if(/improve agents|upgrade|optimize/.test(m)){
+      const recs=['Set ANTHROPIC_API_KEY to enable Claude-powered ODIN strategies and Heimdall ideas','Set OPENAI_API_KEY to enable real DALL-E design generation','Set ETSY_* vars to connect live Etsy shop data','Add PRINTIFY_* vars to publish directly to your store'];
+      return {text:`AGENT IMPROVEMENT RECOMMENDATIONS.\n\nCurrent mode: ${process?.env?.ANTHROPIC_API_KEY?'AI-powered':'Demo/template mode'}.\n\nTo unlock full AI capability:`,recs};
+    }
+    // Generic strategic response
+    const responses=[
+      {text:`I see ${pendD} design(s) and ${pendI} idea(s) awaiting your command. Revenue stands at $${rev.toFixed(2)} with a ${rev>0?((profit/rev)*100).toFixed(1):0}% margin. System health is ${(mt.cpu||0)<70?'nominal':'elevated'}. What strategic dimension do you want to explore?`,recs:['DAILY BRIEFING','BEST MOVE NOW','REVENUE FORECAST']},
+      {text:`The Pantheon runs ${GRID_AGENTS.length} specialist agents in continuous cycles. At current XP rates, ${topAgent?.name} leads the network. Your most impactful lever right now is the approval queue — ${pendD+pendI} item(s) are waiting on your command.`,recs:['APPROVE DESIGNS','APPROVE IDEAS','AGENT REVIEW']}
+    ];
+    return responses[Math.floor(Math.random()*responses.length)];
+  }
+};
+
+function odinAppendAgent(text, recs){
+  const h=document.getElementById('odin-chat-history');
+  const d=document.createElement('div'); d.className='ocmsg agent';
+  let html=`<div class="ocmsg-icon">🔱</div><div class="ocbubble"><span id="_otb"></span>`;
+  if(recs&&recs.length) html+=`<div style="margin-top:6px">${recs.map(r=>`<span class="rec-chip" onclick="injectOdinRec('${r.replace(/'/g,"\\'")}')">${esc(r)}</span>`).join('')}</div>`;
+  html+=`</div>`;
+  d.innerHTML=html; h.appendChild(d); h.scrollTop=h.scrollHeight;
+  const bub=d.querySelector('#_otb'); bub.removeAttribute('id');
+  let i=0;
+  const iv=setInterval(()=>{ bub.textContent=text.slice(0,i++); h.scrollTop=h.scrollHeight; if(i>text.length) clearInterval(iv); },12);
+}
+
+function odinAppendUser(txt){
+  const h=document.getElementById('odin-chat-history');
+  const d=document.createElement('div'); d.className='ocmsg user';
+  d.innerHTML=`<div class="ocbubble">${esc(txt)}</div><div class="ocmsg-icon">👤</div>`;
+  h.appendChild(d); h.scrollTop=h.scrollHeight;
+}
+
+function odinShowTyping(){
+  const h=document.getElementById('odin-chat-history');
+  const d=document.createElement('div'); d.className='ocmsg agent'; d.id='_otyp';
+  d.innerHTML=`<div class="ocmsg-icon">🔱</div><div class="ocbubble"><div class="ctyping2"><span></span><span></span><span></span></div></div>`;
+  h.appendChild(d); h.scrollTop=h.scrollHeight;
+}
+function odinRemoveTyping(){ const e=document.getElementById('_otyp'); if(e) e.remove(); }
+
+const odinChatHistory=[];
+
+async function sendOdinChat(){
+  const inp=document.getElementById('odin-input');
+  const txt=inp.value.trim(); if(!txt) return;
+  inp.value=''; odinAppendUser(txt); odinShowTyping();
+  const f=state.vault||{}, mt=state.metrics||{}, agents=state.agents||{};
+  const ctx={
+    netProfit:f.netProfit||0, totalRevenue:f.totalRevenue||0,
+    totalExpenses:f.totalExpenses||0,
+    margin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100):0,
+    pendingDesigns:(state.approvals?.designs||[]).filter(d=>d.status==='pending').length,
+    pendingIdeas:(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length,
+    cpu:mt.cpu||0, ram:mt.ram||0,
+    agentXP:Object.fromEntries(GRID_AGENTS.map(n=>[n,agents[n]?.xp||0]))
+  };
+  try {
+    const resp=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({agent:'ODIN',message:txt,history:odinChatHistory,ctx})});
+    odinRemoveTyping();
+    if(resp.status===503){
+      odinAppendAgent('⚠ ANTHROPIC_API_KEY not configured on server. Set it in your Railway environment variables.');
+    } else if(!resp.ok){
+      const data=await resp.json().catch(()=>({}));
+      odinAppendAgent(`⚠ API error ${resp.status}: ${data.error||'unknown — check Railway logs'}`);
+    } else {
+      const data=await resp.json();
+      if(data.reply){
+        odinChatHistory.push({role:'user',content:txt});
+        odinChatHistory.push({role:'assistant',content:data.reply});
+        odinAppendAgent(data.reply);
+      } else {
+        odinAppendAgent('⚠ No reply in API response — check Railway logs');
+      }
+    }
+  } catch(e){
+    odinRemoveTyping();
+    odinAppendAgent(`⚠ Network error reaching /api/chat: ${e.message}`);
+  }
+  addLog('ODIN','[STRATEGY] '+txt.slice(0,60),'info');
+}
+
+function odinQuickAction(action){
+  // Route through the visible chat overlay
+  openChat('ODIN');
+  setTimeout(()=>{
+    const inp=document.getElementById('chat-input');
+    if(inp){ inp.value=action; sendChat(); }
+  }, 350);
+}
+
+function injectOdinRec(text){
+  openChat('ODIN');
+  setTimeout(()=>{
+    const inp=document.getElementById('chat-input');
+    if(inp){ inp.value=text; inp.focus(); }
+  }, 350);
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!document.getElementById('chat-overlay').classList.contains('open')){
+    const oi=document.getElementById('odin-input');
+    if(document.activeElement===oi) sendOdinChat();
+  }
+});
+
+/* ── Oversight panel ── */
+function renderOversight(){
+  const list=document.getElementById('oversight-list'); if(!list) return;
+  list.innerHTML='';
+  GRID_AGENTS.forEach(name=>{
+    const m=AGENT_META[name], ag=state.agents[name]||{};
+    const xp=ag.xp||0, lvl=ag.level||1, sk=ag.status||'idle';
+    const pct=((xp%500)/500*100).toFixed(1);
+    const d=document.createElement('div'); d.className='ov-row';
+    d.onclick=()=>openChat(name);
+    const dotCol={active:'#00ff88',working:'#ffcc00',alert:'#ff8800',error:'#ff3355',idle:'#334466'}[sk]||'#334466';
+    d.innerHTML=`<span class="ov-icon">${m.icon}</span>
+      <span class="ov-name">${m.display||name}</span>
+      <div class="ov-right">
+        <div class="ov-status" style="color:${dotCol}">● ${sk.toUpperCase()}</div>
+        <div class="ov-bar-track"><div class="ov-bar-fill" style="width:${pct}%;background:linear-gradient(90deg,${m.color}88,${m.color})"></div></div>
+      </div>
+      <span class="ov-lvl">L${lvl}</span>`;
+    list.appendChild(d);
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   WEBSOCKET
+═══════════════════════════════════════════════ */
+let ws, rcTimer;
+function connect(){
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(`${proto}//${location.host}`);
+  ws.onopen=()=>{
+    clearTimeout(rcTimer);
+    document.getElementById('conn-status').textContent='ONLINE';
+    document.getElementById('conn-status').className='';
+    document.getElementById('dot-ws').className='dot';
+    document.getElementById('dot-agents').className='dot';
+    addLog('NEXUS','WebSocket connection established','info');
+  };
+  ws.onclose=()=>{
+    document.getElementById('conn-status').textContent='OFFLINE';
+    document.getElementById('conn-status').className='disconnected';
+    document.getElementById('dot-ws').className='dot off';
+    addLog('NEXUS','Connection lost — reconnecting in 3s...','error');
+    rcTimer=setTimeout(connect,3000);
+  };
+  ws.onerror=()=>addLog('NEXUS','WebSocket error','error');
+  ws.onmessage=e=>{ try{ handleMsg(JSON.parse(e.data)); }catch(x){ console.error(x); } };
+}
+
+function handleMsg(msg){
+  const {type,agent,data}=msg;
+  switch(type){
+    case 'init': initFromState(msg.data,msg.strategy); break;
+    case 'agent_log': addLog(msg.agent||'SYS',msg.message,msg.level,msg.timestamp); break;
+    case 'agent_status':
+      if(data){ if(!state.agents[agent]) state.agents[agent]={}; Object.assign(state.agents[agent],data); updateAgentCard(agent,data);
+        if(window.PixelBuilding) PixelBuilding.setAgentStatus(agent, data.status||'idle', data.lastAction||'');
+      } break;
+    case 'xp_gain':
+      showXpToast(agent,msg.amount,msg.action||'task');
+      if(state.agents[agent]){ state.agents[agent].xp=msg.total; state.agents[agent].level=msg.level; updateAgentCard(agent,state.agents[agent]); } break;
+    case 'system_metrics': if(data&&data.metrics){ updateArgusBar(data.metrics); state.metrics=data.metrics; } break;
+    case 'alert': if(data) showAlert(data.message||JSON.stringify(data),data.severity); break;
+    case 'approval_queue':
+      if(data){
+        const {category,item,items}=data;
+        const ni=items?items:(item?[item]:[]);
+        if(category==='designs'){
+          const existDesignIds=new Set(state.approvals.designs.map(d=>d.id));
+          const newDesigns=ni.filter(d=>!existDesignIds.has(d.id));
+          state.approvals.designs=[...newDesigns,...state.approvals.designs]; renderDesigns(state.approvals.designs);
+          pushActionAlert({icon:'⚒',title:'VULCAN — DESIGNS READY',
+            msg:`${ni.length} design${ni.length>1?'s':''} generated and awaiting your approval. Approve to push to Printify and launch Etsy listings.`,
+            primaryLabel:'◈ REVIEW DESIGNS',primaryFn:()=>switchTab('designs'),
+            secondaryLabel:`✓ APPROVE ALL (${ni.length})`,secondaryFn:approveAllDesigns,
+            severity:'info',timeout:15000});
+        } else if(category==='ideas'){
+          const existIdeaIds=new Set(state.approvals.ideas.map(i=>i.id));
+          const newIdeas=ni.filter(i=>!existIdeaIds.has(i.id));
+          state.approvals.ideas=[...newIdeas,...state.approvals.ideas]; renderIdeas(state.approvals.ideas);
+          const top=ni.reduce((a,b)=>(b.demandScore||0)>(a.demandScore||0)?b:a,ni[0]);
+          pushActionAlert({icon:'🌈',title:'HEIMDALL — IDEAS READY',
+            msg:`${ni.length} niche idea${ni.length>1?'s':''} queued for review. Top demand score: ${top?.demandScore||'N/A'} — ${top?.title||''}`,
+            primaryLabel:'◈ REVIEW IDEAS',primaryFn:()=>switchTab('ideas'),
+            secondaryLabel:`⚡ APPROVE ALL (${ni.length})`,secondaryFn:approveAllIdeas,
+            severity:'info',timeout:15000});
+        }
+        addLog(agent,`${ni.length} new ${category==='designs'?'design(s)':'idea(s)'} awaiting approval`,'info');
+        updateMissionStrip();
+      } break;
+    case 'queue_update':
+      if(data){
+        const{category,id,status}=data;
+        const lst=state.approvals[category];
+        if(lst){ const it=lst.find(i=>i.id===id); if(it) it.status=status; }
+        if(category==='designs') renderDesigns(state.approvals.designs);
+        else renderIdeas(state.approvals.ideas);
+      } break;
+    case 'vault_report': if(data){ state.vault=data; window.__vaultNet=parseFloat(data.netProfit||0); updateVault(data); window.__lastVaultReport=data; } break;
+    case 'odin_strategy':
+      if(data){
+        document.getElementById('odin-text').textContent=data.strategy||'';
+        state.strategyCount=data.strategyCount||state.strategyCount+1;
+        document.getElementById('strategy-count').textContent=state.strategyCount;
+        updateAgentCard('ODIN',{status:'idle',xp:state.agents['ODIN']?.xp||0,level:state.agents['ODIN']?.level||1,lastAction:`Strategy #${state.strategyCount} deployed`});
+        const xpEl=document.getElementById('odin-xp-val'), lvlEl=document.getElementById('odin-lvl-val');
+        if(xpEl) xpEl.textContent=(state.agents['ODIN']?.xp||0).toLocaleString();
+        if(lvlEl) lvlEl.textContent=state.agents['ODIN']?.level||1;
+      } break;
+    case 'leaderboard': if(data){ state.leaderboard=data; updateLeaderboard(data); } break;
+    case 'hermes_report': if(data) setAgentChips('GUARDIAN',[{label:'ERR',val:data.errors?.length||0},{label:'WARN',val:data.warnings?.length||0},{label:'FILES',val:data.fileCount||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'tyr_report': if(data) setAgentChips('GUARDIAN',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'hephaestus_report': if(data&&data.patches) setAgentChips('GUARDIAN',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
+    case 'athena_report': if(data) setAgentChips('VAULT',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
+    case 'loki_published': if(data) setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]); break;
+    case 'vulcan_published': if(data) setAgentChips('VULCAN',[{label:'PROD',val:data.product?.id||'N/A'}]); break;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   PARTICLE BG CANVAS
+═══════════════════════════════════════════════ */
+(function(){
+  const c=document.getElementById('bg'), ctx=c.getContext('2d');
+  const pts=[];
+  function resize(){ c.width=window.innerWidth; c.height=window.innerHeight; }
+  window.addEventListener('resize',resize); resize();
+  for(let i=0;i<70;i++) pts.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,s:Math.random()*1.4+.3,a:Math.random()*.35+.08});
+  function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+    pts.forEach(p=>{
+      p.x+=p.vx; p.y+=p.vy;
+      if(p.x<0) p.x=c.width; if(p.x>c.width) p.x=0;
+      if(p.y<0) p.y=c.height; if(p.y>c.height) p.y=0;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.s,0,Math.PI*2);
+      ctx.fillStyle=`rgba(0,180,255,${p.a})`; ctx.fill();
+    });
+    for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
+      const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<90){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y);
+        ctx.strokeStyle=`rgba(0,100,255,${.14*(1-d/90)})`; ctx.lineWidth=.5; ctx.stroke(); }
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+/* ═══════════════════════════════════════════════
+   CLOCK + BOOT
+═══════════════════════════════════════════════ */
+function tickClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent=n.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'America/New_York'});
+  document.getElementById('date-display').textContent=n.toLocaleDateString('en',{weekday:'short',year:'numeric',month:'short',day:'numeric'}).toUpperCase();
+}
+setInterval(tickClock,1000); tickClock();
+
+function esc(s){ if(!s) return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+buildAgentGrid();
+// init 2D pixel building — PixelBuilding is inlined so always available
+setTimeout(() => {
+  const floorEl = document.getElementById('pantheon-floor');
+  if (floorEl) PixelBuilding.init(floorEl);
+}, 300);
+connect();
+
+// ── VAULT graph modal ────────────────────────────────────────────────────
+window.__vaultGraphData = null;
+
+function showVaultGraph(data){
+  window.__vaultGraphData = data;
+  const modal = document.getElementById('vault-graph-modal');
+  if(modal) { renderVaultGraph(data); modal.style.display='flex'; }
+}
+function closeVaultGraph(){
+  const modal = document.getElementById('vault-graph-modal');
+  if(modal) modal.style.display='none';
+}
+function renderVaultGraph(data){
+  const canvas = document.getElementById('vault-graph-canvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#000a18'; ctx.fillRect(0,0,W,H);
+  const txns = (data && data.recentTransactions) ? data.recentTransactions : [];
+  const daily = (data && data.dailyBreakdown) ? data.dailyBreakdown : [];
+  const net = parseFloat((data && data.netProfit) || 0);
+  const rev = parseFloat((data && data.totalRevenue) || 0);
+  const exp = parseFloat((data && data.totalExpenses) || 0);
+  // Summary boxes
+  const boxes = [
+    {label:'REVENUE', val:'$'+rev.toFixed(2), col:'#00ff88'},
+    {label:'EXPENSES', val:'$'+exp.toFixed(2), col:'#ff4466'},
+    {label:'NET P&L', val:(net>=0?'+':'')+' $'+Math.abs(net).toFixed(2), col: net>=0?'#00ff88':'#ff4466'},
+  ];
+  boxes.forEach((b,i)=>{
+    const bx=20+i*(W/3-10), by=10, bw=W/3-16, bh=42;
+    ctx.fillStyle='#050d1a'; ctx.fillRect(bx,by,bw,bh);
+    ctx.strokeStyle=b.col+'66'; ctx.lineWidth=1; ctx.strokeRect(bx+.5,by+.5,bw,bh);
+    ctx.fillStyle='#668899'; ctx.font='bold 8px monospace'; ctx.textAlign='left';
+    ctx.fillText(b.label, bx+6, by+8);
+    ctx.save(); ctx.shadowColor=b.col; ctx.shadowBlur=8;
+    ctx.fillStyle=b.col; ctx.font='bold 13px monospace';
+    ctx.fillText(b.val, bx+6, by+26); ctx.restore();
+  });
+  // Bar chart — daily revenue (last 14 days)
+  const bars = daily.slice(-14);
+  const maxVal = bars.reduce((m,d)=>Math.max(m,d.revenue||0),0.01);
+  const chartX=20, chartY=64, chartW=W-40, chartH=H-140;
+  ctx.fillStyle='#020d18'; ctx.fillRect(chartX,chartY,chartW,chartH);
+  ctx.strokeStyle='#00d4ff22'; ctx.lineWidth=.6; ctx.strokeRect(chartX+.5,chartY+.5,chartW,chartH);
+  // grid lines
+  [.25,.5,.75,1].forEach(f=>{const gy=chartY+chartH*(1-f);ctx.strokeStyle='#00d4ff11';ctx.lineWidth=.5;ctx.beginPath();ctx.moveTo(chartX,gy);ctx.lineTo(chartX+chartW,gy);ctx.stroke();ctx.fillStyle='#446677';ctx.font='6px monospace';ctx.textAlign='right';ctx.fillText('$'+(maxVal*f).toFixed(0),chartX-2,gy+2);});
+  const bw2 = (chartW-10)/(Math.max(bars.length,1));
+  bars.forEach((d,i)=>{
+    const bh2 = chartH * (d.revenue/maxVal);
+    const bx2 = chartX+5+i*bw2, by2 = chartY+chartH-bh2;
+    const col = d.revenue>0?'#00d4ff':'#334455';
+    ctx.save(); ctx.shadowColor=col; ctx.shadowBlur=6;
+    ctx.fillStyle=col+'cc'; ctx.fillRect(bx2,by2,bw2-2,bh2);
+    ctx.restore();
+    if(bars.length<=10){ctx.fillStyle='#446677';ctx.font='5px monospace';ctx.textAlign='center';ctx.fillText((d.date||'').slice(5),bx2+bw2/2,chartY+chartH+8);}
+  });
+  ctx.fillStyle='#00d4ff'; ctx.font='bold 7px monospace'; ctx.textAlign='center';
+  ctx.fillText('DAILY REVENUE (LAST '+bars.length+' DAYS)', W/2, chartY-4);
+  // recent transactions list
+  const listY = chartY+chartH+20;
+  ctx.fillStyle='#00d4ff88'; ctx.font='bold 7px monospace'; ctx.textAlign='left';
+  ctx.fillText('RECENT TRANSACTIONS', 20, listY);
+  txns.slice(0,5).forEach((t,i)=>{
+    const ty=listY+10+i*16;
+    const tCol=t.type==='revenue'?'#00ff88':'#ff4466';
+    ctx.fillStyle='#050d1a'; ctx.fillRect(20,ty,W-40,13);
+    ctx.fillStyle=tCol; ctx.font='bold 6px monospace';
+    ctx.fillText((t.type==='revenue'?'+':'-')+'$'+Math.abs(t.amount).toFixed(2), 24, ty+4);
+    ctx.fillStyle='#668899'; ctx.fillText(t.description||t.source||'', 80, ty+4);
+    ctx.fillStyle='#334455'; ctx.textAlign='right';
+    ctx.fillText((t.timestamp||'').slice(0,10), W-24, ty+4);
+    ctx.textAlign='left';
+  });
+}
+
+// Check VAULT chat responses for financial keywords and trigger graph
+const _origHandleMsg = typeof handleMsg === 'function' ? handleMsg : null;
+document.addEventListener('DOMContentLoaded',()=>{
+  // Override sendMessage to intercept VAULT financial queries
+  const origSend = window.sendMessage;
+  window.sendMessage = function(){
+    origSend && origSend.apply(this, arguments);
+  };
+});
+</script>
+</body>
+</html>
