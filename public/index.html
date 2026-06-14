@@ -186,7 +186,7 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 }
 #floor-hint{font-size:7px;color:var(--txt3);letter-spacing:2px;animation:pulse 2s infinite;}
 #pantheon-floor{flex:1;position:relative;min-height:410px;cursor:crosshair;}
-#pantheon-floor canvas{display:block;width:100%!important;height:100%!important;}
+#pantheon-floor canvas{display:block;width:100%!important;height:auto!important;}
 #pantheon-agent-labels{
   display:flex;justify-content:space-around;padding:5px 8px;
   background:rgba(0,0,0,.6);border-top:1px solid rgba(0,212,255,.1);flex-shrink:0;
@@ -2234,11 +2234,12 @@ setInterval(tickClock,1000); tickClock();
 function esc(s){ if(!s) return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 buildAgentGrid();
-// init 2D pixel building after layout settles
-setTimeout(() => {
+// init 2D pixel building — retry until PixelBuilding script is ready
+(function tryInitPixel(attempts) {
   const floorEl = document.getElementById('pantheon-floor');
-  if (floorEl && window.PixelBuilding) PixelBuilding.init(floorEl);
-}, 600);
+  if (floorEl && window.PixelBuilding) { PixelBuilding.init(floorEl); return; }
+  if (attempts > 0) setTimeout(() => tryInitPixel(attempts - 1), 400);
+})(10);
 connect();
 </script>
 </body>
