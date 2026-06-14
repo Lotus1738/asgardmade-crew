@@ -1142,6 +1142,7 @@ async def _odin_loop():
 
 @app.on_event("startup")
 async def startup():
+    brain.initialize()  # ensure brain directory exists immediately
     asyncio.create_task(_argus_loop())
     asyncio.create_task(_hermes_loop())
     asyncio.create_task(_heimdall_loop())

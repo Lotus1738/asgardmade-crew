@@ -130,10 +130,17 @@ Return ONLY this JSON object (no markdown, no explanation):
 
 # ─── Brain health check ───────────────────────────────────────────────────────
 
+def initialize() -> None:
+    """Create the brain directory at startup so it's always ready."""
+    try:
+        BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"[BRAIN] initialize error: {e}")
+
+
 def brain_status() -> dict:
     """Return a summary of brain state for debugging."""
-    if not BRAIN_DIR.exists():
-        return {"ready": False, "reason": "Brain directory does not exist yet"}
+    initialize()  # ensure directory exists
     files = list(BRAIN_DIR.glob("*.json"))
     outcome_files = list(BRAIN_DIR.glob("*.jsonl"))
     agents_with_lessons = [f.stem.replace("_lessons", "") for f in files if "_lessons" in f.name]
@@ -141,6 +148,7 @@ def brain_status() -> dict:
     return {
         "ready": True,
         "brain_dir": str(BRAIN_DIR),
+        "vault_path": str(_VAULT),
         "agents_with_lessons": agents_with_lessons,
         "agents_with_outcomes": agents_with_outcomes,
         "total_files": len(files) + len(outcome_files),
