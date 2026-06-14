@@ -9,7 +9,14 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from integrations.dalle import generate_variants
+try:
+    from integrations.higgsfield import generate_variants as _gen_variants
+    _GENERATOR = "Higgsfield"
+except ImportError:
+    from integrations.dalle import generate_variants as _gen_variants
+    _GENERATOR = "DALL-E"
+
+generate_variants = _gen_variants
 from integrations.printify import upload_image, create_product, publish_product
 from integrations.etsy import create_listing, build_tags, build_title, build_description, LISTING_FEE
 import memory.obsidian as mem
@@ -42,7 +49,7 @@ async def run_idea_pipeline(
     await asyncio.sleep(0.5)
 
     await _log(manager, "VULCAN",
-               f"Received brief from Heimdall. Generating 2 DALL-E variants for '{title}'.")
+               f"Received brief from Heimdall. Generating 2 {_GENERATOR} variants for '{title}'.")
     await _update_status(manager, state, "VULCAN", "working",
                          f"Generating designs for '{title}'")
 
@@ -50,10 +57,13 @@ async def run_idea_pipeline(
         variants = await generate_variants(title, niche, product_type, count=2)
     except Exception as e:
         await _log(manager, "VULCAN", f"Design generation failed: {e}. Using demo placeholders.", "warning")
-        from integrations.dalle import DEMO_IMAGES
+        try:
+            from integrations.higgsfield import DEMO_IMAGES as _DEMO
+        except ImportError:
+            from integrations.dalle import DEMO_IMAGES as _DEMO
         variants = [
-            {"url": DEMO_IMAGES[0], "prompt": f"Demo design for {title}", "demo": True},
-            {"url": DEMO_IMAGES[1], "prompt": f"Demo design variant 2 for {title}", "demo": True},
+            {"url": _DEMO[0], "prompt": f"Demo design for {title}", "demo": True},
+            {"url": _DEMO[1], "prompt": f"Demo design variant 2 for {title}", "demo": True},
         ]
 
     design_items = []
@@ -84,7 +94,7 @@ async def run_idea_pipeline(
 
     await _log(manager, "VULCAN",
                f"Generated {len(design_items)} design variants for '{title}'. "
-               f"{'gpt-image-1 live.' if not variants[0].get('demo') else 'Demo mode — set OPENAI_API_KEY for real designs.'} "
+               f"{f'{_GENERATOR} live.' if not variants[0].get('demo') else f'Demo mode — configure API key for {_GENERATOR}.'} "
                f"Queued for commander review.")
     await _update_status(manager, state, "VULCAN", "active",
                          f"{len(design_items)} designs queued for '{title}'")

@@ -150,13 +150,26 @@ CADENCE: Rapid scan every 2 minutes (5 niches, surface scores ≥ 75). Deep rese
 
 MISSION: Convert HEIMDALL's niche intelligence into print-on-demand-ready designs that sell at thumbnail scale. Every design must work as a small square image on a phone screen before it works at full size.
 
-DALL-E / GPT-IMAGE-1 PROMPT FORMULA:
-  Style: flat vector illustration | line art | minimalist digital art (pick one per design)
-  Background: pure white (#FFFFFF) — non-negotiable for POD
-  Composition: centered subject, generous padding, no text unless specified
-  Color: 2–4 colors max, high contrast, no gradients for line art styles
-  Format: "square format, print-on-demand ready, clean edges, transparent-friendly"
-  Resolution spec: always append "high detail, crisp at 300dpi"
+HIGGSFIELD PROMPT FORMULA (primary image generator):
+  All five variables required in every prompt:
+  • Subject: specific + unambiguous ("happy cartoon frog holding coffee mug", NOT "frog")
+  • Composition: "square 1:1, centered subject, generous padding, macro detail"
+  • Style: flat vector | bold minimalist digital art | clean line art (one per design)
+  • Background: pure white #FFFFFF — mandatory for POD printing
+  • Constraints: "no shadows, no gradients, no complex backgrounds, no photorealism, no text unless requested"
+  • Always append: "2K resolution, 300dpi, crisp edges, print-ready for {product_type}"
+
+MODEL SELECTION (automatic, based on niche):
+  soul/standard → character & lifestyle niches (cottagecore, coquette, dark academia, witchy)
+  nano-banana-pro → precision vector (minimalist, typography, retro gaming, line art)
+  seedream/v4 → general commercial (mugs, totes, posters, default fallback)
+
+NANO BANANA PRO EXTRA RULES:
+  Add camera sim: "Shot on full-frame digital camera, 85mm lens, studio lighting"
+  Hard constraints: "NOT photorealistic, NOT complex backgrounds, NOT cluttered"
+  Frame lock: "Subject occupies 60% of frame, rigid 1:1 canvas"
+
+FALLBACK: If Higgsfield unavailable → DALL-E formula (white BG, flat vector, 1024x1024)
 
 VARIANT RULE: Always generate 2 variants per niche — one with text, one without. The no-text version enables mug/tote/pillow listings; the text version drives t-shirt/poster sales.
 
