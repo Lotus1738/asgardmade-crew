@@ -229,6 +229,18 @@ async def run_design_pipeline(
     await _update_status(manager, state, "LOKI", "active",
                          f"Listing {listing_id} live for '{title}'")
 
+    # Record LOKI outcome so the brain can learn what listing approaches work
+    try:
+        import memory.brain as _brain
+        _brain.record_outcome(
+            "LOKI",
+            f"Listed '{etsy_title}' | niche: {niche} | tags: {len(etsy_tags)} | price: ${price_usd}",
+            f"{'LIVE' if not listing_demo else 'DEMO'} listing created — ID {listing_id}",
+            7 if not listing_demo else 5,
+        )
+    except Exception:
+        pass
+
     printify_cost = 8.50
     etsy_txn_fee = round(price_usd * 0.065, 2)
     total_expense = round(printify_cost + LISTING_FEE + etsy_txn_fee, 2)

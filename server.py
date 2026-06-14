@@ -571,6 +571,7 @@ async def _award_xp_silent(agent: str, amount: int, action: str):
     ag = state.agents.setdefault(agent, {"xp": 0, "level": 1})
     ag["xp"] = ag.get("xp", 0) + amount
     ag["level"] = ag["xp"] // 500 + 1
+    state.save_agents()  # persist XP so it survives restarts
     await manager.broadcast({
         "type": "xp_gain",
         "agent": agent,
@@ -719,8 +720,8 @@ async def _heimdall_loop():
             state.agents["HEIMDALL"] = ag
             await manager.broadcast({"type": "agent_status", "agent": "HEIMDALL", "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
             await _award_xp_silent("HEIMDALL", 12, "idea_generated")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[HEIMDALL LOOP] scan={scan_id} error: {type(e).__name__}: {e}")
         await asyncio.sleep(120)
 
 
@@ -936,8 +937,8 @@ async def _vault_loop():
             state.agents["VAULT"] = ag
             await manager.broadcast({"type": "agent_status", "agent": "VAULT", "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
             await _award_xp_silent("VAULT", 8, "financial_report")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[VAULT LOOP] error: {type(e).__name__}: {e}")
         await asyncio.sleep(300)
 
 
@@ -1363,8 +1364,8 @@ async def _odin_autonomous_action_loop():
             state.agents["ODIN"] = ag
             await manager.broadcast({"type": "agent_status", "agent": "ODIN", "data": {"status": "active" if actions_taken else "idle", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[ODIN AUTONOMOUS] error: {type(e).__name__}: {e}")
         await asyncio.sleep(4 * 3600)  # every 4 hours
 
 
