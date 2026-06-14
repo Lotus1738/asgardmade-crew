@@ -150,6 +150,10 @@ class AppState:
 manager = ConnectionManager()
 state = AppState()
 
+# Runtime prompt overrides written by ODIN via /api/update-prompt
+# Cleared on restart; layered on top of base prompts in agents.py
+_prompt_overrides: dict[str, str] = {}
+
 
 # ─── FastAPI App ─────────────────────────────────────────────────────────────
 
@@ -399,6 +403,10 @@ async def chat(req: ChatRequest):
 
     system_prompt = get_system_prompt(agent_name, ctx)
 
+    # Apply runtime prompt override from ODIN if one exists
+    if agent_name in _prompt_overrides:
+        system_prompt = system_prompt + f"\n\n=== ODIN DIRECTIVE OVERRIDE ===\n{_prompt_overrides[agent_name]}\n==="
+
     # Build message list for Anthropic API
     messages = []
     for h in req.history[-20:]:
@@ -514,6 +522,256 @@ async def reject_item(item_id: str):
 @app.get("/api/vault")
 async def get_vault():
     return _build_vault_report(state)
+
+
+# ─── Self-Sufficiency APIs ────────────────────────────────────────────────────
+
+class AgentTaskRequest(BaseModel):
+    from_agent: str = "ODIN"
+    to_agent: str
+    task: str
+    context: dict = {}
+    priority: str = "normal"  # "normal" | "urgent" | "background"
+
+
+@app.post("/api/agent-task")
+async def agent_task(req: AgentTaskRequest):
+    """
+    ODIN (or any agent) sends a task directive to another agent.
+    The target agent processes it and returns a response.
+    Both sides get XP. The exchange is broadcast to all clients.
+    """
+    from_name = req.from_agent.upper()
+    to_name = req.to_agent.upper()
+
+    if to_name not in ALL_AGENTS:
+        raise HTTPException(400, detail=f"Unknown target agent: {to_name}")
+
+    # Build context for the receiving agent
+    ctx: dict = dict(req.context)
+    ctx.update({
+        "totalRevenue": state.vault.get("totalRevenue", 0),
+        "totalExpenses": state.vault.get("totalExpenses", 0),
+        "netProfit": state.vault.get("netProfit", 0),
+        "margin": state.vault.get("profitMarginPct", 0),
+        "pendingIdeas": len([i for i in state.queue["ideas"] if i["status"] == "pending"]),
+        "pendingDesigns": len([d for d in state.queue["designs"] if d["status"] == "pending"]),
+        "agentTaskQueue": f"TASKED BY {from_name}: {req.task}",
+    })
+
+    try:
+        lessons = brain.get_agent_lessons(to_name)
+        if lessons:
+            ctx["agentLessons"] = lessons
+    except Exception:
+        pass
+
+    system_prompt = get_system_prompt(to_name, ctx)
+    task_message = f"[TASK FROM {from_name}] {req.task}"
+
+    try:
+        client = get_anthropic_client()
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            system=system_prompt,
+            messages=[{"role": "user", "content": task_message}],
+        )
+        reply = response.content[0].text
+    except Exception as e:
+        raise HTTPException(500, detail=f"Agent task error: {type(e).__name__}: {e}")
+
+    # Log the inter-agent exchange to both agents' memories
+    try:
+        mem.agent_write_chat(to_name, task_message, reply)
+    except Exception:
+        pass
+
+    # Record outcome in brain for both agents
+    try:
+        brain.record_outcome(
+            from_name,
+            f"Tasked {to_name}: {req.task[:80]}",
+            f"{to_name} responded: {reply[:80]}",
+            7,
+        )
+    except Exception:
+        pass
+
+    # Broadcast to HUD
+    await manager.broadcast({
+        "type": "agent_log",
+        "agent": to_name,
+        "message": f"[INTER-AGENT] Task from {from_name}: {req.task[:60]}{'...' if len(req.task) > 60 else ''}",
+        "level": "info",
+        "timestamp": datetime.now().isoformat(),
+    })
+
+    await _award_xp_silent(from_name, 8, "agent_tasking")
+    await _award_xp_silent(to_name, 10, "agent_task_response")
+
+    return {
+        "ok": True,
+        "from": from_name,
+        "to": to_name,
+        "task": req.task,
+        "reply": reply,
+    }
+
+
+class AutoScoreRequest(BaseModel):
+    item_id: str
+    item_type: str = "idea"  # "idea" | "design"
+    risk: int | None = None        # 0–100, optional override
+    confidence: int | None = None  # 0–100, optional override
+
+
+@app.post("/api/auto-score")
+async def auto_score(req: AutoScoreRequest):
+    """
+    Score a queued item on Risk and Confidence.
+    Auto-approve if Risk < 30 AND Confidence > 65.
+    Return the decision and scores to the caller.
+
+    Risk heuristics (computed from item metadata if not provided):
+      - Ideas: high demand score → lower risk; unknown niche → higher risk
+      - Designs: has pre-approved niche → lower risk; first-time style → higher risk
+
+    Confidence heuristics:
+      - Ideas: demand score maps directly (0–100 → 0–100 confidence)
+      - Designs: approval rate of similar niches from brain memory
+    """
+    items = state.queue.get(req.item_type + "s", [])
+    item = next((i for i in items if i["id"] == req.item_id), None)
+    if not item:
+        raise HTTPException(404, detail=f"Item {req.item_id} not found in {req.item_type} queue")
+
+    # Compute scores if not provided
+    risk = req.risk
+    confidence = req.confidence
+
+    if risk is None:
+        if req.item_type == "idea":
+            demand = item.get("demandScore", 50)
+            # High-demand ideas are lower risk; unknown niches are higher risk
+            risk = max(5, 80 - demand)
+        else:
+            # Designs: base risk is moderate; lower if niche is already approved
+            approved_niches = {
+                i.get("niche", "") for i in state.queue["ideas"] if i.get("status") == "approved"
+            }
+            niche = item.get("niche", "")
+            risk = 20 if niche in approved_niches else 45
+
+    if confidence is None:
+        if req.item_type == "idea":
+            demand = item.get("demandScore", 50)
+            confidence = min(95, demand)
+        else:
+            confidence = 70  # Designs from approved ideas get baseline 70
+
+    # Decision
+    auto_approved = risk < 30 and confidence > 65
+    decision = "AUTO-APPROVED" if auto_approved else ("FLAG" if risk <= 60 and confidence >= 40 else "HOLD")
+
+    if auto_approved:
+        item["status"] = "approved"
+        item["autoApproved"] = True
+        item["riskScore"] = risk
+        item["confidenceScore"] = confidence
+        state.save_queue()
+
+        await manager.broadcast({
+            "type": "queue_update",
+            "data": {
+                "category": req.item_type + "s",
+                "id": req.item_id,
+                "status": "approved",
+                "autoApproved": True,
+                "risk": risk,
+                "confidence": confidence,
+            },
+        })
+        await manager.broadcast({
+            "type": "agent_log",
+            "agent": "ODIN",
+            "message": f"AUTO-APPROVED {req.item_type}: '{item.get('title', item.get('ideaTitle', req.item_id))}' — Risk:{risk} Confidence:{confidence}",
+            "level": "info",
+            "timestamp": datetime.now().isoformat(),
+        })
+
+        # Trigger pipeline
+        if req.item_type == "idea":
+            asyncio.create_task(run_idea_pipeline(item, manager, state))
+        else:
+            asyncio.create_task(run_design_pipeline(item, manager, state))
+
+    return {
+        "ok": True,
+        "item_id": req.item_id,
+        "item_type": req.item_type,
+        "risk": risk,
+        "confidence": confidence,
+        "decision": decision,
+        "auto_approved": auto_approved,
+    }
+
+
+class UpdatePromptRequest(BaseModel):
+    agent: str
+    new_directive: str
+    reason: str = ""
+
+
+@app.post("/api/update-prompt")
+async def update_prompt(req: UpdatePromptRequest):
+    """
+    ODIN rewrites an agent's operating directive at runtime.
+    The override is stored in memory and injected into future system prompts.
+    The agents.py file remains the baseline; overrides layer on top.
+    """
+    agent_name = req.agent.upper()
+    if agent_name not in ALL_AGENTS:
+        raise HTTPException(400, detail=f"Unknown agent: {agent_name}")
+
+    if len(req.new_directive) < 20:
+        raise HTTPException(400, detail="Directive too short (min 20 chars)")
+
+    # Store the override
+    _prompt_overrides[agent_name] = req.new_directive
+
+    # Record in brain memory so it persists across reasoning cycles
+    try:
+        brain.record_outcome(
+            "ODIN",
+            f"Prompt rewrite for {agent_name}: {req.reason[:100]}",
+            f"New directive applied: {req.new_directive[:120]}",
+            8,
+        )
+    except Exception:
+        pass
+
+    # Broadcast to HUD
+    await manager.broadcast({
+        "type": "agent_log",
+        "agent": "ODIN",
+        "message": f"PROMPT REWRITE → {agent_name}: {req.reason[:60] or 'directive updated'}",
+        "level": "warning",
+        "timestamp": datetime.now().isoformat(),
+    })
+
+    return {
+        "ok": True,
+        "agent": agent_name,
+        "directive_preview": req.new_directive[:100] + ("..." if len(req.new_directive) > 100 else ""),
+        "reason": req.reason,
+    }
+
+
+@app.get("/api/prompt-overrides")
+async def get_prompt_overrides():
+    """Return current runtime prompt overrides (for HUD debug view)."""
+    return {"overrides": {k: v[:80] + "..." for k, v in _prompt_overrides.items()}}
 
 
 @app.get("/api/brain/status")
@@ -1403,6 +1661,15 @@ async def _odin_autonomous_action_loop():
                         idea["status"] = "approved"
                         actions_taken.append(f"approved idea '{idea['title']}' (score {score}, {age_min:.0f}min queued)")
                         asyncio.create_task(run_idea_pipeline(idea, manager, state))
+                        try:
+                            brain.record_outcome(
+                                "HEIMDALL",
+                                f"Auto-queued idea: '{idea.get('title')}' ({idea.get('niche')}, {idea.get('productType')})",
+                                f"ODIN autonomous approved (score {score}, {age_min:.0f}min queued) — pipeline triggered",
+                                7,
+                            )
+                        except Exception:
+                            pass
 
             # Auto-approve designs that have been waiting >60 min
             for design in pending_designs:
@@ -1416,6 +1683,15 @@ async def _odin_autonomous_action_loop():
                         design["status"] = "approved"
                         actions_taken.append(f"approved design for '{design.get('ideaTitle','?')}' ({age_min:.0f}min queued)")
                         asyncio.create_task(run_design_pipeline(design, manager, state))
+                        try:
+                            brain.record_outcome(
+                                "VULCAN",
+                                f"Generated design for '{design.get('ideaTitle')}' ({design.get('niche')}) — variant {design.get('variantIndex')}",
+                                f"ODIN autonomous approved ({age_min:.0f}min queued) — uploading to Printify",
+                                7,
+                            )
+                        except Exception:
+                            pass
 
             if actions_taken:
                 state.save_queue()
@@ -1492,7 +1768,7 @@ async def startup():
     asyncio.create_task(_odin_morning_briefing_loop())   # daily briefing
     asyncio.create_task(_odin_agent_improvement_loop())  # weekly agent improvement
     asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval check every 10 min
-    asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 6h
+    asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 1h
 
     log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"
     log_file.write_text(f"[{datetime.now().isoformat()}] AsgardMade Pantheon started\n")

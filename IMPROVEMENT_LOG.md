@@ -146,3 +146,27 @@
 - `server.py:_send_init:vault_report` — `_build_vault_report` is computed but the result is discarded (raw `state.vault` is sent instead). The frontend `initFromState` fix (#1 above) handles this client-side so a backend change is no longer needed here.
 
 **Git push:** PENDING — Run `git add -A && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-7) UTC
+
+**Areas reviewed:** Visual/UX (index.html — animHdr ODIN fallback, dead code), Backend reliability (server.py — brain feedback gaps, stale comment)
+
+**Changes made:**
+
+- `public/index.html:animHdr` — **BUG FIX**: `openChat` header canvas had `DRAW[name]||DRAW['GUARDIAN']` fallback. Run-auto-6 fixed this in `initSceneCanvas` but missed the identical fallback inside `animHdr`. ODIN's chat header was therefore still showing GUARDIAN's red radar. Fixed by removing the fallback: `const drawFn=DRAW[name]` — the existing `if(drawFn)` guard handles the undefined case, so ODIN gets a clean dark canvas background instead of the wrong animation.
+
+- `public/index.html:drawHEIMALL` — Removed dead function (21 lines). `drawHEIMALL` was never called — the DRAW dispatch was fixed in run-auto-5 to use `drawARGUS` for HEIMDALL. The orphaned function was deferred from run-auto-6 as cosmetic; removed now as clean-up to prevent confusion for future readers.
+
+- `server.py:_odin_autonomous_action_loop` — Added `brain.record_outcome("HEIMDALL", ...)` after ideas auto-approved (age ≥ 30 min, score ≥ 70). The autonomous loop was the most common approval path but the brain was completely blind to it. HEIMDALL's lessons therefore never reflected auto-approval patterns. Scored 7 (lower than manual approval at 9, reflecting ODIN acting as fallback rather than primary signal).
+
+- `server.py:_odin_autonomous_action_loop` — Added `brain.record_outcome("VULCAN", ...)` after designs auto-approved (age ≥ 60 min). Same blind-spot as above for VULCAN. Now the brain can learn which niche/design combinations get auto-approved vs. stall in queue.
+
+- `server.py:startup` — Fixed stale comment `# lesson distillation every 6h` → `# lesson distillation every 1h`. `_brain_synthesis_loop` sleeps `asyncio.sleep(3600)` = 1 hour. Wrong comment leftover from an earlier design iteration.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical with no risk of breaking existing functionality.
+
+**Git push:** Completed via bash.
