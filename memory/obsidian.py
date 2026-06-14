@@ -630,6 +630,40 @@ def read_odin_directives(limit: int = 3) -> str:
     return "### Latest Odin Directives\n" + "\n---\n".join(d["content"][:500] for d in directives)
 
 
+# ─── Agent personal memory ───────────────────────────────────────────────────
+
+def agent_write_chat(agent: str, user_message: str, agent_reply: str, interaction_type: str = "conversation") -> None:
+    """Append a chat exchange to the agent's personal memory folder."""
+    if not vault_available():
+        return
+    try:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+        today = date.today().isoformat()
+        entry = f"""---
+Date: {ts}
+Agent: {agent}
+Type: {interaction_type}
+Summary: Commander asked about {user_message[:80].strip().rstrip('?.')}.
+---
+
+**Commander:** {user_message[:500]}
+
+**{agent}:** {agent_reply[:800]}
+
+"""
+        write(f"Agent Memory/{agent}/{today}.md", entry, append=True)
+    except Exception as e:
+        print(f"[MEMORY] agent_write_chat error: {e}")
+
+
+def agent_read_memory(agent: str, limit: int = 3) -> str:
+    """Read the agent's personal memory folder for context before responding."""
+    files = read_folder(f"Agent Memory/{agent}", limit=limit)
+    if not files:
+        return ""
+    return f"### {agent} Recent Conversation Memory\n" + "\n---\n".join(f["content"][:600] for f in files)
+
+
 # ─── API helpers ─────────────────────────────────────────────────────────────
 
 _AGENT_FOLDERS = {

@@ -278,11 +278,19 @@ async def chat(req: ChatRequest):
         "agentXP": {a: state.agents.get(a, {}).get("xp", 0) for a in GRID_AGENTS},
     })
 
-    # Inject Commander Preferences into context so agents learn from history
+    # Inject Commander Preferences so agents learn from history
     try:
         prefs = mem.read_preferences()
         if prefs:
             ctx["commanderPreferences"] = prefs[:600]
+    except Exception:
+        pass
+
+    # Inject agent's own conversation memory so it remembers past interactions
+    try:
+        agent_memory = mem.agent_read_memory(agent_name, limit=3)
+        if agent_memory:
+            ctx["agentMemory"] = agent_memory[:800]
     except Exception:
         pass
 
@@ -313,6 +321,12 @@ async def chat(req: ChatRequest):
         print(f"[CHAT ERROR] agent={agent_name} error={type(e).__name__}: {e}")
         traceback.print_exc()
         raise HTTPException(500, detail=f"{type(e).__name__}: {e}")
+
+    # Write exchange to agent's personal memory folder
+    try:
+        mem.agent_write_chat(agent_name, req.message, reply)
+    except Exception:
+        pass
 
     # Capture feedback keywords to Commander Preferences
     try:
