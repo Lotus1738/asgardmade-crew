@@ -50,7 +50,7 @@ async def run_idea_pipeline(
         variants = await generate_variants(title, niche, product_type, count=2)
     except Exception as e:
         await _log(manager, "VULCAN", f"Design generation failed: {e}. Using demo placeholders.", "warning")
-        from crew.tools import DEMO_IMAGES
+        from integrations.dalle import DEMO_IMAGES
         variants = [
             {"url": DEMO_IMAGES[0], "prompt": f"Demo design for {title}", "demo": True},
             {"url": DEMO_IMAGES[1], "prompt": f"Demo design variant 2 for {title}", "demo": True},
@@ -84,7 +84,7 @@ async def run_idea_pipeline(
 
     await _log(manager, "VULCAN",
                f"Generated {len(design_items)} design variants for '{title}'. "
-               f"{'DALL-E 3 live.' if not variants[0].get('demo') else 'Demo mode — set OPENAI_API_KEY for real designs.'} "
+               f"{'gpt-image-1 live.' if not variants[0].get('demo') else 'Demo mode — set OPENAI_API_KEY for real designs.'} "
                f"Queued for commander review.")
     await _update_status(manager, state, "VULCAN", "active",
                          f"{len(design_items)} designs queued for '{title}'")
@@ -120,7 +120,7 @@ async def run_design_pipeline(
     product_type = design.get("productType", "t-shirt")
     image_url = design["imageUrl"]
     keywords = design.get("keywords", [])
-    price_usd = 24.99
+    price_usd = 34.99  # LOKI default listing price
 
     await _log(manager, "VULCAN",
                f"Design approved. Uploading '{title}' image to Printify CDN.")
@@ -381,6 +381,7 @@ async def _award_xp(
     ag = state.agents.setdefault(agent, {"xp": 0, "level": 1})
     ag["xp"] = ag.get("xp", 0) + amount
     ag["level"] = ag["xp"] // 500 + 1
+    state.save_agents()  # persist XP so pipeline gains survive restarts
     await manager.broadcast({
         "type": "xp_gain",
         "agent": agent,

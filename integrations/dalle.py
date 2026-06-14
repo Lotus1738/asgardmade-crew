@@ -1,8 +1,14 @@
 import os
 import asyncio
+import base64
+import uuid
+from pathlib import Path
 from openai import AsyncOpenAI
 
 _client: AsyncOpenAI | None = None
+
+# Where generated images get saved so the server can serve them
+GENERATED_DIR = Path(__file__).parent.parent / "public" / "generated"
 
 
 def _get_client() -> AsyncOpenAI | None:
@@ -49,8 +55,18 @@ def _demo_fallback(idea_title: str, niche: str, product_type: str, reason: str) 
     }
 
 
+def _save_b64_image(b64_data: str) -> str:
+    """Save a base64 image to disk and return the public URL path."""
+    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.png"
+    filepath = GENERATED_DIR / filename
+    image_bytes = base64.b64decode(b64_data)
+    filepath.write_bytes(image_bytes)
+    return f"/generated/{filename}"
+
+
 async def generate_design(idea_title: str, niche: str, product_type: str) -> dict:
-    """Generate a DALL-E 3 design. Falls back to demo image on any failure."""
+    """Generate an image using gpt-image-1. Falls back to demo on any failure."""
     client = _get_client()
 
     if client is None:
@@ -60,35 +76,46 @@ async def generate_design(idea_title: str, niche: str, product_type: str) -> dic
     try:
         response = await asyncio.wait_for(
             client.images.generate(
-                model="dall-e-3",
+                model="gpt-image-1",
                 prompt=prompt,
                 size="1024x1024",
                 quality="standard",
                 n=1,
             ),
-            timeout=60.0,
+            timeout=90.0,
         )
+
+        item = response.data[0]
+
+        # gpt-image-1 returns b64_json by default; fall back to url if present
+        if hasattr(item, "b64_json") and item.b64_json:
+            image_url = _save_b64_image(item.b64_json)
+        elif hasattr(item, "url") and item.url:
+            image_url = item.url
+        else:
+            return _demo_fallback(idea_title, niche, product_type, "No image data in response")
+
         return {
-            "url": response.data[0].url,
+            "url": image_url,
             "prompt": prompt,
             "demo": False,
-            "revised_prompt": response.data[0].revised_prompt,
+            "revised_prompt": getattr(item, "revised_prompt", None),
         }
+
     except asyncio.TimeoutError:
-        return _demo_fallback(idea_title, niche, product_type, "OpenAI timeout (>60s)")
+        return _demo_fallback(idea_title, niche, product_type, "OpenAI timeout (>90s)")
     except Exception as e:
-        # Surface the real error: auth failure, quota, rate limit, network, etc.
         err_type = type(e).__name__
         err_msg = str(e)[:120]
         raise RuntimeError(f"{err_type}: {err_msg}") from e
 
 
 async def generate_variants(idea_title: str, niche: str, product_type: str, count: int = 2) -> list[dict]:
-    """Generate variants sequentially to avoid rate limits (DALL-E 3 = 1 img/min on free tier)."""
+    """Generate variants sequentially to avoid rate limits."""
     results = []
     for i in range(count):
         if i > 0:
-            await asyncio.sleep(2)  # small gap between requests
+            await asyncio.sleep(3)
         result = await generate_design(idea_title, niche, product_type)
         results.append(result)
     return results

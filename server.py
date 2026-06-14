@@ -102,20 +102,32 @@ class AppState:
             try:
                 data = json.loads(path.read_text())
                 setattr(self, attr, data)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[STATE] Failed to load {filename}: {type(e).__name__}: {e} — using defaults")
 
     def save_agents(self):
-        (DATA_DIR / "agents.json").write_text(json.dumps(self.agents, indent=2, default=str))
+        try:
+            (DATA_DIR / "agents.json").write_text(json.dumps(self.agents, indent=2, default=str))
+        except Exception as e:
+            print(f"[STATE] save_agents error: {type(e).__name__}: {e}")
 
     def save_queue(self):
-        (DATA_DIR / "queue.json").write_text(json.dumps(self.queue, indent=2, default=str))
+        try:
+            (DATA_DIR / "queue.json").write_text(json.dumps(self.queue, indent=2, default=str))
+        except Exception as e:
+            print(f"[STATE] save_queue error: {type(e).__name__}: {e}")
 
     def save_vault(self):
-        (DATA_DIR / "vault.json").write_text(json.dumps(self.vault, indent=2, default=str))
+        try:
+            (DATA_DIR / "vault.json").write_text(json.dumps(self.vault, indent=2, default=str))
+        except Exception as e:
+            print(f"[STATE] save_vault error: {type(e).__name__}: {e}")
 
     def save_blocked(self):
-        (DATA_DIR / "blocked_ips.json").write_text(json.dumps({"ips": self.blocked_ips}, indent=2))
+        try:
+            (DATA_DIR / "blocked_ips.json").write_text(json.dumps({"ips": self.blocked_ips}, indent=2))
+        except Exception as e:
+            print(f"[STATE] save_blocked error: {type(e).__name__}: {e}")
 
     def recalculate_vault(self):
         txns = self.vault.get("transactions", [])
@@ -355,6 +367,28 @@ async def chat(req: ChatRequest):
                 ctx["odinDirective"] = directive[:300]
         except Exception:
             pass
+
+    # Web search injection: ODIN and HEIMDALL can search the live web
+    # Triggered by keywords that imply need for current information
+    _search_triggers = (
+        "trend", "trending", "search", "latest", "current", "news",
+        "what's hot", "right now", "today", "2026", "new niche",
+        "competitor", "platform update", "etsy change", "research"
+    )
+    _msg_lower = req.message.lower()
+    if agent_name in ("ODIN", "HEIMDALL") and any(t in _msg_lower for t in _search_triggers):
+        try:
+            from integrations.websearch import search
+            # Extract a clean search query from the message
+            _search_query = f"etsy print on demand {req.message[:80]}"
+            _web_results = await search(_search_query, max_results=5)
+            if _web_results:
+                _snippets = "\n".join(
+                    f"- {r['title']}: {r['snippet']}" for r in _web_results if r.get("snippet")
+                )
+                ctx["liveWebSearch"] = f"Live web search results for context:\n{_snippets[:800]}"
+        except Exception as _e:
+            print(f"[CHAT WEB SEARCH] {type(_e).__name__}: {_e}")
 
     system_prompt = get_system_prompt(agent_name, ctx)
 
@@ -662,8 +696,8 @@ async def _guardian_loop():
 
             await _award_xp_silent("GUARDIAN", 10, "ops_scan")
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[GUARDIAN LOOP] scan={scan_id} error: {type(e).__name__}: {e}")
         await asyncio.sleep(60)
 
 
@@ -685,6 +719,7 @@ async def _heimdall_loop():
 
             if auto_approved:
                 idea["status"] = "approved"
+                state.save_queue()  # persist approval before pipeline runs
                 await manager.broadcast({
                     "type": "agent_log",
                     "agent": "HEIMDALL",
@@ -751,16 +786,16 @@ async def _athena_loop():
             except Exception:
                 pass
 
-            await manager.broadcast({"type": "agent_log", "agent": "ATHENA", "message": msg, "level": "info", "timestamp": datetime.now().isoformat()})
-            await manager.broadcast({"type": "athena_report", "agent": "ATHENA", "data": {"todayRevenue": today_rev, "totalOrders": orders, "activeListings": active}})
+            await manager.broadcast({"type": "agent_log", "agent": "VAULT", "message": msg, "level": "info", "timestamp": datetime.now().isoformat()})
+            await manager.broadcast({"type": "athena_report", "agent": "VAULT", "data": {"todayRevenue": today_rev, "totalOrders": orders, "activeListings": active}})
 
-            ag = state.agents.get("ATHENA", {})
-            ag["lastAction"] = f"Shop scan #{scan_id}: {active} listings"
-            state.agents["ATHENA"] = ag
-            await manager.broadcast({"type": "agent_status", "agent": "ATHENA", "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
-            await _award_xp_silent("ATHENA", 10, "shop_analysis")
-        except Exception:
-            pass
+            ag = state.agents.get("VAULT", {})
+            ag["lastAction"] = f"Shop scan #{scan_id}: {active} listings, ${today_rev:.2f} today"
+            state.agents["VAULT"] = ag
+            await manager.broadcast({"type": "agent_status", "agent": "VAULT", "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
+            await _award_xp_silent("VAULT", 10, "shop_analysis")
+        except Exception as e:
+            print(f"[ATHENA LOOP] scan={scan_id} error: {type(e).__name__}: {e}")
         await asyncio.sleep(300)
 
 
@@ -835,9 +870,9 @@ async def _odin_agent_improvement_loop():
     """
     Weekly: Odin reviews each agent's outcome history and brain lessons,
     then uses Claude to write improvement notes that get injected into their prompts.
-    First run: 10 minutes after startup (gives brain time to synthesize first).
+    First run: 4 minutes after startup (gives brain time to synthesize first).
     """
-    await asyncio.sleep(600)
+    await asyncio.sleep(240)
     while True:
         try:
             client = get_anthropic_client()
@@ -908,7 +943,7 @@ Return ONLY a JSON object: {{"improvements": ["instruction 1", "instruction 2"],
 
         except Exception as e:
             print(f"[ODIN IMPROVEMENT LOOP] error: {e}")
-        await asyncio.sleep(604800)  # 7 days
+        await asyncio.sleep(86400)  # 24 hours
 
 
 async def _vault_loop():
@@ -943,17 +978,22 @@ async def _vault_loop():
 
 
 async def _heimdall_deep_research_loop():
-    """6-hour Serper Google search cycle: searches → Claude scoring → 75+ ideas → queue."""
+    """1-hour research cycle: Serper (if configured) or DuckDuckGo (free fallback) → Claude scoring → ideas → queue."""
     from integrations.serper import run_full_research
+    from integrations.websearch import search_etsy_trends
+    import os
+    _serper_key = os.getenv("SERPER_API_KEY", "")
     cycle = 0
     await asyncio.sleep(45)  # Let startup settle before first run
     while True:
         try:
             cycle += 1
+            results = {}  # populated in Serper path; stays empty for DuckDuckGo path
+            source = "Serper/Google" if _serper_key else "DuckDuckGo"
             await manager.broadcast({
                 "type": "agent_log",
                 "agent": "HEIMDALL",
-                "message": f"Deep research cycle #{cycle} — querying Google via Serper for live Etsy trend data.",
+                "message": f"Deep research cycle #{cycle} — live web search via {source} for Etsy trend data.",
                 "level": "info",
                 "timestamp": datetime.now().isoformat(),
             })
@@ -965,20 +1005,29 @@ async def _heimdall_deep_research_loop():
             except Exception:
                 pass
 
-            results = await run_full_research()
-
-            # Flatten all snippets into a single text block for Claude
+            # Use Serper (Google) if API key configured, otherwise DuckDuckGo (free)
             lines = []
-            for items in results.values():
-                for item in items:
-                    query = item.get("query", "")
-                    title = item.get("title", "")
-                    snippet = item.get("snippet", "")
-                    if title or snippet:
-                        lines.append(f"[{query}] {title}: {snippet}")
+            if _serper_key:
+                results = await run_full_research()
+                for items in results.values():
+                    for item in items:
+                        query = item.get("query", "")
+                        title = item.get("title", "")
+                        snippet = item.get("snippet", "")
+                        if title or snippet:
+                            lines.append(f"[{query}] {title}: {snippet}")
+            else:
+                # Free DuckDuckGo fallback — no API key needed
+                niches = ["cottagecore", "dark academia", "retro gaming", "plant parent", "mental health", "pet portraits"]
+                for niche in niches:
+                    ddg_results = await search_etsy_trends(niche)
+                    for r in ddg_results:
+                        if r.get("snippet"):
+                            lines.append(f"[etsy {niche}] {r.get('title','')}: {r['snippet']}")
+                    await asyncio.sleep(0.5)
 
             if not lines:
-                await asyncio.sleep(21600)
+                await asyncio.sleep(3600)
                 continue
 
             search_text = "\n".join(lines[:30])
@@ -1046,7 +1095,7 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                     "priceRange": idea_data.get("priceRange", "$22-28"),
                     "keywords": idea_data.get("keywords", []),
                     "description": idea_data.get("description", ""),
-                    "source": "serper_research",
+                    "source": "serper_research" if _serper_key else "ddg_research",
                     "researchScore": idea_data.get("score", 75),
                     "createdAt": datetime.now().isoformat(),
                 }
@@ -1141,7 +1190,7 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                     "message": (
                         f"Deep research #{cycle}: {len(ideas_raw)} ideas scored, "
                         f"none cleared 75+ threshold. Market signal too diffuse — "
-                        f"adjusting focus for next cycle in 6 hours."
+                        f"adjusting focus for next cycle in 1 hour."
                     ),
                     "level": "warning",
                     "timestamp": datetime.now().isoformat(),
@@ -1169,12 +1218,12 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                 "timestamp": datetime.now().isoformat(),
             })
 
-        await asyncio.sleep(21600)  # 6 hours
+        await asyncio.sleep(3600)  # 1 hour
 
 
 async def _brain_synthesis_loop():
     """
-    Every 6 hours: read each agent's memory + outcome history,
+    Every 1 hour: read each agent's memory + outcome history,
     use Claude Haiku to extract lessons, write them back.
     Agents inject these lessons into their system prompt automatically.
     """
@@ -1234,7 +1283,7 @@ async def _brain_synthesis_loop():
             print(f"[BRAIN LOOP] error: {type(e).__name__}: {e}")
             traceback.print_exc()
 
-        await asyncio.sleep(21600)  # 6 hours
+        await asyncio.sleep(3600)  # 1 hour
 
 
 async def _odin_loop():
@@ -1288,13 +1337,13 @@ async def _odin_loop():
             )
             await manager.broadcast({"type": "leaderboard", "data": leaderboard})
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[ODIN LOOP] strategy={state.strategy_count} error: {type(e).__name__}: {e}")
         await asyncio.sleep(300)
 
 
 async def _odin_autonomous_action_loop():
-    """ODIN makes real autonomous decisions every 4 hours — approves queued items,
+    """ODIN makes real autonomous decisions every hour — approves queued items,
     logs reasoning, and broadcasts a strategy update so the HUD reflects action taken."""
     await asyncio.sleep(60)  # first run 1 min after boot
     while True:
@@ -1366,7 +1415,7 @@ async def _odin_autonomous_action_loop():
 
         except Exception as e:
             print(f"[ODIN AUTONOMOUS] error: {type(e).__name__}: {e}")
-        await asyncio.sleep(4 * 3600)  # every 4 hours
+        await asyncio.sleep(3600)  # every 1 hour
 
 
 # ─── Static file catch-all (must be LAST route so API routes match first) ────

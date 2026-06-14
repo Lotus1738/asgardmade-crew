@@ -1,4 +1,6 @@
 import os
+import base64
+from pathlib import Path
 import httpx
 
 
@@ -34,15 +36,33 @@ def _has_credentials() -> bool:
 
 
 async def upload_image(image_url: str, filename: str = "design.png") -> dict:
-    """Upload an image to Printify CDN."""
+    """Upload an image to Printify CDN.
+
+    Handles both:
+    - External URLs (http/https) → send URL directly to Printify
+    - Local paths (/generated/...) → read from disk, send as base64
+      (gpt-image-1 saves to public/generated/ and returns a local path)
+    """
     if not _has_credentials():
         return {"id": "demo_image_id", "preview_url": image_url, "demo": True}
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    # Detect local file path (gpt-image-1 returns /generated/filename.png)
+    if image_url.startswith("/generated/"):
+        local_path = Path("public") / image_url.lstrip("/")
+        if local_path.exists():
+            img_bytes = local_path.read_bytes()
+            b64_contents = base64.b64encode(img_bytes).decode("utf-8")
+            payload = {"file_name": filename, "contents": b64_contents}
+        else:
+            raise FileNotFoundError(f"Generated image not found: {local_path}")
+    else:
+        payload = {"file_name": filename, "url": image_url}
+
+    async with httpx.AsyncClient(timeout=90) as client:
         resp = await client.post(
             f"{BASE_URL}/uploads/images.json",
             headers=_headers(),
-            json={"file_name": filename, "url": image_url},
+            json=payload,
         )
         resp.raise_for_status()
         data = resp.json()
