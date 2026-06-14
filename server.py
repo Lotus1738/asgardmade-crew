@@ -677,23 +677,42 @@ async def _heimdall_loop():
             state.queue["ideas"].append(idea)
             state.save_queue()
 
-            await manager.broadcast({
-                "type": "agent_log",
-                "agent": "HEIMDALL",
-                "message": f"Scan #{scan_id}: '{idea['title']}' ({idea['niche']}) queued. Demand: {idea['demandScore']}. Competition: {idea['competition']}.",
-                "level": "info",
-                "timestamp": datetime.now().isoformat(),
-            })
-            try:
-                mem.heimdall_write_research(idea)
-            except Exception:
-                pass
+            # Auto-approve high-confidence ideas (skip human review)
+            demand = idea.get("demandScore", 0)
+            competition = idea.get("competition", "medium")
+            auto_approved = demand >= 85 and competition == "low"
 
-            await manager.broadcast({
-                "type": "approval_queue",
-                "agent": "HEIMDALL",
-                "data": {"category": "ideas", "items": [idea]},
-            })
+            if auto_approved:
+                idea["status"] = "approved"
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "HEIMDALL",
+                    "message": f"Scan #{scan_id}: '{idea['title']}' AUTO-APPROVED (demand {demand}, {competition} competition) — passing directly to Vulcan.",
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+                try:
+                    mem.heimdall_write_research(idea)
+                except Exception:
+                    pass
+                asyncio.create_task(run_idea_pipeline(idea, manager, state))
+            else:
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "HEIMDALL",
+                    "message": f"Scan #{scan_id}: '{idea['title']}' ({idea['niche']}) queued. Demand: {demand}. Competition: {competition}.",
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+                try:
+                    mem.heimdall_write_research(idea)
+                except Exception:
+                    pass
+                await manager.broadcast({
+                    "type": "approval_queue",
+                    "agent": "HEIMDALL",
+                    "data": {"category": "ideas", "items": [idea]},
+                })
 
             ag = state.agents.get("HEIMDALL", {})
             ag["lastAction"] = f"Queued: '{idea['title']}'"
@@ -1039,11 +1058,22 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
 
             if added:
                 state.save_queue()
-                await manager.broadcast({
-                    "type": "approval_queue",
-                    "agent": "HEIMDALL",
-                    "data": {"category": "ideas", "items": added},
-                })
+                # Split auto-approve vs queue for human review
+                needs_review = []
+                for _idea in added:
+                    _demand = _idea.get("demandScore", _idea.get("researchScore", 0))
+                    _comp = _idea.get("competition", "medium")
+                    if _demand >= 85 and _comp == "low":
+                        _idea["status"] = "approved"
+                        asyncio.create_task(run_idea_pipeline(_idea, manager, state))
+                    else:
+                        needs_review.append(_idea)
+                if needs_review:
+                    await manager.broadcast({
+                        "type": "approval_queue",
+                        "agent": "HEIMDALL",
+                        "data": {"category": "ideas", "items": needs_review},
+                    })
                 top = added[0]
                 await manager.broadcast({
                     "type": "agent_log",
@@ -1262,6 +1292,82 @@ async def _odin_loop():
         await asyncio.sleep(300)
 
 
+async def _odin_autonomous_action_loop():
+    """ODIN makes real autonomous decisions every 4 hours — approves queued items,
+    logs reasoning, and broadcasts a strategy update so the HUD reflects action taken."""
+    await asyncio.sleep(60)  # first run 1 min after boot
+    while True:
+        try:
+            pending_ideas = [i for i in state.queue.get("ideas", []) if i.get("status") == "pending"]
+            pending_designs = [d for d in state.queue.get("designs", []) if d.get("status") == "pending"]
+
+            actions_taken = []
+
+            # Auto-approve ideas that have been waiting >30 min and score ≥ 70
+            for idea in pending_ideas:
+                queued_at = idea.get("createdAt", "")
+                if queued_at:
+                    try:
+                        age_min = (datetime.now() - datetime.fromisoformat(queued_at)).total_seconds() / 60
+                    except Exception:
+                        age_min = 0
+                    score = idea.get("demandScore", idea.get("score", 0))
+                    if age_min >= 30 and score >= 70:
+                        idea["status"] = "approved"
+                        actions_taken.append(f"approved idea '{idea['title']}' (score {score}, {age_min:.0f}min queued)")
+                        asyncio.create_task(run_idea_pipeline(idea, manager, state))
+
+            # Auto-approve designs that have been waiting >60 min
+            for design in pending_designs:
+                queued_at = design.get("createdAt", "")
+                if queued_at:
+                    try:
+                        age_min = (datetime.now() - datetime.fromisoformat(queued_at)).total_seconds() / 60
+                    except Exception:
+                        age_min = 0
+                    if age_min >= 60:
+                        design["status"] = "approved"
+                        actions_taken.append(f"approved design for '{design.get('ideaTitle','?')}' ({age_min:.0f}min queued)")
+                        asyncio.create_task(run_design_pipeline(design, manager, state))
+
+            if actions_taken:
+                state.save_queue()
+                summary = f"ODIN AUTONOMOUS: {len(actions_taken)} action(s) taken — " + "; ".join(actions_taken)
+                state.strategy_count += 1
+                await manager.broadcast({
+                    "type": "odin_strategy",
+                    "data": {"strategy": summary, "strategyCount": state.strategy_count},
+                })
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "ODIN",
+                    "message": summary,
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+                try:
+                    brain.record_outcome("ODIN", "autonomous_action", summary, 8)
+                except Exception:
+                    pass
+            else:
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "ODIN",
+                    "message": f"Autonomous check: {len(pending_ideas)} ideas, {len(pending_designs)} designs pending — none yet meet autonomous approval threshold.",
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+
+            ag = state.agents.get("ODIN", {})
+            ag["lastAction"] = f"Autonomous check: {len(actions_taken)} actions"
+            state.agents["ODIN"] = ag
+            await manager.broadcast({"type": "agent_status", "agent": "ODIN", "data": {"status": "active" if actions_taken else "idle", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
+
+        except Exception:
+            pass
+        await asyncio.sleep(4 * 3600)  # every 4 hours
+
+
 # ─── Startup ─────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
@@ -1275,6 +1381,7 @@ async def startup():
     asyncio.create_task(_odin_loop())               # strategy updates every 5 min
     asyncio.create_task(_odin_morning_briefing_loop())   # daily briefing
     asyncio.create_task(_odin_agent_improvement_loop())  # weekly agent improvement
+    asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval every 4h
     asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 6h
 
     log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"

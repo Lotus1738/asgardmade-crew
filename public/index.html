@@ -185,7 +185,7 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
   background:rgba(0,0,0,.5);flex-shrink:0;
 }
 #floor-hint{font-size:7px;color:var(--txt3);letter-spacing:2px;animation:pulse 2s infinite;}
-#pantheon-floor{flex:1;position:relative;min-height:260px;cursor:crosshair;}
+#pantheon-floor{flex:1;position:relative;min-height:410px;cursor:crosshair;}
 #pantheon-floor canvas{display:block;width:100%!important;height:100%!important;}
 #pantheon-agent-labels{
   display:flex;justify-content:space-around;padding:5px 8px;
@@ -552,10 +552,11 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 ::-webkit-scrollbar-thumb{background:rgba(0,100,200,.4);border-radius:2px;}
 ::-webkit-scrollbar-thumb:hover{background:rgba(0,150,255,.6);}
 </style>
-<!-- Three.js for 3D god rooms and walking agents -->
+<!-- Three.js for 3D god rooms -->
 <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
 <script src="/god-rooms.js" defer></script>
-<script src="/main-scene.js" defer></script>
+<!-- 2D pixel building (replaces Three.js walking floor) -->
+<script src="/pixel-scene.js" defer></script>
 </head>
 <body>
 <canvas id="bg"></canvas>
@@ -2132,7 +2133,9 @@ function handleMsg(msg){
     case 'init': initFromState(msg.data,msg.strategy); break;
     case 'agent_log': addLog(msg.agent||'SYS',msg.message,msg.level,msg.timestamp); break;
     case 'agent_status':
-      if(data){ if(!state.agents[agent]) state.agents[agent]={}; Object.assign(state.agents[agent],data); updateAgentCard(agent,data); } break;
+      if(data){ if(!state.agents[agent]) state.agents[agent]={}; Object.assign(state.agents[agent],data); updateAgentCard(agent,data);
+        if(window.PixelBuilding) PixelBuilding.setAgentStatus(agent, data.status||'idle', data.lastAction||'');
+      } break;
     case 'xp_gain':
       showXpToast(agent,msg.amount,msg.action||'task');
       if(state.agents[agent]){ state.agents[agent].xp=msg.total; state.agents[agent].level=msg.level; updateAgentCard(agent,state.agents[agent]); } break;
@@ -2231,10 +2234,10 @@ setInterval(tickClock,1000); tickClock();
 function esc(s){ if(!s) return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 buildAgentGrid();
-// init walking agents floor after layout settles
+// init 2D pixel building after layout settles
 setTimeout(() => {
   const floorEl = document.getElementById('pantheon-floor');
-  if (floorEl && window.PantheonFloor) PantheonFloor.init(floorEl);
+  if (floorEl && window.PixelBuilding) PixelBuilding.init(floorEl);
 }, 600);
 connect();
 </script>

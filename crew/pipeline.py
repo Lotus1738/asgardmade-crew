@@ -197,6 +197,18 @@ async def run_design_pipeline(
                f"ID: {listing_id}. Tags: {len(etsy_tags)} applied. "
                f"Price: ${price_usd}. Listing fee logged to Vault.")
 
+    # Feed listing success back to HEIMDALL's niche memory so future scoring improves
+    try:
+        import memory.brain as brain
+        brain.record_outcome(
+            "HEIMDALL",
+            f"Niche: {niche} | Product: {product_type}",
+            f"Listing published — '{title}' live on Etsy (ID {listing_id}). Niche confirmed converting.",
+            9,
+        )
+    except Exception:
+        pass
+
     try:
         mem.loki_write_listing(design, {
             "listing_id": listing_id,
