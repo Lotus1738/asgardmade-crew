@@ -130,6 +130,69 @@ Return ONLY this JSON object (no markdown, no explanation):
 
 # ─── Brain health check ───────────────────────────────────────────────────────
 
+def write_odin_briefing(briefing: str) -> None:
+    """Persist Odin's latest morning briefing so agents can read it."""
+    try:
+        BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+        f = BRAIN_DIR / "ODIN_briefing.json"
+        data = {
+            "updated": datetime.now().isoformat(),
+            "briefing": briefing,
+        }
+        f.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"[BRAIN] write_odin_briefing error: {e}")
+
+
+def get_odin_briefing() -> str:
+    """Read Odin's latest briefing. Injected into agent context as odinDirective."""
+    try:
+        f = BRAIN_DIR / "ODIN_briefing.json"
+        if not f.exists():
+            return ""
+        data = json.loads(f.read_text(encoding="utf-8"))
+        return data.get("briefing", "")
+    except Exception:
+        return ""
+
+
+def write_agent_improvement(agent_name: str, improvements: list, odin_note: str) -> None:
+    """
+    Odin writes improvement instructions for an agent after weekly review.
+    These are appended to the agent's lessons so they get injected into prompts.
+    """
+    try:
+        BRAIN_DIR.mkdir(parents=True, exist_ok=True)
+        f = BRAIN_DIR / f"{agent_name.upper()}_improvements.json"
+        data = {
+            "agent": agent_name.upper(),
+            "updated": datetime.now().isoformat(),
+            "odin_note": odin_note,
+            "improvements": improvements,
+        }
+        f.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"[BRAIN] write_agent_improvement error for {agent_name}: {e}")
+
+
+def get_agent_improvement(agent_name: str) -> str:
+    """Read Odin's improvement notes for an agent."""
+    try:
+        f = BRAIN_DIR / f"{agent_name.upper()}_improvements.json"
+        if not f.exists():
+            return ""
+        data = json.loads(f.read_text(encoding="utf-8"))
+        improvements = data.get("improvements", [])
+        if not improvements:
+            return ""
+        lines = ["Odin's improvement directives (follow these):"]
+        for item in improvements:
+            lines.append(f"- {item}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def initialize() -> None:
     """Create the brain directory at startup so it's always ready."""
     try:

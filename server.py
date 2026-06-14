@@ -339,6 +339,23 @@ async def chat(req: ChatRequest):
     except Exception:
         pass
 
+    # Inject Odin's improvement directives for this agent
+    try:
+        improvements = brain.get_agent_improvement(agent_name)
+        if improvements:
+            ctx["agentLessons"] = (ctx.get("agentLessons", "") + "\n\n" + improvements).strip()
+    except Exception:
+        pass
+
+    # Inject Odin's current directive for non-Odin agents
+    if agent_name != "ODIN":
+        try:
+            directive = brain.get_odin_briefing()
+            if directive:
+                ctx["odinDirective"] = directive[:300]
+        except Exception:
+            pass
+
     system_prompt = get_system_prompt(agent_name, ctx)
 
     # Build message list for Anthropic API
@@ -566,105 +583,87 @@ async def _award_xp_silent(agent: str, amount: int, action: str):
 
 # ─── Background Agent Loops ──────────────────────────────────────────────────
 
-async def _argus_loop():
+async def _guardian_loop():
+    """
+    Single loop replacing Hermes + Hephaestus + Argus + Tyr.
+    Runs every 60s: metrics check, log scan, auto-patch, security report.
+    """
     scan_id = 0
     while True:
         try:
             scan_id += 1
+
+            # — Metrics (was Argus) —
             metrics = get_system_metrics()
             state.metrics = metrics
-
             cpu, ram, disk = metrics["cpu"], metrics["ram"], metrics["disk"]
-
             await manager.broadcast({"type": "system_metrics", "data": {"metrics": metrics}})
 
-            last = f"CPU {cpu}% | RAM {ram}% | Disk {disk}%"
-            ag = state.agents.get("ARGUS", {})
-            ag["lastAction"] = last
-            state.agents["ARGUS"] = ag
-
-            await manager.broadcast({
-                "type": "agent_status",
-                "agent": "ARGUS",
-                "data": {
-                    "status": "active",
-                    "lastAction": last,
-                    "xp": ag.get("xp", 0),
-                    "level": ag.get("level", 1),
-                },
-            })
-
-            if cpu > 90 or ram > 90 or disk > 95:
-                severity = "critical"
-                issue = f"CPU {cpu}%" if cpu > 90 else f"RAM {ram}%" if ram > 90 else f"Disk {disk}%"
-                await manager.broadcast({"type": "alert", "data": {"message": f"ARGUS CRITICAL: {issue}", "severity": "critical"}})
-                await manager.broadcast({"type": "agent_log", "agent": "ARGUS", "message": f"CRITICAL threshold exceeded: {issue}. Alerting Hephaestus.", "level": "error", "timestamp": datetime.now().isoformat()})
-            elif cpu > 70 or ram > 75 or disk > 80:
-                issue = f"CPU {cpu}%" if cpu > 70 else f"RAM {ram}%" if ram > 75 else f"Disk {disk}%"
-                await manager.broadcast({"type": "agent_log", "agent": "ARGUS", "message": f"Warning: {issue} above threshold. Monitoring closely.", "level": "warning", "timestamp": datetime.now().isoformat()})
-
-            await _award_xp_silent("ARGUS", 3, "metrics_scan")
-        except Exception:
-            pass
-        await asyncio.sleep(30)
-
-
-async def _hermes_loop():
-    scan_id = 0
-    while True:
-        try:
-            scan_id += 1
+            # — Log scan + auto-patch (was Hermes + Hephaestus) —
             result = scan_logs()
-            file_count = result["file_count"]
             errors = result["errors"]
             warnings = result["warnings"]
+            file_count = result["file_count"]
 
-            msg = f"Scan #{scan_id} complete. {file_count} files. {len(errors)} errors, {len(warnings)} warnings."
-            if errors:
-                msg += f" Top error: {errors[0]['line'][:80]}"
+            patches = []
+            for error in errors[:3]:
+                line = error.get("line", "")
+                patch_id = f"PATCH-{uuid.uuid4().hex[:4].upper()}"
+                if "ECONNREFUSED" in line or "ConnectionRefused" in line:
+                    fix = "retry logic applied (3x backoff)"
+                elif "Timeout" in line or "TimeoutError" in line:
+                    fix = "timeout increased to 30s, circuit breaker added"
+                elif "MemoryError" in line or "memory" in line.lower():
+                    fix = "memory pressure flagged for review"
+                else:
+                    fix = "logged for commander review"
+                patches.append(f"[{patch_id}] {fix}")
 
-            await manager.broadcast({"type": "agent_log", "agent": "HERMES", "message": msg, "level": "info" if not errors else "warning", "timestamp": datetime.now().isoformat()})
-            await manager.broadcast({"type": "hermes_report", "agent": "HERMES", "data": {"errors": errors, "warnings": warnings, "fileCount": file_count, "scanId": scan_id}})
+            # — Build combined status message —
+            if cpu > 90 or ram > 90 or disk > 95:
+                level = "error"
+                issue = f"CPU {cpu}%" if cpu > 90 else f"RAM {ram}%" if ram > 90 else f"Disk {disk}%"
+                msg = f"CRITICAL: {issue} exceeded threshold."
+                await manager.broadcast({"type": "alert", "data": {"message": f"GUARDIAN CRITICAL: {issue}", "severity": "critical"}})
+            elif cpu > 70 or ram > 75 or disk > 80:
+                level = "warning"
+                issue = f"CPU {cpu}%" if cpu > 70 else f"RAM {ram}%" if ram > 75 else f"Disk {disk}%"
+                msg = f"Warning: {issue} above threshold."
+            elif errors:
+                level = "warning"
+                msg = f"Scan #{scan_id}: {len(errors)} error(s) detected. {' | '.join(patches)}"
+            else:
+                level = "info"
+                blocked = len(state.blocked_ips)
+                msg = f"Scan #{scan_id}: {file_count} log files clean. CPU {cpu}% RAM {ram}% Disk {disk}%. {blocked} IPs blocked. All systems nominal."
 
-            ag = state.agents.get("HERMES", {})
-            ag["lastAction"] = f"Scan #{scan_id} — {len(errors)} errors"
-            state.agents["HERMES"] = ag
-            await manager.broadcast({"type": "agent_status", "agent": "HERMES", "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
+            await manager.broadcast({
+                "type": "agent_log",
+                "agent": "GUARDIAN",
+                "message": msg,
+                "level": level,
+                "timestamp": datetime.now().isoformat(),
+            })
 
-            if errors:
-                await manager.broadcast({"type": "agent_log", "agent": "HERMES", "message": f"Escalating {len(errors)} error(s) to Hephaestus for diagnosis.", "level": "warning", "timestamp": datetime.now().isoformat()})
-                asyncio.create_task(_hephaestus_respond(errors))
+            last = f"Scan #{scan_id} — CPU {cpu}% RAM {ram}% | {len(errors)} errors"
+            ag = state.agents.setdefault("GUARDIAN", {"xp": 0, "level": 1})
+            ag["lastAction"] = last
+            ag["status"] = "active"
+            await manager.broadcast({
+                "type": "agent_status",
+                "agent": "GUARDIAN",
+                "data": {"status": "active", "lastAction": last, "xp": ag.get("xp", 0), "level": ag.get("level", 1)},
+            })
 
-            await _award_xp_silent("HERMES", 8, "log_scan")
+            # Broadcast legacy reports so HUD still works
+            await manager.broadcast({"type": "hermes_report", "agent": "GUARDIAN", "data": {"errors": errors, "warnings": warnings, "fileCount": file_count, "scanId": scan_id}})
+            await manager.broadcast({"type": "tyr_report", "agent": "GUARDIAN", "data": {"totalBlocked": len(state.blocked_ips), "newThreats": [], "scanId": scan_id}})
+
+            await _award_xp_silent("GUARDIAN", 10, "ops_scan")
+
         except Exception:
             pass
         await asyncio.sleep(60)
-
-
-async def _hephaestus_respond(errors: list):
-    await asyncio.sleep(2)
-    for error in errors[:3]:
-        line = error.get("line", "")
-        if "ECONNREFUSED" in line or "ConnectionRefused" in line:
-            fix = "Applied retry logic with exponential backoff (max 3 retries, 1s/2s/4s delays)."
-            patch_id = f"PATCH-{uuid.uuid4().hex[:4].upper()}"
-            await manager.broadcast({"type": "agent_log", "agent": "HEPHAESTUS", "message": f"[{patch_id}] Connection refusal detected. {fix}", "level": "info", "timestamp": datetime.now().isoformat()})
-        elif "Timeout" in line or "TimeoutError" in line:
-            patch_id = f"PATCH-{uuid.uuid4().hex[:4].upper()}"
-            await manager.broadcast({"type": "agent_log", "agent": "HEPHAESTUS", "message": f"[{patch_id}] Timeout pattern found. Increased request timeout to 30s, added circuit breaker.", "level": "info", "timestamp": datetime.now().isoformat()})
-        elif "MemoryError" in line or "memory" in line.lower():
-            patch_id = f"PATCH-{uuid.uuid4().hex[:4].upper()}"
-            await manager.broadcast({"type": "agent_log", "agent": "HEPHAESTUS", "message": f"[{patch_id}] Memory pressure detected. Flagging for NODE_OPTIONS heap adjustment.", "level": "warning", "timestamp": datetime.now().isoformat()})
-        else:
-            patch_id = f"PATCH-{uuid.uuid4().hex[:4].upper()}"
-            await manager.broadcast({"type": "agent_log", "agent": "HEPHAESTUS", "message": f"[{patch_id}] Error pattern analyzed. Logged for commander review — auto-fix not applied for unknown signature.", "level": "info", "timestamp": datetime.now().isoformat()})
-
-    ag = state.agents.get("HEPHAESTUS", {})
-    ag["lastAction"] = f"Processed {len(errors)} error(s) from Hermes"
-    state.agents["HEPHAESTUS"] = ag
-    await manager.broadcast({"type": "agent_status", "agent": "HEPHAESTUS", "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
-    await _award_xp_silent("HEPHAESTUS", 15, "patch_applied")
-    await manager.broadcast({"type": "hephaestus_report", "agent": "HEPHAESTUS", "data": {"patches": [{"id": f"PATCH-{i}", "autoFixed": True} for i in range(len(errors))]}})
 
 
 async def _heimdall_loop():
@@ -745,26 +744,151 @@ async def _athena_loop():
         await asyncio.sleep(300)
 
 
-async def _tyr_loop():
-    scan_id = 0
-    await asyncio.sleep(10)
+async def _odin_morning_briefing_loop():
+    """
+    Daily briefing from Odin: what happened, what needs to happen today,
+    exact progress toward $200/month goal. Runs every 24 hours.
+    First briefing fires 5 minutes after startup.
+    """
+    await asyncio.sleep(300)
     while True:
         try:
-            scan_id += 1
-            blocked_count = len(state.blocked_ips)
-            msg = f"Security scan #{scan_id}: {blocked_count} IPs on blocklist. All API endpoints nominal. No new threats detected."
+            rev = state.vault.get("totalRevenue", 0)
+            net = state.vault.get("netProfit", 0)
+            margin = state.vault.get("profitMarginPct", 0)
+            pending_i = len([i for i in state.queue["ideas"] if i["status"] == "pending"])
+            pending_d = len([d for d in state.queue["designs"] if d["status"] == "pending"])
 
-            await manager.broadcast({"type": "agent_log", "agent": "TYR", "message": msg, "level": "info", "timestamp": datetime.now().isoformat()})
-            await manager.broadcast({"type": "tyr_report", "agent": "TYR", "data": {"totalBlocked": blocked_count, "newThreats": [], "scanId": scan_id}})
+            # Goal math: net $200/month, ~9 sales needed at $34.99
+            goal = 200.0
+            net_per_sale = 34.99 - 8.50 - (34.99 * 0.065) - 0.20  # ~$24.02
+            sales_needed = round(goal / net_per_sale)
+            sales_done = round(rev / 34.99) if rev > 0 else 0
+            sales_left = max(0, sales_needed - sales_done)
+            pct = round((net / goal * 100), 1)
 
-            ag = state.agents.get("TYR", {})
-            ag["lastAction"] = f"Perimeter scan #{scan_id} — {blocked_count} blocked"
-            state.agents["TYR"] = ag
-            await manager.broadcast({"type": "agent_status", "agent": "TYR", "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)}})
-            await _award_xp_silent("TYR", 6, "security_scan")
-        except Exception:
-            pass
-        await asyncio.sleep(60)
+            if pending_d > 0:
+                action = f"APPROVE {pending_d} design(s) in queue — each approval = one step closer to first sale."
+            elif pending_i > 0:
+                action = f"APPROVE {pending_i} idea(s) from Heimdall to start the design pipeline."
+            elif rev == 0:
+                action = "No ideas queued — ask Heimdall for today's top niche recommendation."
+            else:
+                action = f"Keep approving. {sales_left} more sales needed to hit $200 this month."
+
+            briefing = (
+                f"MORNING BRIEFING — {datetime.now().strftime('%A %b %d')} | "
+                f"Goal: ${goal}/month | Progress: ${net:.2f} net ({pct}%) | "
+                f"Sales: {sales_done}/{sales_needed} needed | "
+                f"Queue: {pending_i} ideas, {pending_d} designs | "
+                f"Today's priority: {action}"
+            )
+
+            try:
+                mem.odin_write_directive(briefing, {
+                    "totalRevenue": rev, "netProfit": net,
+                    "pendingIdeas": pending_i, "pendingDesigns": pending_d,
+                })
+                brain.write_odin_briefing(briefing)
+            except Exception:
+                pass
+
+            await manager.broadcast({
+                "type": "odin_strategy",
+                "data": {"strategy": briefing, "strategyCount": state.strategy_count},
+            })
+            await manager.broadcast({
+                "type": "agent_log",
+                "agent": "ODIN",
+                "message": briefing,
+                "level": "info",
+                "timestamp": datetime.now().isoformat(),
+            })
+            state.strategy_count += 1
+
+        except Exception as e:
+            print(f"[ODIN BRIEFING] error: {e}")
+        await asyncio.sleep(86400)  # 24 hours
+
+
+async def _odin_agent_improvement_loop():
+    """
+    Weekly: Odin reviews each agent's outcome history and brain lessons,
+    then uses Claude to write improvement notes that get injected into their prompts.
+    First run: 10 minutes after startup (gives brain time to synthesize first).
+    """
+    await asyncio.sleep(600)
+    while True:
+        try:
+            client = get_anthropic_client()
+
+            from crew.agents import AGENT_PROMPTS, RESPONSE_FORMAT
+            for agent_name in ["HEIMDALL", "VULCAN", "LOKI", "VAULT", "GUARDIAN"]:
+                try:
+                    outcomes = brain.get_all_outcomes(agent_name, limit=20)
+                    lessons = brain.get_agent_lessons(agent_name)
+                    current_prompt = AGENT_PROMPTS.get(agent_name, "")
+
+                    if not outcomes and not lessons:
+                        continue
+
+                    outcome_text = "\n".join(
+                        f"- [{o.get('score', 5)}/10] {o.get('action', '')} → {o.get('outcome', '')}"
+                        for o in outcomes
+                    )
+
+                    improvement_prompt = f"""You are ODIN evaluating {agent_name}'s performance for the AsgardMade Etsy business.
+
+Current agent role description:
+{current_prompt}
+
+Recent outcomes (scored 1-10):
+{outcome_text or "No outcomes yet."}
+
+Current distilled lessons:
+{lessons or "No lessons yet."}
+
+Business goal: $200/month net profit.
+
+Write 2-3 specific improvement instructions for {agent_name} based on what the data shows.
+Focus on: what they should do MORE of, what to STOP doing, any pattern in rejections/approvals.
+Be specific and actionable. Each instruction one sentence.
+
+Return ONLY a JSON object: {{"improvements": ["instruction 1", "instruction 2"], "odin_note": "one sentence on why"}}"""
+
+                    response = await client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=400,
+                        system="You are ODIN improving your agent team. Return only valid JSON.",
+                        messages=[{"role": "user", "content": improvement_prompt}],
+                    )
+                    raw = response.content[0].text.strip()
+                    if raw.startswith("```"):
+                        raw = raw.split("```")[1]
+                        if raw.startswith("json"):
+                            raw = raw[4:]
+                    data = json.loads(raw.strip())
+                    improvements = data.get("improvements", [])
+                    note = data.get("odin_note", "")
+
+                    if improvements:
+                        brain.write_agent_improvement(agent_name, improvements, note)
+                        await manager.broadcast({
+                            "type": "agent_log",
+                            "agent": "ODIN",
+                            "message": f"Agent improvement: {agent_name} updated. {note}",
+                            "level": "info",
+                            "timestamp": datetime.now().isoformat(),
+                        })
+                    await asyncio.sleep(5)
+
+                except Exception as e:
+                    print(f"[ODIN IMPROVEMENT] {agent_name} error: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"[ODIN IMPROVEMENT LOOP] error: {e}")
+        await asyncio.sleep(604800)  # 7 days
 
 
 async def _vault_loop():
@@ -1143,15 +1267,15 @@ async def _odin_loop():
 @app.on_event("startup")
 async def startup():
     brain.initialize()  # ensure brain directory exists immediately
-    asyncio.create_task(_argus_loop())
-    asyncio.create_task(_hermes_loop())
-    asyncio.create_task(_heimdall_loop())
-    asyncio.create_task(_heimdall_deep_research_loop())
-    asyncio.create_task(_athena_loop())
-    asyncio.create_task(_tyr_loop())
-    asyncio.create_task(_vault_loop())
-    asyncio.create_task(_odin_loop())
-    asyncio.create_task(_brain_synthesis_loop())
+    asyncio.create_task(_guardian_loop())           # ops: logs + metrics + security
+    asyncio.create_task(_heimdall_loop())           # rapid niche scan every 2 min
+    asyncio.create_task(_heimdall_deep_research_loop())  # deep Google research every 6h
+    asyncio.create_task(_athena_loop())             # shop stats every 5 min
+    asyncio.create_task(_vault_loop())              # P&L updates every 5 min
+    asyncio.create_task(_odin_loop())               # strategy updates every 5 min
+    asyncio.create_task(_odin_morning_briefing_loop())   # daily briefing
+    asyncio.create_task(_odin_agent_improvement_loop())  # weekly agent improvement
+    asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 6h
 
     log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"
     log_file.write_text(f"[{datetime.now().isoformat()}] AsgardMade Pantheon started\n")
