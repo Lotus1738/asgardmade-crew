@@ -146,16 +146,6 @@ async def serve_index():
     return FileResponse(str(PUBLIC_DIR / "index.html"))
 
 
-@app.get("/{path:path}")
-async def serve_static(path: str):
-    """Serve any file from the public/ directory (JS, CSS, images, etc.)"""
-    file_path = PUBLIC_DIR / path
-    if file_path.exists() and file_path.is_file():
-        return FileResponse(str(file_path))
-    # Fall through to index.html for SPA-style routing
-    return FileResponse(str(PUBLIC_DIR / "index.html"))
-
-
 # ─── WebSocket ───────────────────────────────────────────────────────────────
 
 @app.websocket("/")
@@ -1376,6 +1366,17 @@ async def _odin_autonomous_action_loop():
         except Exception:
             pass
         await asyncio.sleep(4 * 3600)  # every 4 hours
+
+
+# ─── Static file catch-all (must be LAST route so API routes match first) ────
+
+@app.get("/{path:path}")
+async def serve_static(path: str):
+    """Serve any file from the public/ directory (JS, CSS, images, etc.)"""
+    file_path = PUBLIC_DIR / path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(str(file_path))
+    return FileResponse(str(PUBLIC_DIR / "index.html"))
 
 
 # ─── Startup ─────────────────────────────────────────────────────────────────
