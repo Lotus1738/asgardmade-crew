@@ -146,6 +146,16 @@ async def serve_index():
     return FileResponse(str(PUBLIC_DIR / "index.html"))
 
 
+@app.get("/{path:path}")
+async def serve_static(path: str):
+    """Serve any file from the public/ directory (JS, CSS, images, etc.)"""
+    file_path = PUBLIC_DIR / path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(str(file_path))
+    # Fall through to index.html for SPA-style routing
+    return FileResponse(str(PUBLIC_DIR / "index.html"))
+
+
 # ─── WebSocket ───────────────────────────────────────────────────────────────
 
 @app.websocket("/")
