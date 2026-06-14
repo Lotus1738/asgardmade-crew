@@ -606,6 +606,27 @@ async def memory_read(agent: str, topic: str):
     return result
 
 
+@app.get("/api/memory/browse")
+async def memory_browse():
+    """Return a tree of all agent memory notes for the HUD memory viewer."""
+    from pathlib import Path as _P
+    vault = _P(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
+    if not vault.exists():
+        return {"available": False, "folders": []}
+    folders = []
+    for folder in sorted(vault.iterdir()):
+        if folder.is_dir():
+            files = []
+            for f in sorted(folder.rglob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)[:10]:
+                try:
+                    files.append({"name": f.stem, "path": str(f.relative_to(vault)),
+                                  "preview": f.read_text(encoding="utf-8")[:300]})
+                except Exception:
+                    pass
+            folders.append({"folder": folder.name, "count": len(list(folder.rglob("*.md"))), "recent": files[:5]})
+    return {"available": True, "vault": str(vault.resolve()), "folders": folders}
+
+
 # ─── XP Helper ───────────────────────────────────────────────────────────────
 
 async def _award_xp_silent(agent: str, amount: int, action: str):
@@ -1441,6 +1462,18 @@ async def serve_static(path: str):
 @app.on_event("startup")
 async def startup():
     brain.initialize()  # ensure brain directory exists immediately
+    # Ensure obsidian vault directory exists so agents can write notes immediately
+    try:
+        from pathlib import Path as _P
+        from datetime import datetime as _dt
+        _vault = _P(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
+        _vault.mkdir(parents=True, exist_ok=True)
+        mem.write("System/startup.md",
+            f"# Pantheon Online\nTimestamp: {_dt.now().isoformat()}\n"
+            f"Vault: {_vault.resolve()}\nAll agents initialized.\n")
+        print(f"[MEMORY] Obsidian vault active at {_vault.resolve()}")
+    except Exception as e:
+        print(f"[MEMORY] Vault init warning: {e}")
     asyncio.create_task(_guardian_loop())           # ops: logs + metrics + security
     asyncio.create_task(_heimdall_loop())           # rapid niche scan every 2 min
     asyncio.create_task(_heimdall_deep_research_loop())  # deep web research every 1h

@@ -26,7 +26,7 @@
 html{height:100%;}
 body{
   background:var(--bg);color:var(--txt);font-family:var(--font);font-size:11px;
-  min-height:100vh;overflow-y:auto;position:relative;
+  height:100vh;overflow:hidden;position:relative;
 }
 /* Subtle grid overlay */
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,120,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,120,255,.03) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;z-index:0;}
@@ -38,13 +38,15 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 #app{
   position:relative;z-index:1;
   display:flex;flex-direction:column;
-  min-height:100vh;
+  height:100vh;overflow:hidden;
 }
 #main-body{
   flex:1;display:grid;
   grid-template-columns:210px 1fr 270px;
   min-height:0;overflow:hidden;
 }
+/* ── Hide old ODIN command zone ── */
+#command-zone{ display:none !important; }
 
 /* ── Header ── */
 header{
@@ -153,7 +155,7 @@ header{
   background:var(--panel-bg);
   display:flex;flex-direction:column;overflow:hidden;
 }
-#log-feed{overflow-y:auto;padding:6px;flex:1;min-height:0;}
+#log-feed{overflow-y:auto;padding:6px;flex:1;min-height:0;max-height:calc(100vh - 280px);}
 .log-entry{display:flex;gap:6px;padding:3px 4px;border-bottom:1px solid rgba(0,50,100,.2);animation:fadeIn .3s ease;}
 @keyframes fadeIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
 .log-agent{font-size:7px;font-weight:700;letter-spacing:1px;min-width:62px;padding-top:1px;color:var(--c1);}
@@ -339,7 +341,7 @@ header{
 
 /* ── Bottom Panel ── */
 #bottom-panel{
-  flex-shrink:0;height:210px;display:flex;flex-direction:column;
+  flex-shrink:0;height:185px;display:flex;flex-direction:column;
   border-top:1px solid rgba(0,212,255,.18);
   background:rgba(0,3,14,.98);overflow:hidden;
 }
@@ -1183,11 +1185,21 @@ const PixelBuilding = (() => {
 
     <!-- RIGHT: LOG PANEL -->
     <aside id="log-panel">
-      <div class="sidebar-header">◈ LIVE LOG STREAM</div>
+      <!-- Quick actions (moved from command zone) -->
+      <div class="sidebar-header" style="font-size:7px;padding:5px 8px">⚡ ACTIONS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:5px 6px;border-bottom:var(--border);flex-shrink:0;">
+        <button class="ms-cmd" style="font-size:6px;padding:4px 4px;" onclick="odinQuickAction('SYSTEM AUDIT')">⚙ AUDIT</button>
+        <button class="ms-cmd" style="font-size:6px;padding:4px 4px;" onclick="odinQuickAction('REVENUE FORECAST')">📈 FORECAST</button>
+        <button class="ms-cmd" style="font-size:6px;padding:4px 4px;" onclick="odinQuickAction('BEST MOVE NOW')">⚡ BEST MOVE</button>
+        <button class="ms-cmd" style="font-size:6px;padding:4px 4px;" onclick="odinQuickAction('IMPROVE AGENTS')">🔨 IMPROVE</button>
+        <button class="ms-cmd" style="font-size:6px;padding:4px 4px;" onclick="switchTab('vault')">💰 VAULT</button>
+        <button class="ms-cmd" style="font-size:6px;padding:4px 4px;" onclick="switchTab('ideas')">💡 IDEAS</button>
+      </div>
+      <div class="sidebar-header" style="font-size:7px;padding:5px 10px">◈ LIVE LOG STREAM</div>
       <div id="log-feed"></div>
       <!-- Sys metrics inline -->
-      <div class="sidebar-header" style="font-size:7px;padding:6px 10px">⚙ SYSTEM METRICS</div>
-      <div id="argus-inline">
+      <div class="sidebar-header" style="font-size:7px;padding:5px 10px;flex-shrink:0;">⚙ SYSTEM METRICS</div>
+      <div id="argus-inline" style="flex-shrink:0;">
         <div class="sys-row"><span class="m-label">CPU</span><div class="m-bar"><div class="m-fill" id="cpu-fill" style="width:0%"></div></div><span class="m-val" id="cpu-val">0%</span></div>
         <div class="sys-row"><span class="m-label">RAM</span><div class="m-bar"><div class="m-fill" id="ram-fill" style="width:0%"></div></div><span class="m-val" id="ram-val">0%</span></div>
         <div class="sys-row"><span class="m-label">DISK</span><div class="m-bar"><div class="m-fill" id="disk-fill" style="width:0%"></div></div><span class="m-val" id="disk-val">0%</span></div>
@@ -1928,8 +1940,8 @@ function startAnimLoop(){
   const odinC=document.getElementById('odin-canvas');
   function loop(){
     animTick++;
-    // ODIN big canvas
-    if(odinC){ const ctx=odinC.getContext('2d'); drawODIN(ctx,odinC.width,odinC.height,animTick); }
+    // ODIN big canvas — skip if hidden (command-zone is hidden)
+    if(odinC && odinC.offsetParent!==null){ const ctx=odinC.getContext('2d'); drawODIN(ctx,odinC.width,odinC.height,animTick); }
     // Agent room canvases
     GRID_AGENTS.forEach(name=>{
       const c=document.getElementById(`canvas-${name}`);
@@ -2620,13 +2632,20 @@ async function sendOdinChat(){
 }
 
 function odinQuickAction(action){
-  document.getElementById('odin-input').value=action;
-  sendOdinChat();
+  // Route through the visible chat overlay
+  openChat('ODIN');
+  setTimeout(()=>{
+    const inp=document.getElementById('chat-input');
+    if(inp){ inp.value=action; sendChat(); }
+  }, 350);
 }
 
 function injectOdinRec(text){
-  document.getElementById('odin-input').value=text;
-  document.getElementById('odin-input').focus();
+  openChat('ODIN');
+  setTimeout(()=>{
+    const inp=document.getElementById('chat-input');
+    if(inp){ inp.value=text; inp.focus(); }
+  }, 350);
 }
 
 document.addEventListener('keydown',e=>{

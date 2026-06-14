@@ -14,7 +14,7 @@ import traceback
 from pathlib import Path
 from datetime import datetime, date
 
-VAULT = Path(os.getenv("OBSIDIAN_VAULT_PATH", r"C:\Users\Mario\AsgardMade HQ"))
+VAULT = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
 PREFS_PATH = "Odin Intelligence/Commander Preferences.md"
 
 _directive_counter = 0
