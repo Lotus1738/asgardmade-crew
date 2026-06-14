@@ -316,89 +316,133 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .alert-toast{background:rgba(40,0,0,.92);border:1px solid rgba(255,51,85,.5);padding:8px 12px;border-radius:2px;font-size:9px;color:var(--red);max-width:240px;animation:toastIn .3s ease,toastOut .3s ease 5s forwards;}
 
 /* ══════════════════════════════════
-   CHAT OVERLAY
+   GOD ROOM OVERLAY
 ══════════════════════════════════ */
 #chat-overlay{
   position:fixed;inset:0;z-index:3000;
-  background:rgba(0,4,20,.87);
-  backdrop-filter:blur(6px);
+  background:rgba(0,2,12,.92);
+  backdrop-filter:blur(8px);
   display:flex;align-items:center;justify-content:center;
   opacity:0;pointer-events:none;
-  transition:opacity .22s;
+  transition:opacity .25s;
 }
 #chat-overlay.open{opacity:1;pointer-events:all;}
 #chat-modal{
-  width:580px;max-width:96vw;height:68vh;max-height:620px;
+  width:92vw;max-width:1140px;height:84vh;max-height:760px;
   display:flex;flex-direction:column;
   border-radius:4px;overflow:hidden;
-  box-shadow:0 0 80px rgba(0,100,255,.4),0 0 140px rgba(0,0,0,.85);
-  border:1px solid rgba(0,212,255,.4);
+  box-shadow:0 0 100px rgba(0,0,0,.9);
+  border:1px solid var(--room-accent,rgba(0,212,255,.4));
   animation:modalIn .22s ease;
+  transition:border-color .3s;
 }
-@keyframes modalIn{from{transform:scale(.93);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes modalIn{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* Header bar */
 #chat-modal-header{
-  position:relative;padding:14px 18px;display:flex;align-items:center;gap:14px;
-  border-bottom:1px solid rgba(0,212,255,.25);flex-shrink:0;overflow:hidden;
+  position:relative;padding:12px 16px;display:flex;align-items:center;gap:12px;
+  border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;overflow:hidden;
+  background:rgba(0,0,0,.85);
 }
 #chat-header-canvas{position:absolute;inset:0;pointer-events:none;}
-.chat-hdr-content{position:relative;z-index:2;display:flex;align-items:center;gap:14px;flex:1;min-width:0;}
+.chat-hdr-content{position:relative;z-index:2;display:flex;align-items:center;gap:12px;flex:1;min-width:0;}
 #chat-avatar{
-  width:52px;height:52px;border-radius:3px;border:2px solid rgba(0,212,255,.5);
-  display:flex;align-items:center;justify-content:center;font-size:26px;
-  background:rgba(0,0,0,.5);flex-shrink:0;
+  width:48px;height:48px;border-radius:3px;
+  border:2px solid var(--room-accent,rgba(0,212,255,.5));
+  box-shadow:0 0 18px var(--room-accent,rgba(0,212,255,.3));
+  display:flex;align-items:center;justify-content:center;font-size:24px;
+  background:rgba(0,0,0,.6);flex-shrink:0;transition:border-color .3s,box-shadow .3s;
 }
-#chat-name{font-size:17px;font-weight:900;letter-spacing:4px;color:var(--c1);text-shadow:var(--glow);}
+#chat-name{font-size:18px;font-weight:900;letter-spacing:5px;color:var(--room-accent,var(--c1));text-shadow:0 0 20px var(--room-accent,rgba(0,212,255,.6));}
 #chat-role{font-size:8px;color:var(--txt2);letter-spacing:2px;margin-top:2px;}
 #chat-onl{font-size:7px;color:var(--green);letter-spacing:1px;margin-top:3px;}
-#chat-close{
-  position:relative;z-index:2;margin-left:auto;
-  background:rgba(255,51,85,.1);border:1px solid rgba(255,51,85,.3);
-  color:var(--red);padding:6px 12px;font-family:var(--font);font-size:8px;
-  letter-spacing:1px;cursor:pointer;border-radius:2px;transition:.2s;flex-shrink:0;
+#chat-room-label{
+  margin-left:auto;font-size:9px;letter-spacing:3px;
+  color:var(--room-accent,var(--c1));opacity:.7;
+  padding:4px 10px;border:1px solid var(--room-accent,rgba(0,212,255,.3));
+  border-radius:2px;background:rgba(0,0,0,.3);flex-shrink:0;
 }
-#chat-close:hover{background:rgba(255,51,85,.25);}
+#chat-close{
+  background:rgba(255,51,85,.08);border:1px solid rgba(255,51,85,.3);
+  color:var(--red);padding:6px 12px;font-family:var(--font);font-size:8px;
+  letter-spacing:1px;cursor:pointer;border-radius:2px;transition:.2s;flex-shrink:0;margin-left:8px;
+}
+#chat-close:hover{background:rgba(255,51,85,.22);}
+
+/* Room body: Spline left + Chat right */
+#room-body{display:flex;flex:1;min-height:0;}
+
+/* Left: Spline / canvas scene */
+#room-scene-col{
+  width:380px;flex-shrink:0;border-right:1px solid rgba(255,255,255,.07);
+  display:flex;flex-direction:column;background:rgba(0,0,0,.6);position:relative;
+}
+#spline-wrap{
+  flex:1;position:relative;overflow:hidden;
+}
+#spline-wrap spline-viewer{width:100%;height:100%;}
+#scene-placeholder{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:8px;
+}
+#scene-placeholder canvas{position:absolute;inset:0;width:100%;height:100%;}
+.scene-ph-label{
+  position:relative;z-index:2;font-size:8px;letter-spacing:3px;
+  color:var(--room-accent,var(--c1));opacity:.5;
+  background:rgba(0,0,0,.5);padding:4px 12px;border-radius:2px;
+}
+/* Agent live stats strip at bottom of scene */
+#room-stats{
+  padding:8px 12px;border-top:1px solid rgba(255,255,255,.07);
+  display:flex;gap:10px;flex-wrap:wrap;background:rgba(0,0,0,.7);flex-shrink:0;
+}
+.stat-chip{font-size:7px;letter-spacing:1px;color:var(--txt2);
+  padding:3px 8px;border-radius:2px;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);}
+.stat-chip span{color:var(--room-accent,var(--c1));font-weight:700;}
+
+/* Right: Chat */
+#room-chat-col{flex:1;display:flex;flex-direction:column;min-width:0;background:rgba(0,3,14,.97);}
 #chat-history{
   flex:1;overflow-y:auto;padding:14px;
-  background:rgba(0,5,20,.97);
-  display:flex;flex-direction:column;gap:10px;
-  min-height:0;
+  display:flex;flex-direction:column;gap:10px;min-height:0;
 }
 .cmsg{display:flex;gap:10px;animation:fadeIn .3s ease;}
 .cmsg.user{flex-direction:row-reverse;}
-.cbubble{
-  max-width:76%;padding:9px 13px;border-radius:3px;font-size:10px;line-height:1.7;
-}
-.cmsg.agent .cbubble{background:rgba(0,28,75,.75);border:1px solid rgba(0,212,255,.18);color:var(--txt);border-radius:0 3px 3px 3px;}
-.cmsg.user .cbubble{background:rgba(0,70,170,.3);border:1px solid rgba(0,140,255,.28);color:var(--txt);border-radius:3px 0 3px 3px;}
+.cbubble{max-width:78%;padding:9px 13px;border-radius:3px;font-size:10px;line-height:1.7;}
+.cmsg.agent .cbubble{background:rgba(0,20,55,.8);border:1px solid rgba(255,255,255,.08);color:var(--txt);border-radius:0 3px 3px 3px;}
+.cmsg.user  .cbubble{background:rgba(0,50,130,.3);border:1px solid rgba(255,255,255,.08);color:var(--txt);border-radius:3px 0 3px 3px;}
 .cmsg-icon{font-size:17px;flex-shrink:0;margin-top:3px;}
 .ctyping{display:flex;gap:4px;align-items:center;padding:6px 0;}
-.ctyping span{width:5px;height:5px;border-radius:50%;background:var(--c1);animation:tdot 1.2s infinite;}
+.ctyping span{width:5px;height:5px;border-radius:50%;background:var(--room-accent,var(--c1));animation:tdot 1.2s infinite;}
 .ctyping span:nth-child(2){animation-delay:.2s;}
 .ctyping span:nth-child(3){animation-delay:.4s;}
 @keyframes tdot{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1.2)}}
 #chat-input-row{
   display:flex;gap:8px;padding:11px 14px;
-  background:rgba(0,8,28,1);border-top:1px solid rgba(0,212,255,.18);flex-shrink:0;
+  background:rgba(0,0,0,.9);border-top:1px solid rgba(255,255,255,.07);flex-shrink:0;
 }
 #chat-input{
-  flex:1;background:rgba(0,18,55,.65);border:1px solid rgba(0,212,255,.3);
+  flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);
   color:var(--txt);font-family:var(--font);font-size:10px;padding:8px 13px;
   border-radius:2px;outline:none;transition:border-color .2s;
 }
-#chat-input:focus{border-color:rgba(0,212,255,.75);}
+#chat-input:focus{border-color:var(--room-accent,rgba(0,212,255,.75));}
 #chat-input::placeholder{color:var(--txt3);}
 #chat-send{
-  background:rgba(0,80,200,.25);border:1px solid rgba(0,140,255,.4);
-  color:var(--c1);font-family:var(--font);font-size:8px;letter-spacing:2px;
+  background:rgba(255,255,255,.06);border:1px solid var(--room-accent,rgba(0,140,255,.4));
+  color:var(--room-accent,var(--c1));font-family:var(--font);font-size:8px;letter-spacing:2px;
   padding:8px 14px;cursor:pointer;border-radius:2px;transition:.2s;
 }
-#chat-send:hover{background:rgba(0,120,255,.38);box-shadow:0 0 14px rgba(0,212,255,.28);}
+#chat-send:hover{background:rgba(255,255,255,.12);box-shadow:0 0 14px var(--room-accent,rgba(0,212,255,.2));}
 
 ::-webkit-scrollbar{width:3px;height:3px;}
 ::-webkit-scrollbar-track{background:rgba(0,10,40,.5);}
 ::-webkit-scrollbar-thumb{background:rgba(0,100,200,.4);border-radius:2px;}
 ::-webkit-scrollbar-thumb:hover{background:rgba(0,150,255,.6);}
 </style>
+<!-- Spline 3D web component — loads god room scenes when URL is set -->
+<script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.96/build/spline-viewer.js"></script>
 </head>
 <body>
 <canvas id="bg"></canvas>
@@ -503,9 +547,10 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
   <div class="sys-metric"><span class="m-label">NET↓</span><span class="m-val" id="net-rx">0KB/s</span></div>
 </div>
 
-<!-- Chat overlay -->
+<!-- God Room Overlay -->
 <div id="chat-overlay" onclick="overlayClick(event)">
   <div id="chat-modal">
+    <!-- Header bar -->
     <div id="chat-modal-header">
       <canvas id="chat-header-canvas"></canvas>
       <div class="chat-hdr-content">
@@ -515,13 +560,34 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
           <div id="chat-role">Loading...</div>
           <div id="chat-onl">● ONLINE</div>
         </div>
+        <div id="chat-room-label">GOD ROOM</div>
         <button id="chat-close" onclick="closeChat()">✕ CLOSE</button>
       </div>
     </div>
-    <div id="chat-history"></div>
-    <div id="chat-input-row">
-      <input id="chat-input" type="text" placeholder="SPEAK TO THE AGENT — ENTER TO TRANSMIT" maxlength="400">
-      <button id="chat-send" onclick="sendChat()">TRANSMIT</button>
+    <!-- Room body: scene left, chat right -->
+    <div id="room-body">
+      <!-- Left: Spline scene or canvas placeholder -->
+      <div id="room-scene-col">
+        <div id="spline-wrap">
+          <div id="scene-placeholder">
+            <canvas id="scene-canvas"></canvas>
+            <div class="scene-ph-label">3D SCENE COMING SOON</div>
+          </div>
+        </div>
+        <div id="room-stats">
+          <div class="stat-chip">STATUS <span id="rs-status">ONLINE</span></div>
+          <div class="stat-chip">XP <span id="rs-xp">0</span></div>
+          <div class="stat-chip">TASKS <span id="rs-tasks">—</span></div>
+        </div>
+      </div>
+      <!-- Right: Chat -->
+      <div id="room-chat-col">
+        <div id="chat-history"></div>
+        <div id="chat-input-row">
+          <input id="chat-input" type="text" placeholder="SPEAK TO THE GOD — ENTER TO TRANSMIT" maxlength="400">
+          <button id="chat-send" onclick="sendChat()">TRANSMIT</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -534,18 +600,24 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
    META & CONSTANTS
 ═══════════════════════════════════════════════ */
 const AGENT_META = {
-  ODIN:       {icon:'🔱',role:'Master Orchestrator',   color:'#00d4ff'},
-  HERMES:     {icon:'🪶',role:'Log Scanner & Recon',   color:'#00ff88'},
-  HEPHAESTUS: {icon:'🔨',role:'Auto Patcher & Fixer',  color:'#ffcc00'},
-  ARGUS:      {icon:'👁', role:'System Monitor',        color:'#ffaa00'},
-  ATHENA:     {icon:'🦉',role:'Etsy Revenue Analyst',  color:'#3399ff'},
-  LOKI:       {icon:'🎭',role:'Listing Publisher',     color:'#cc66ff'},
-  TYR:        {icon:'🛡', role:'Security Guard',        color:'#ff3355'},
-  HEIMDALL:   {icon:'🌈',role:'Market Researcher',     color:'#8844ff'},
-  VAULT:      {icon:'💰',role:'Finance Manager',       color:'#00ffcc'},
-  VULCAN:     {icon:'⚒', role:'AI Design Generator',   color:'#ff6600'}
+  ODIN:     {icon:'🔱',role:'Master Commander',     color:'#00d4ff'},
+  HEIMDALL: {icon:'🌈',role:'Market Researcher',    color:'#8844ff'},
+  VULCAN:   {icon:'⚒', role:'AI Design Generator',  color:'#ff6600'},
+  LOKI:     {icon:'🎭',role:'Listing Publisher',    color:'#cc66ff'},
+  VAULT:    {icon:'💰',role:'Finance Manager',      color:'#00ffcc'},
+  GUARDIAN: {icon:'🛡', role:'Ops & Security',       color:'#e74c3c'},
 };
-const GRID_AGENTS = ['HERMES','HEPHAESTUS','ARGUS','ATHENA','LOKI','TYR','HEIMDALL','VAULT','VULCAN'];
+const GRID_AGENTS = ['HEIMDALL','VULCAN','LOKI','VAULT','GUARDIAN'];
+
+/* Per-agent room themes (colors + future Spline embed URL) */
+const ROOM_THEMES = {
+  ODIN:     {bg:'#000814', accent:'#00d4ff', wall:'#0a1628', name:'THE THRONE ROOM',     splineUrl:null},
+  HEIMDALL: {bg:'#050011', accent:'#8844ff', wall:'#0d0820', name:'THE OBSERVATORY',     splineUrl:null},
+  VULCAN:   {bg:'#0d0500', accent:'#ff6600', wall:'#1a0a00', name:'THE DESIGN STUDIO',   splineUrl:null},
+  LOKI:     {bg:'#070010', accent:'#cc66ff', wall:'#110018', name:'THE MARKETPLACE',     splineUrl:null},
+  VAULT:    {bg:'#001208', accent:'#00ffcc', wall:'#001a0c', name:'THE TREASURY',        splineUrl:null},
+  GUARDIAN: {bg:'#0d0000', accent:'#e74c3c', wall:'#1a0000', name:'THE OPERATIONS HUB', splineUrl:null},
+};
 const state = {agents:{},logs:[],approvals:{designs:[],ideas:[]},vault:null,leaderboard:[],strategyCount:0,metrics:{}};
 
 /* ═══════════════════════════════════════════════
@@ -902,16 +974,16 @@ function drawODIN(ctx,w,h,t){
   ctx.beginPath(); ctx.arc(cx,cy,95,0,Math.PI*2); ctx.fillStyle=au; ctx.fill();
   // Orbital rings
   const ORBS=[
-    {r:65,spd:.016,tilt:.38,col:'#00d4ff',names:['HER','HEP','ARG']},
-    {r:82,spd:-.011,tilt:-.24,col:'#ffcc00',names:['ATH','LOK','TYR']},
-    {r:98,spd:.008,tilt:.52,col:'#aa44ff',names:['HEI','VAU','VUL']}
+    {r:65,spd:.016,tilt:.38,col:'#8844ff',names:['HEI','VUL']},
+    {r:82,spd:-.011,tilt:-.24,col:'#00ffcc',names:['LOK','VAU']},
+    {r:98,spd:.008,tilt:.52,col:'#e74c3c',names:['GRD']}
   ];
   ORBS.forEach(o=>{
     ctx.save(); ctx.translate(cx,cy); ctx.scale(1,Math.cos(o.tilt));
     ctx.beginPath(); ctx.arc(0,0,o.r,0,Math.PI*2);
     ctx.strokeStyle=o.col+'55'; ctx.lineWidth=1; ctx.stroke(); ctx.restore();
     o.names.forEach((nm,i)=>{
-      const ang=(i/3)*Math.PI*2+t*o.spd;
+      const ang=(i/o.names.length)*Math.PI*2+t*o.spd;
       const ex=cx+Math.cos(ang)*o.r, ey=cy+Math.sin(ang)*o.r*Math.cos(o.tilt);
       ctx.beginPath(); ctx.arc(ex,ey,3.5,0,Math.PI*2);
       ctx.fillStyle=o.col; ctx.shadowColor=o.col; ctx.shadowBlur=10; ctx.fill();
@@ -985,11 +1057,64 @@ function drawODIN(ctx,w,h,t){
   ctx.font='bold 9px Orbitron,monospace'; ctx.fillStyle='rgba(0,212,255,.6)'; ctx.fillText('ODIN',cx,h-12);
 }
 
-/* dispatch map */
+/* GUARDIAN — red ops hub: rotating shield + threat scan rings + status bars */
+function drawGUARDIAN(ctx,w,h,t){
+  const cx=w/2, cy=h/2;
+  ctx.fillStyle='rgba(10,0,0,.2)'; ctx.fillRect(0,0,w,h);
+  // outer scan rings
+  [18,32,46].forEach((r,i)=>{
+    const a=.35-i*.08+.12*Math.abs(Math.sin(t*.03+i));
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(231,76,60,${a})`; ctx.lineWidth=1; ctx.stroke();
+  });
+  // rotating sweep
+  const sw=(t*.02)%(Math.PI*2);
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,46,sw-1.0,sw);
+  ctx.fillStyle='rgba(231,76,60,.07)'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,0);
+  ctx.lineTo(Math.cos(sw)*46,Math.sin(sw)*46);
+  ctx.strokeStyle='rgba(255,80,60,.9)'; ctx.lineWidth=1.5;
+  ctx.shadowColor='#e74c3c'; ctx.shadowBlur=10; ctx.stroke();
+  ctx.restore(); ctx.shadowBlur=0;
+  // shield emblem (hexagon)
+  const sp=.7+.3*Math.abs(Math.sin(t*.04));
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(t*.005);
+  ctx.beginPath();
+  for(let i=0;i<6;i++){
+    const a=(i/6)*Math.PI*2-Math.PI/6;
+    i===0?ctx.moveTo(Math.cos(a)*12,Math.sin(a)*12):ctx.lineTo(Math.cos(a)*12,Math.sin(a)*12);
+  }
+  ctx.closePath();
+  ctx.strokeStyle=`rgba(255,100,80,${sp})`; ctx.lineWidth=2;
+  ctx.shadowColor='#e74c3c'; ctx.shadowBlur=14; ctx.stroke();
+  ctx.fillStyle=`rgba(180,40,30,${sp*.4})`; ctx.fill();
+  ctx.restore(); ctx.shadowBlur=0;
+  // status bars at bottom
+  const barY=h-20, barW=(w-20)/3;
+  ['CPU','MEM','DSK'].forEach((lbl,i)=>{
+    const bx=10+i*(barW+5);
+    const fill=0.35+0.45*Math.abs(Math.sin(t*.025+i*1.3));
+    ctx.fillStyle='rgba(255,255,255,.06)'; ctx.fillRect(bx,barY,barW,4);
+    ctx.fillStyle=fill>.75?'rgba(255,80,60,.9)':'rgba(231,76,60,.6)';
+    ctx.fillRect(bx,barY,barW*fill,4);
+    ctx.font='5px monospace'; ctx.fillStyle='rgba(255,120,100,.6)';
+    ctx.textAlign='left'; ctx.fillText(lbl,bx,barY-2);
+  });
+  // alert blips
+  [[cx-25,cy-30],[cx+22,cy+18],[cx-18,cy+25]].forEach(([bx,by],i)=>{
+    const fl=.3+.5*Math.abs(Math.sin(t*.07+i*2.1));
+    ctx.beginPath(); ctx.arc(bx,by,2,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,80,60,${fl})`;
+    ctx.shadowColor='#ff3020'; ctx.shadowBlur=7; ctx.fill();
+  });
+  ctx.shadowBlur=0;
+}
+
+/* dispatch map — 6-agent system */
 const DRAW = {
-  HERMES:drawHERMES, HEPHAESTUS:drawHEPHAESTUS, ARGUS:drawARGUS,
-  ATHENA:drawATHENA, LOKI:drawLOKI, TYR:drawTYR,
-  HEIMDALL:drawHEIMALL, VAULT:drawVAULT, VULCAN:drawVULCAN
+  HEIMDALL:drawHEIMALL, VULCAN:drawVULCAN, LOKI:drawLOKI,
+  VAULT:drawVAULT, GUARDIAN:drawGUARDIAN
 };
 
 /* ═══════════════════════════════════════════════
@@ -1165,6 +1290,17 @@ const PERSONAS = {
       if(/printify|upload|product/.test(m)) return `Approved design → upload image to Printify CDN → create product with your blueprint → publish it → notify Loki to create the Etsy listing. End-to-end in seconds, fully automated.`;
       return ['The forge creates what the mind imagines.','Art is not made — it is forged.','Every design begins with a vision. I translate vision into product.','Give me an approved idea and I will give you a product.'][Math.floor(Math.random()*4)];
     }
+  },
+  GUARDIAN:{
+    greet(s){ const mt=s.metrics||{}; return `Operations center online, Commander. CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%, Disk ${mt.disk||0}%. I'm running log scans, system metrics, auto-patching, and threat blocking simultaneously. What needs attention?`; },
+    respond(m,s){
+      const mt=s.metrics||{}; m=m.toLowerCase();
+      if(/cpu|ram|disk|memory|metric/.test(m)) return `Current: CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%, Disk ${mt.disk||0}%. Thresholds: CPU warn >70%/critical >90%, RAM warn >75%/critical >90%, Disk warn >80%/critical >95%. All green means the infrastructure is clean.`;
+      if(/log|scan|error|patch/.test(m)) return `I run log scans every 60 seconds across all Railway service files. Errors get a PATCH-XXXX ID and I attempt auto-resolution. Critical issues surface in the alert feed immediately.`;
+      if(/security|threat|block|ip/.test(m)) return `Zero-tolerance policy. Hostile IPs get blocked on detection. Blocklist lives in data/blocked-ips.json. Everything is logged with timestamps for your audit trail.`;
+      if(/status|health|running/.test(m)) return `All four domains nominal: log scan active, metrics current, patch queue clear, perimeter clean. The background stays quiet so the revenue agents can focus.`;
+      return ['The line holds, Commander.','Vigilance is not a state — it is a discipline.','Every patch is a breach that never happened.','I do not sleep. The system is always defended.'][Math.floor(Math.random()*4)];
+    }
   }
 };
 
@@ -1174,21 +1310,33 @@ const PERSONAS = {
 let chatAgent=null, chatHdrAF=null;
 const chatHistories={};
 
+let scenePlaceholderAF=null;
+
 function openChat(name){
   chatAgent=name;
   const m=AGENT_META[name];
+  const theme=ROOM_THEMES[name]||{bg:'#000814',accent:'#00d4ff',wall:'#0a1628',name:'GOD ROOM',splineUrl:null};
   const ov=document.getElementById('chat-overlay');
+  const modal=document.getElementById('chat-modal');
+
+  // Apply room theme via CSS custom property
+  modal.style.setProperty('--room-accent', theme.accent);
+  modal.style.borderColor=theme.accent+'66';
+  modal.style.background=theme.bg;
+
+  // Header
   document.getElementById('chat-avatar').textContent=m.icon;
-  document.getElementById('chat-avatar').style.borderColor=m.color;
-  document.getElementById('chat-avatar').style.boxShadow=`0 0 20px ${m.color}44`;
+  document.getElementById('chat-avatar').style.borderColor=theme.accent;
+  document.getElementById('chat-avatar').style.boxShadow=`0 0 18px ${theme.accent}44`;
   document.getElementById('chat-name').textContent=name;
-  document.getElementById('chat-name').style.color=m.color;
+  document.getElementById('chat-name').style.color=theme.accent;
   document.getElementById('chat-role').textContent=m.role;
   document.getElementById('chat-onl').textContent=`● ${(state.agents[name]?.status||'ONLINE').toUpperCase()}`;
-  // header bg
+  document.getElementById('chat-room-label').textContent=theme.name;
+
+  // Header mini-canvas bg animation
   const hdr=document.getElementById('chat-modal-header');
-  hdr.style.background=`rgba(0,0,0,.92)`;
-  // header mini canvas
+  hdr.style.background=`rgba(0,0,0,.88)`;
   const hc=document.getElementById('chat-header-canvas');
   hc.width=hdr.offsetWidth; hc.height=hdr.offsetHeight;
   if(chatHdrAF) cancelAnimationFrame(chatHdrAF);
@@ -1196,23 +1344,63 @@ function openChat(name){
   function animHdr(){
     ht++;
     const c2=hc.getContext('2d'); c2.clearRect(0,0,hc.width,hc.height);
-    if(DRAW[name]){
-      c2.save(); c2.globalAlpha=.22;
-      c2.translate(hc.width*.65, hc.height*.5);
-      c2.scale(1.5,1.5);
+    const drawFn=DRAW[name]||DRAW['GUARDIAN'];
+    if(drawFn){
+      c2.save(); c2.globalAlpha=.18;
+      c2.translate(hc.width*.7, hc.height*.5);
+      c2.scale(1.6,1.6);
       const tmp=document.createElement('canvas'); tmp.width=160; tmp.height=80;
-      DRAW[name](tmp.getContext('2d'),160,80,ht);
+      drawFn(tmp.getContext('2d'),160,80,ht);
       c2.drawImage(tmp,-80,-40);
       c2.restore();
     }
     chatHdrAF=requestAnimationFrame(animHdr);
   }
   animHdr();
-  // clear history, show overlay
+
+  // Scene column: Spline embed or canvas placeholder
+  const splineWrap=document.getElementById('spline-wrap');
+  // Remove any existing spline-viewer
+  const existingViewer=splineWrap.querySelector('spline-viewer');
+  if(existingViewer) existingViewer.remove();
+  if(scenePlaceholderAF){ cancelAnimationFrame(scenePlaceholderAF); scenePlaceholderAF=null; }
+
+  const sceneCol=document.getElementById('room-scene-col');
+  sceneCol.style.background=theme.wall;
+
+  if(theme.splineUrl){
+    // Load Spline embed
+    document.getElementById('scene-placeholder').style.display='none';
+    const viewer=document.createElement('spline-viewer');
+    viewer.setAttribute('url', theme.splineUrl);
+    viewer.style.cssText='width:100%;height:100%;position:absolute;inset:0;';
+    splineWrap.appendChild(viewer);
+  } else {
+    // Canvas placeholder — animate the agent's draw function full-size
+    document.getElementById('scene-placeholder').style.display='flex';
+    const sc=document.getElementById('scene-canvas');
+    sc.width=splineWrap.offsetWidth||380;
+    sc.height=splineWrap.offsetHeight||360;
+    const drawFn=DRAW[name]||DRAW['GUARDIAN'];
+    let st=0;
+    function animScene(){
+      st+=1.2;
+      if(drawFn) drawFn(sc.getContext('2d'),sc.width,sc.height,st);
+      scenePlaceholderAF=requestAnimationFrame(animScene);
+    }
+    animScene();
+  }
+
+  // Room stats
+  const ag=state.agents[name]||{};
+  document.getElementById('rs-status').textContent=(ag.status||'ONLINE').toUpperCase();
+  document.getElementById('rs-xp').textContent=ag.xp||0;
+  document.getElementById('rs-tasks').textContent=ag.tasksCompleted||'—';
+
+  // Chat history & open
   document.getElementById('chat-history').innerHTML='';
   ov.classList.add('open');
   document.getElementById('chat-input').focus();
-  // greeting
   setTimeout(()=>{
     appendAgentMsg(PERSONAS[name]?.greet(state)||`${name} online.`);
   },320);
@@ -1221,6 +1409,7 @@ function openChat(name){
 function closeChat(){
   document.getElementById('chat-overlay').classList.remove('open');
   if(chatHdrAF){ cancelAnimationFrame(chatHdrAF); chatHdrAF=null; }
+  if(scenePlaceholderAF){ cancelAnimationFrame(scenePlaceholderAF); scenePlaceholderAF=null; }
   chatAgent=null;
 }
 function overlayClick(e){ if(e.target.id==='chat-overlay') closeChat(); }
@@ -1438,7 +1627,7 @@ function updateArgusBar(metrics){
   }
   sm('cpu-fill','cpu-val',cpu); sm('ram-fill','ram-val',ram); sm('disk-fill','disk-val',disk);
   document.getElementById('net-rx').textContent=(network.rx||0)+'KB/s';
-  setAgentChips('ARGUS',[{label:'CPU',val:cpu+'%'},{label:'RAM',val:ram+'%'},{label:'DISK',val:disk+'%'},{label:'NET↓',val:(network.rx||0)+'KB/s'}]);
+  setAgentChips('GUARDIAN',[{label:'CPU',val:cpu+'%'},{label:'RAM',val:ram+'%'},{label:'DISK',val:disk+'%'},{label:'NET↓',val:(network.rx||0)+'KB/s'}]);
 }
 
 function switchTab(name){
@@ -1716,10 +1905,10 @@ function handleMsg(msg){
         if(lvlEl) lvlEl.textContent=state.agents['ODIN']?.level||1;
       } break;
     case 'leaderboard': if(data){ state.leaderboard=data; updateLeaderboard(data); } break;
-    case 'hermes_report': if(data) setAgentChips('HERMES',[{label:'ERR',val:data.errors?.length||0},{label:'WARN',val:data.warnings?.length||0},{label:'FILES',val:data.fileCount||0},{label:'SCAN#',val:data.scanId||0}]); break;
-    case 'tyr_report': if(data) setAgentChips('TYR',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
-    case 'hephaestus_report': if(data&&data.patches) setAgentChips('HEPHAESTUS',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
-    case 'athena_report': if(data) setAgentChips('ATHENA',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
+    case 'hermes_report': if(data) setAgentChips('GUARDIAN',[{label:'ERR',val:data.errors?.length||0},{label:'WARN',val:data.warnings?.length||0},{label:'FILES',val:data.fileCount||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'tyr_report': if(data) setAgentChips('GUARDIAN',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'hephaestus_report': if(data&&data.patches) setAgentChips('GUARDIAN',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
+    case 'athena_report': if(data) setAgentChips('VAULT',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
     case 'loki_published': if(data) setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]); break;
     case 'vulcan_published': if(data) setAgentChips('VULCAN',[{label:'PROD',val:data.product?.id||'N/A'}]); break;
   }
