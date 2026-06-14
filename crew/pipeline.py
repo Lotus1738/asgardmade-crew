@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from integrations.dalle import generate_variants
 from integrations.printify import upload_image, create_product, publish_product
 from integrations.etsy import create_listing, build_tags, build_title, build_description, LISTING_FEE
+import memory.obsidian as mem
 
 if TYPE_CHECKING:
     from server import ConnectionManager, AppState
@@ -74,6 +75,10 @@ async def run_idea_pipeline(
         }
         design_items.append(design)
         state.queue["designs"].append(design)
+        try:
+            mem.vulcan_write_generated(design)
+        except Exception:
+            pass
 
     state.save_queue()
 
@@ -192,6 +197,17 @@ async def run_design_pipeline(
                f"ID: {listing_id}. Tags: {len(etsy_tags)} applied. "
                f"Price: ${price_usd}. Listing fee logged to Vault.")
 
+    try:
+        mem.loki_write_listing(design, {
+            "listing_id": listing_id,
+            "title": etsy_title,
+            "price": price_usd,
+            "tags": etsy_tags,
+            "demo": listing_demo,
+        })
+    except Exception:
+        pass
+
     await manager.broadcast({
         "type": "loki_published",
         "agent": "LOKI",
@@ -205,7 +221,7 @@ async def run_design_pipeline(
     etsy_txn_fee = round(price_usd * 0.065, 2)
     total_expense = round(printify_cost + LISTING_FEE + etsy_txn_fee, 2)
 
-    state.vault["transactions"].append({
+    txn = {
         "id": str(uuid.uuid4()),
         "type": "expense",
         "amount": total_expense,
@@ -217,9 +233,14 @@ async def run_design_pipeline(
             "etsy_txn_fee": etsy_txn_fee,
         },
         "timestamp": datetime.now().isoformat(),
-    })
+    }
+    state.vault["transactions"].append(txn)
     state.recalculate_vault()
     state.save_vault()
+    try:
+        mem.vault_write_transaction(txn)
+    except Exception:
+        pass
 
     await _log(manager, "VAULT",
                f"Logged ${total_expense} expense for '{title}'. "

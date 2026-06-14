@@ -20,6 +20,8 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+import memory.obsidian as mem
+
 _anthropic_client: anthropic.AsyncAnthropic | None = None
 
 def get_anthropic_client() -> anthropic.AsyncAnthropic:
@@ -202,6 +204,10 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
         if idea:
             idea["status"] = "approved"
             state.save_queue()
+            try:
+                mem.heimdall_write_approved(idea)
+            except Exception:
+                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "ideas", "id": item_id, "status": "approved"}})
             asyncio.create_task(run_idea_pipeline(idea, manager, state))
 
@@ -211,6 +217,10 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
         if design:
             design["status"] = "approved"
             state.save_queue()
+            try:
+                mem.vulcan_write_approved(design)
+            except Exception:
+                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "approved"}})
             asyncio.create_task(run_design_pipeline(design, manager, state))
 
@@ -220,6 +230,10 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
         if item:
             item["status"] = "rejected"
             state.save_queue()
+            try:
+                mem.heimdall_write_rejected(item)
+            except Exception:
+                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "ideas", "id": item_id, "status": "rejected"}})
 
     elif msg_type == "reject_design":
@@ -228,6 +242,10 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
         if item:
             item["status"] = "rejected"
             state.save_queue()
+            try:
+                mem.vulcan_write_rejected(item)
+            except Exception:
+                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "rejected"}})
 
 
@@ -260,6 +278,14 @@ async def chat(req: ChatRequest):
         "agentXP": {a: state.agents.get(a, {}).get("xp", 0) for a in GRID_AGENTS},
     })
 
+    # Inject Commander Preferences into context so agents learn from history
+    try:
+        prefs = mem.read_preferences()
+        if prefs:
+            ctx["commanderPreferences"] = prefs[:600]
+    except Exception:
+        pass
+
     system_prompt = get_system_prompt(agent_name, ctx)
 
     # Build message list for Anthropic API
@@ -287,6 +313,12 @@ async def chat(req: ChatRequest):
         print(f"[CHAT ERROR] agent={agent_name} error={type(e).__name__}: {e}")
         traceback.print_exc()
         raise HTTPException(500, detail=f"{type(e).__name__}: {e}")
+
+    # Capture feedback keywords to Commander Preferences
+    try:
+        mem.capture_chat_feedback(agent_name, req.message, reply)
+    except Exception:
+        pass
 
     # Log to live feed
     await manager.broadcast({
@@ -415,6 +447,27 @@ async def add_transaction(body: dict):
     vault_report = _build_vault_report(state)
     await manager.broadcast({"type": "vault_report", "data": vault_report})
     return txn
+
+
+# ─── Memory API ──────────────────────────────────────────────────────────────
+
+class MemoryWriteRequest(BaseModel):
+    agent: str
+    topic: str
+    content: str
+    append: bool = False
+
+
+@app.post("/api/memory/write")
+async def memory_write(req: MemoryWriteRequest):
+    result = mem.api_write(req.agent, req.topic, req.content, req.append)
+    return result
+
+
+@app.get("/api/memory/read/{agent}/{topic}")
+async def memory_read(agent: str, topic: str):
+    result = mem.api_read(agent, topic)
+    return result
 
 
 # ─── XP Helper ───────────────────────────────────────────────────────────────
@@ -554,6 +607,11 @@ async def _heimdall_loop():
                 "level": "info",
                 "timestamp": datetime.now().isoformat(),
             })
+            try:
+                mem.heimdall_write_research(idea)
+            except Exception:
+                pass
+
             await manager.broadcast({
                 "type": "approval_queue",
                 "agent": "HEIMDALL",
@@ -590,6 +648,11 @@ async def _athena_loop():
                 elif orders > 0:
                     conv = round((orders / max(active, 1)) * 100, 1)
                     msg += f" Conversion proxy: {conv}%."
+
+            try:
+                mem.athena_write_analysis(stats)
+            except Exception:
+                pass
 
             await manager.broadcast({"type": "agent_log", "agent": "ATHENA", "message": msg, "level": "info", "timestamp": datetime.now().isoformat()})
             await manager.broadcast({"type": "athena_report", "agent": "ATHENA", "data": {"todayRevenue": today_rev, "totalOrders": orders, "activeListings": active}})
@@ -640,6 +703,11 @@ async def _vault_loop():
             margin = state.vault.get("profitMarginPct", 0)
 
             msg = f"P&L update: Revenue ${rev:.2f}, Net ${net:.2f}, Margin {margin:.1f}%."
+            try:
+                mem.vault_write_daily_pl(state.vault)
+            except Exception:
+                pass
+
             await manager.broadcast({"type": "agent_log", "agent": "VAULT", "message": msg, "level": "info", "timestamp": datetime.now().isoformat()})
 
             ag = state.agents.get("VAULT", {})
@@ -672,6 +740,18 @@ async def _odin_loop():
                 strategy = "No revenue yet. Queue is the fastest path to first sale — approve Heimdall's ideas."
             else:
                 strategy = f"Running at ${rev:.2f} revenue, ${net:.2f} net, {margin:.1f}% margin. System stable."
+
+            try:
+                mem.odin_write_directive(strategy, {
+                    "totalRevenue": rev,
+                    "netProfit": net,
+                    "pendingIdeas": pending_i,
+                    "pendingDesigns": pending_d,
+                    "cpu": cpu,
+                    "ram": state.metrics.get("ram", 0),
+                })
+            except Exception:
+                pass
 
             await manager.broadcast({
                 "type": "odin_strategy",
