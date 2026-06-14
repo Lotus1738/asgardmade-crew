@@ -441,8 +441,9 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 ::-webkit-scrollbar-thumb{background:rgba(0,100,200,.4);border-radius:2px;}
 ::-webkit-scrollbar-thumb:hover{background:rgba(0,150,255,.6);}
 </style>
-<!-- Spline 3D web component — loads god room scenes when URL is set -->
-<script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.96/build/spline-viewer.js"></script>
+<!-- Three.js for 3D god rooms -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="/god-rooms.js"></script>
 </head>
 <body>
 <canvas id="bg"></canvas>
@@ -1358,38 +1359,13 @@ function openChat(name){
   }
   animHdr();
 
-  // Scene column: Spline embed or canvas placeholder
+  // Scene column: Three.js god room
   const splineWrap=document.getElementById('spline-wrap');
-  // Remove any existing spline-viewer
-  const existingViewer=splineWrap.querySelector('spline-viewer');
-  if(existingViewer) existingViewer.remove();
   if(scenePlaceholderAF){ cancelAnimationFrame(scenePlaceholderAF); scenePlaceholderAF=null; }
-
   const sceneCol=document.getElementById('room-scene-col');
-  sceneCol.style.background=theme.wall;
-
-  if(theme.splineUrl){
-    // Load Spline embed
-    document.getElementById('scene-placeholder').style.display='none';
-    const viewer=document.createElement('spline-viewer');
-    viewer.setAttribute('url', theme.splineUrl);
-    viewer.style.cssText='width:100%;height:100%;position:absolute;inset:0;';
-    splineWrap.appendChild(viewer);
-  } else {
-    // Canvas placeholder — animate the agent's draw function full-size
-    document.getElementById('scene-placeholder').style.display='flex';
-    const sc=document.getElementById('scene-canvas');
-    sc.width=splineWrap.offsetWidth||380;
-    sc.height=splineWrap.offsetHeight||360;
-    const drawFn=DRAW[name]||DRAW['GUARDIAN'];
-    let st=0;
-    function animScene(){
-      st+=1.2;
-      if(drawFn) drawFn(sc.getContext('2d'),sc.width,sc.height,st);
-      scenePlaceholderAF=requestAnimationFrame(animScene);
-    }
-    animScene();
-  }
+  sceneCol.style.background=theme.bg;
+  // Launch Three.js scene (GodRooms clears the container itself)
+  if(window.GodRooms){ GodRooms.open(name, splineWrap); }
 
   // Room stats
   const ag=state.agents[name]||{};
@@ -1410,6 +1386,7 @@ function closeChat(){
   document.getElementById('chat-overlay').classList.remove('open');
   if(chatHdrAF){ cancelAnimationFrame(chatHdrAF); chatHdrAF=null; }
   if(scenePlaceholderAF){ cancelAnimationFrame(scenePlaceholderAF); scenePlaceholderAF=null; }
+  if(window.GodRooms) GodRooms.dispose();
   chatAgent=null;
 }
 function overlayClick(e){ if(e.target.id==='chat-overlay') closeChat(); }
