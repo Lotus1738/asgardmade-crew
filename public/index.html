@@ -1364,8 +1364,10 @@ function openChat(name){
   if(scenePlaceholderAF){ cancelAnimationFrame(scenePlaceholderAF); scenePlaceholderAF=null; }
   const sceneCol=document.getElementById('room-scene-col');
   sceneCol.style.background=theme.bg;
-  // Launch Three.js scene (GodRooms clears the container itself)
-  if(window.GodRooms){ GodRooms.open(name, splineWrap); }
+  // Delay one frame so the modal finishes layout before Three.js measures dimensions
+  if(window.GodRooms){
+    setTimeout(()=>{ GodRooms.open(name, splineWrap); }, 80);
+  }
 
   // Room stats
   const ag=state.agents[name]||{};

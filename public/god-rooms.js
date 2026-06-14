@@ -808,8 +808,8 @@ const GodRooms = (() => {
     if (!builder) return;
 
     container.innerHTML = '';
-    const w = container.clientWidth  || 380;
-    const h = container.clientHeight || 400;
+    const w = container.clientWidth  || container.offsetWidth  || container.parentElement?.clientWidth  || 380;
+    const h = container.clientHeight || container.offsetHeight || container.parentElement?.clientHeight || 500;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setSize(w, h);
