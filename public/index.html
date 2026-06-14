@@ -639,11 +639,11 @@ const PixelBuilding = (() => {
 
   // Agents: left col = HEIMDALL(top)+VAULT(bottom), right col = VULCAN(top)+LOKI(bottom), bottom strip = GUARDIAN
   const AGENT_DEFS=[
-    {name:'HEIMDALL',label:'RESEARCH', bodyCol:'#1a9ebb',accentCol:'#00d4ff',roomBg:'#010812',trim:'#0099cc',col:'left', row:0},
-    {name:'VAULT',   label:'TREASURY', bodyCol:'#b8860b',accentCol:'#ffd700',roomBg:'#080600',trim:'#ccaa00',col:'left', row:1},
-    {name:'VULCAN',  label:'FORGE',    bodyCol:'#cc4400',accentCol:'#ff8800',roomBg:'#110200',trim:'#ff6600',col:'right',row:0},
-    {name:'LOKI',    label:'MARKET',   bodyCol:'#1a8c3a',accentCol:'#33ff77',roomBg:'#010802',trim:'#00cc44',col:'right',row:1},
-    {name:'GUARDIAN',label:'SECURITY', bodyCol:'#aa1111',accentCol:'#ff3333',roomBg:'#080000',trim:'#cc0000',col:'bottom',row:0},
+    {name:'HEIMDALL',display:'RESEARCHER',label:'RESEARCH', bodyCol:'#1a9ebb',accentCol:'#00d4ff',roomBg:'#010812',trim:'#0099cc',col:'left', row:0},
+    {name:'VAULT',   display:'VAULT',     label:'TREASURY', bodyCol:'#b8860b',accentCol:'#ffd700',roomBg:'#080600',trim:'#ccaa00',col:'left', row:1},
+    {name:'VULCAN',  display:'DESIGNER',  label:'FORGE',    bodyCol:'#cc4400',accentCol:'#ff8800',roomBg:'#110200',trim:'#ff6600',col:'right',row:0},
+    {name:'LOKI',    display:'PUBLISHER', label:'MARKET',   bodyCol:'#1a8c3a',accentCol:'#33ff77',roomBg:'#010802',trim:'#00cc44',col:'right',row:1},
+    {name:'GUARDIAN',display:'GUARDIAN',  label:'SECURITY', bodyCol:'#aa1111',accentCol:'#ff3333',roomBg:'#080000',trim:'#cc0000',col:'bottom',row:0},
   ];
   const ODIN_DEF={name:'ODIN',label:'COMMAND',bodyCol:'#0077aa',accentCol:'#00d4ff',roomBg:'#000818',trim:'#00d4ff'};
   // Who each agent can visit
@@ -712,11 +712,12 @@ const PixelBuilding = (() => {
       ctx.save();ctx.globalAlpha=.07+.04*Math.sin(_t*5);ctx.fillStyle=accentCol;ctx.beginPath();ctx.arc(r(x),r(y-S*6),18,0,Math.PI*2);ctx.fill();ctx.restore();
     }
     drawAccessory(ctx,ag,x,y,S,dir);
-    // name tag
-    const tw=r(name.length*4.2+10),tx=r(x-tw/2),ty=r(y-S*15);
+    // name tag — use display name when available
+    const _dname=ag.display||name;
+    const tw=r(_dname.length*4.2+10),tx=r(x-tw/2),ty=r(y-S*15);
     ctx.fillStyle='rgba(0,0,0,0.88)';ctx.fillRect(tx,ty,tw,10);
     ctx.strokeStyle=accentCol+'88';ctx.lineWidth=.7;ctx.strokeRect(tx+.5,ty+.5,tw,10);
-    txt(ctx,name,x,ty+2,accentCol,6,'center');
+    txt(ctx,_dname,x,ty+2,accentCol,6,'center');
     const dc={idle:'#334466',active:'#00ff88',working:'#ffcc00',error:'#ff3355',alert:'#ff8800'}[status]||'#334466';
     ctx.save();ctx.shadowColor=dc;ctx.shadowBlur=dc!=='#334466'?5:0;circle(ctx,tx+tw-4,ty+5,2,dc);ctx.restore();
   }
@@ -1360,7 +1361,7 @@ const PixelBuilding = (() => {
 ═══════════════════════════════════════════════ */
 const AGENT_META = {
   ODIN:     {icon:'🔱',role:'Master Commander',     color:'#00d4ff', display:'ODIN'},
-  HEIMDALL: {icon:'🌈',role:'Market Researcher',    color:'#8844ff', display:'RESEARCHER'},
+  HEIMDALL: {icon:'🧪',role:'Market Researcher',    color:'#8844ff', display:'RESEARCHER'},
   VULCAN:   {icon:'⚒', role:'AI Design Generator', color:'#ff6600', display:'DESIGNER'},
   LOKI:     {icon:'🎭',role:'Listing Publisher',    color:'#cc66ff', display:'PUBLISHER'},
   VAULT:    {icon:'💰',role:'Finance Manager',      color:'#00ffcc', display:'VAULT'},
@@ -1877,6 +1878,134 @@ const DRAW = {
 };
 
 /* ═══════════════════════════════════════════════
+   SCENE CANVAS — pixel art character for chat overlay
+═══════════════════════════════════════════════ */
+const SCENE_DEFS = {
+  HEIMDALL: {bodyCol:'#1a9ebb',accentCol:'#00d4ff',display:'RESEARCHER'},
+  VAULT:    {bodyCol:'#b8860b',accentCol:'#ffd700',display:'VAULT'},
+  VULCAN:   {bodyCol:'#cc4400',accentCol:'#ff8800',display:'DESIGNER'},
+  LOKI:     {bodyCol:'#1a8c3a',accentCol:'#33ff77',display:'PUBLISHER'},
+  GUARDIAN: {bodyCol:'#aa1111',accentCol:'#ff3333',display:'GUARDIAN'},
+  ODIN:     {bodyCol:'#0077aa',accentCol:'#00d4ff',display:'ODIN'},
+};
+function drawSceneChar(ctx,name,cx,floorY,S,frame,accent){
+  const def=SCENE_DEFS[name]||{bodyCol:'#334466',accentCol:'#00d4ff',display:name};
+  const bc=def.bodyCol, ac=accent||def.accentCol;
+  const lk=(frame%2===0)?S:-S;
+  // Shadow
+  ctx.save();ctx.globalAlpha=.18;ctx.beginPath();ctx.ellipse(cx,floorY+3,S*4,S,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
+  function px(x,y,w,h,col){ctx.fillStyle=col;ctx.fillRect(Math.round(cx+x),Math.round(floorY+y),Math.max(1,w),Math.max(1,h));}
+  // Legs
+  px(-S*2,-S*4+lk,S*2,S*4,'#111133');
+  px(0,-S*4-lk,S*2,S*4,'#111133');
+  // Boots
+  px(-S*3,-S+2,S*3,S,ac+'66');
+  px(S,-S+2,S*3,S,ac+'66');
+  // Torso / armor
+  px(-S*3,-S*10,S*6,S*5,bc);
+  px(-S*3,-S*10,S*6,S,ac+'99'); // shoulder highlight
+  // Chest emblem
+  ctx.save();ctx.shadowColor=ac;ctx.shadowBlur=8;
+  px(-S,-S*8,S*2,S*2,ac);
+  ctx.restore();
+  // Cape / back detail
+  ctx.save();ctx.globalAlpha=.6;px(-S*4,-S*9,S,S*5,ac+'44');ctx.restore();
+  // Arms
+  px(-S*5,-S*9+lk,S*2,S*4,bc);
+  px(S*3,-S*9-lk,S*2,S*4,bc);
+  // Hands
+  px(-S*5,-S*5+lk,S*2,S*2,'#e8c09a');
+  px(S*3,-S*5-lk,S*2,S*2,'#e8c09a');
+  // Neck
+  px(-S,-S*11,S*2,S,'#e8c09a');
+  // Head
+  px(-S*3,-S*15,S*6,S*5,'#e8c09a');
+  // Helmet / crown
+  px(-S*3,-S*16,S*6,S*2,bc);
+  ctx.save();ctx.shadowColor=ac;ctx.shadowBlur=10;
+  px(-S*2,-S*17,S*4,S,ac);
+  ctx.restore();
+  // Eyes
+  ctx.save();ctx.shadowColor=ac;ctx.shadowBlur=6;
+  px(-S,-S*13,S,S,ac);
+  px(S,-S*13,S,S,ac);
+  ctx.restore();
+  // Name plate
+  const dname=def.display||name;
+  ctx.save();
+  ctx.font=`bold ${S*3}px monospace`;
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  const tw=ctx.measureText(dname).width+S*4;
+  ctx.fillStyle='rgba(0,0,0,.85)';ctx.fillRect(Math.round(cx-tw/2),Math.round(floorY-S*20),Math.round(tw),S*4);
+  ctx.strokeStyle=ac+'88';ctx.lineWidth=.8;ctx.strokeRect(Math.round(cx-tw/2)+.5,Math.round(floorY-S*20)+.5,Math.round(tw),S*4);
+  ctx.fillStyle=ac;ctx.fillText(dname,cx,Math.round(floorY-S*20)+2);
+  ctx.restore();
+  // Agent-specific accessory
+  if(name==='HEIMDALL'){
+    // Research flask glowing
+    ctx.save();ctx.shadowColor=ac;ctx.shadowBlur=12;
+    px(S*4,-S*7,S*2,S*3,ac+'55');
+    px(S*4,-S*9,S*2,S,'#888');
+    ctx.restore();
+  } else if(name==='VULCAN'){
+    // Hammer
+    ctx.save();ctx.shadowColor='#ff6600';ctx.shadowBlur=10;
+    px(S*4,-S*8,S,S*4,'#888');
+    px(S*2,-S*9,S*4,S*2,'#aaa');
+    ctx.restore();
+  } else if(name==='LOKI'){
+    // Trickster horns
+    px(-S*4,-S*17,S,S*2,'#1a1a1a');px(-S*5,-S*18,S,S,'#1a1a1a');
+    px(S*3,-S*17,S,S*2,'#1a1a1a');px(S*4,-S*18,S,S,'#1a1a1a');
+  } else if(name==='VAULT'){
+    // Gold coin
+    ctx.save();ctx.shadowColor='#ffd700';ctx.shadowBlur=10;
+    ctx.beginPath();ctx.arc(Math.round(cx+S*5),Math.round(floorY-S*6),S*2,0,Math.PI*2);ctx.fillStyle='#ffd700';ctx.fill();
+    ctx.restore();
+  } else if(name==='ODIN'){
+    // Spear
+    ctx.save();ctx.shadowColor=ac;ctx.shadowBlur=10;
+    px(S*4,-S*14,S,S*10,ac+'88');
+    px(S*3,-S*15,S*3,S*2,ac);
+    ctx.restore();
+    // Crown spikes
+    px(-S*4,-S*17,S,S*3,ac+'cc');px(-S,-S*18,S*2,S*3,ac+'cc');px(S*2,-S*17,S*2,S*3,ac+'cc');
+  } else if(name==='GUARDIAN'){
+    // Shield
+    px(-S*6,-S*9,S*2,S*5,'#444');
+    px(-S*6,-S*9,S*2,S,ac+'88');
+  }
+}
+
+function initSceneCanvas(name,theme){
+  const sceneCvs=document.getElementById('scene-canvas');
+  const phLabel=document.querySelector('.scene-ph-label');
+  if(phLabel) phLabel.style.display='none';
+  sceneCvs.style.display='block';
+  const parent=sceneCvs.parentElement;
+  sceneCvs.width=parent.offsetWidth||340;
+  sceneCvs.height=parent.offsetHeight||260;
+  const W=sceneCvs.width, H=sceneCvs.height;
+  const ctx=sceneCvs.getContext('2d');
+  let frame=0,wt=0;
+  function loop(){
+    wt++;
+    if(wt>10){frame=(frame+1)%4;wt=0;}
+    // Room background via DRAW fn (full-size, no fade)
+    const dfn=DRAW[name];
+    if(dfn) dfn(ctx,W,H,frame*4);
+    else { ctx.fillStyle=theme.bg||'#000814'; ctx.fillRect(0,0,W,H); }
+    // Floor line
+    ctx.save();ctx.strokeStyle=theme.accent+'55';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,H-30);ctx.lineTo(W,H-30);ctx.stroke();ctx.restore();
+    // Draw character (scale=5)
+    drawSceneChar(ctx,name,W/2,H-30,5,frame,theme.accent);
+    scenePlaceholderAF=requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+/* ═══════════════════════════════════════════════
    BUILD GRID + ANIMATION LOOP
 ═══════════════════════════════════════════════ */
 function buildAgentGrid(){
@@ -2074,15 +2203,11 @@ function openChat(name){
   }
   animHdr();
 
-  // Scene column: Three.js god room
-  const splineWrap=document.getElementById('spline-wrap');
+  // Scene column: pixel art room + character
   if(scenePlaceholderAF){ cancelAnimationFrame(scenePlaceholderAF); scenePlaceholderAF=null; }
   const sceneCol=document.getElementById('room-scene-col');
   sceneCol.style.background=theme.bg;
-  // Delay one frame so the modal finishes layout before Three.js measures dimensions
-  if(window.GodRooms){
-    setTimeout(()=>{ GodRooms.open(name, splineWrap); }, 200);
-  }
+  setTimeout(()=>{ initSceneCanvas(name, theme); }, 100);
 
   // Room stats
   const ag=state.agents[name]||{};
@@ -2134,6 +2259,99 @@ function showTyping(){
 }
 function removeTyping(){ const e=document.getElementById('_typ'); if(e) e.remove(); }
 
+/* ═══════════════════════════════════════════════
+   ODIN UPGRADE COMMAND EXECUTOR
+   ODIN can return [CMD:type:value] blocks in his reply.
+   Server-side prompt instructs him to do so on upgrade requests.
+═══════════════════════════════════════════════ */
+const ODIN_UPGRADES = {};  // persisted upgrade state
+function odinExecuteCommands(reply, userMsg){
+  // Match [CMD:type:value] patterns
+  const cmdRe=/\[CMD:([A-Z_]+):([^\]]+)\]/g;
+  let match, executed=[];
+  while((match=cmdRe.exec(reply))!==null){
+    const [,type,val]=match;
+    try {
+      switch(type){
+        case 'SET_BG': {
+          // Change app background color
+          document.body.style.background=val;
+          document.getElementById('app').style.background=val;
+          ODIN_UPGRADES.bg=val;
+          executed.push(`Background → ${val}`);
+          break;
+        }
+        case 'SET_ACCENT': {
+          // SET_ACCENT:AGENT:#color — change agent accent
+          const [agName,col]=val.split(':');
+          if(AGENT_META[agName]) AGENT_META[agName].color=col;
+          document.documentElement.style.setProperty(`--accent-${agName.toLowerCase()}`,col);
+          executed.push(`${agName} accent → ${col}`);
+          break;
+        }
+        case 'SET_GOAL': {
+          // Update revenue goal display
+          const goal=parseFloat(val.replace(/[^0-9.]/g,''));
+          if(!isNaN(goal)){
+            ODIN_UPGRADES.revenueGoal=goal;
+            const el=document.getElementById('odin-goal-display')||document.getElementById('odin-revenue-goal');
+            if(el) el.textContent=`$${goal.toLocaleString()}`;
+            executed.push(`Revenue goal → $${goal.toLocaleString()}`);
+          }
+          break;
+        }
+        case 'SET_TITLE': {
+          // Update HUD title / brand name
+          const titleEls=document.querySelectorAll('.hud-brand,.odin-brand,.ms-title');
+          titleEls.forEach(el=>el.textContent=val);
+          ODIN_UPGRADES.title=val;
+          executed.push(`Title → ${val}`);
+          break;
+        }
+        case 'SHOW_PANEL': {
+          const el=document.getElementById(val);
+          if(el){ el.style.display=''; executed.push(`Show: ${val}`); }
+          break;
+        }
+        case 'HIDE_PANEL': {
+          const el=document.getElementById(val);
+          if(el){ el.style.display='none'; executed.push(`Hide: ${val}`); }
+          break;
+        }
+        case 'SET_CSS': {
+          // SET_CSS:varName:value — set CSS custom property on :root
+          const colon=val.indexOf(':');
+          if(colon>0){
+            const prop=val.slice(0,colon), cssVal=val.slice(colon+1);
+            document.documentElement.style.setProperty(prop,cssVal);
+            executed.push(`CSS ${prop} → ${cssVal}`);
+          }
+          break;
+        }
+        case 'RELOAD': {
+          executed.push('Reloading interface...');
+          setTimeout(()=>location.reload(),1500);
+          break;
+        }
+      }
+    } catch(err){ console.warn('[ODIN CMD]',type,err); }
+  }
+  // Client-side intent detection (no server cmd needed for common requests)
+  if(!executed.length){
+    const low=userMsg.toLowerCase();
+    if(/change.*background|background.*color|make.*dark|lighter background/i.test(low)){
+      // hint user that ODIN needs to include the CMD tag
+      addLog('ODIN','Upgrade request received. Include [CMD:SET_BG:#hexcolor] in ODIN\'s reply to execute.','info');
+    }
+  }
+  if(executed.length){
+    const notice=`⚡ UPGRADE EXECUTED: ${executed.join(' | ')}`;
+    appendAgentMsg(notice);
+    addLog('ODIN',notice,'info');
+    showXpToast('ODIN',`+50 XP — Interface upgraded`);
+  }
+}
+
 async function sendChat(){
   const inp=document.getElementById('chat-input');
   const txt=inp.value.trim(); if(!txt||!chatAgent) return;
@@ -2162,6 +2380,8 @@ async function sendChat(){
             setTimeout(()=>showVaultGraph(window.__lastVaultReport), 800);
           }
         }
+        // ODIN: execute upgrade commands embedded in reply
+        if(chatAgent==='ODIN') odinExecuteCommands(data.reply, txt);
       } else {
         appendAgentMsg(`⚠ No reply in API response — check Railway logs`);
       }
@@ -2477,7 +2697,7 @@ function initFromState(s,strategy){
       profitMargin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100).toFixed(1)+'%':'0%',
       totalTransactions:(f.transactions||[]).length,
       daysRunning:Math.max(1,Math.floor((Date.now()-new Date(f.startDate||Date.now()).getTime())/86400000)+1),
-      dailyBreakdown:[],recentTransactions:(f.transactions||[]).slice(0,15)
+      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),recentTransactions:(f.transactions||[]).slice(0,15)
     });
   }
   if(s.metrics) updateArgusBar(s.metrics);

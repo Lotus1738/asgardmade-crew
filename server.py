@@ -759,6 +759,15 @@ async def _heimdall_loop():
                     mem.heimdall_write_research(idea)
                 except Exception:
                     pass
+                try:
+                    brain.record_outcome(
+                        "HEIMDALL",
+                        f"Auto-queued idea: '{idea.get('title')}' ({idea.get('niche')}, {idea.get('productType')})",
+                        f"AUTO-APPROVED (demand {demand}, {competition} competition) — pipeline triggered",
+                        8,
+                    )
+                except Exception:
+                    pass
                 asyncio.create_task(run_idea_pipeline(idea, manager, state))
             else:
                 await manager.broadcast({
