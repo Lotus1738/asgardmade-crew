@@ -11,14 +11,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import traceback
 import anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 load_dotenv()
+
+_anthropic_client: anthropic.AsyncAnthropic | None = None
+
+def get_anthropic_client() -> anthropic.AsyncAnthropic:
+    global _anthropic_client
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if not key:
+        raise HTTPException(503, detail="ANTHROPIC_API_KEY not configured")
+    if _anthropic_client is None:
+        _anthropic_client = anthropic.AsyncAnthropic(api_key=key)
+    return _anthropic_client
 
 from crew.agents import get_system_prompt, ALL_AGENTS, GRID_AGENTS
 from crew.tools import get_system_metrics, scan_logs, generate_niche_idea
@@ -231,10 +242,6 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(503, detail="ANTHROPIC_API_KEY not configured")
-
     agent_name = req.agent.upper()
     if agent_name not in ALL_AGENTS:
         raise HTTPException(400, detail=f"Unknown agent: {agent_name}")
@@ -266,16 +273,20 @@ async def chat(req: ChatRequest):
     messages.append({"role": "user", "content": req.message})
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=api_key)
+        client = get_anthropic_client()
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=system_prompt,
             messages=messages,
         )
         reply = response.content[0].text
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(500, detail=str(e))
+        print(f"[CHAT ERROR] agent={agent_name} error={type(e).__name__}: {e}")
+        traceback.print_exc()
+        raise HTTPException(500, detail=f"{type(e).__name__}: {e}")
 
     # Log to live feed
     await manager.broadcast({
