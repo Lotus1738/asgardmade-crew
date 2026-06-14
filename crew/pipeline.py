@@ -251,30 +251,39 @@ async def run_design_pipeline(
     except Exception:
         pass
 
+    # Only log real production expenses — not demo/fallback runs where no money was spent.
+    # Previously, Printify failures caused a real expense entry even though no product was
+    # created, overstating costs and making P&L look worse than reality.
+    is_demo_run = product_id.startswith("demo_") or listing_demo
     printify_cost = 8.50
     etsy_txn_fee = round(price_usd * 0.065, 2)
     total_expense = round(printify_cost + LISTING_FEE + etsy_txn_fee, 2)
 
-    txn = {
-        "id": str(uuid.uuid4()),
-        "type": "expense",
-        "amount": total_expense,
-        "description": f"Production cost: {title}",
-        "source": "printify+etsy",
-        "breakdown": {
-            "printify_base": printify_cost,
-            "etsy_listing_fee": LISTING_FEE,
-            "etsy_txn_fee": etsy_txn_fee,
-        },
-        "timestamp": datetime.now().isoformat(),
-    }
-    state.vault["transactions"].append(txn)
-    state.recalculate_vault()
-    state.save_vault()
-    try:
-        mem.vault_write_transaction(txn)
-    except Exception:
-        pass
+    if not is_demo_run:
+        txn = {
+            "id": str(uuid.uuid4()),
+            "type": "expense",
+            "amount": total_expense,
+            "description": f"Production cost: {title}",
+            "source": "printify+etsy",
+            "breakdown": {
+                "printify_base": printify_cost,
+                "etsy_listing_fee": LISTING_FEE,
+                "etsy_txn_fee": etsy_txn_fee,
+            },
+            "timestamp": datetime.now().isoformat(),
+        }
+        state.vault["transactions"].append(txn)
+        state.recalculate_vault()
+        state.save_vault()
+        try:
+            mem.vault_write_transaction(txn)
+        except Exception:
+            pass
+    else:
+        await _log(manager, "VAULT",
+                   f"Demo run — no real expense logged for '{title}'. "
+                   f"Production cost (${total_expense}) only applies to live Printify+Etsy listings.")
 
     await _log(manager, "VAULT",
                f"Logged ${total_expense} expense for '{title}'. "

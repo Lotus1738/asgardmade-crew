@@ -217,3 +217,51 @@
 - Nothing. All 5 changes are surgical and low-risk.
 
 **Git push:** PENDING — run `git add -A && git commit -m "auto-9: deep-research save fix, REST brain feedback, dead code, stale comments" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-10) UTC
+
+**Areas reviewed:** Backend reliability (server.py — REST reject parity), Visual/UX (index.html — auto-scorer bug, stale persona text), Code quality (brain.py — stale docstring)
+
+**Changes made:**
+
+- `server.py:/api/reject/{item_id}` — Added `brain.record_outcome` and `mem.write_rejected` calls for both idea and design rejections. **Parity fix**: The REST approve endpoint was fixed in auto-9 to record brain outcomes, but the REST reject endpoint was completely missed. WebSocket reject handlers (reject_idea, reject_design) both record rejections at score 2 — REST rejections were invisible to the brain. Now parity between all three approval paths (WebSocket, REST approve, REST reject).
+
+- `public/index.html:runAutoScorer` — **BUG FIX**: Changed `window.__queueData?.ideas` and `window.__queueData?.designs` → `state.approvals?.ideas` and `state.approvals?.designs`. `window.__queueData` was never defined anywhere — it was always `undefined`, so the auto-scorer ran every 5 minutes but never found any items to score. The correct reference is `state.approvals` (the global queue state object set by initFromState and handleMsg). Auto-scorer now actually processes pending items.
+
+- `public/index.html:PERSONAS.LOKI` — Fixed wrong listing price in persona response: `$24.99` → `$34.99`. Pipeline.py line 133 sets `price_usd = 34.99`. The LOKI persona was telling the Commander the wrong price when asked about costs — a credibility issue that could mislead pricing decisions.
+
+- `public/index.html:PERSONAS.VULCAN` — Updated persona response: "DALL-E 3 via OpenAI" → "gpt-image-1 (OpenAI's latest image model)". The model was updated in integrations/dalle.py in a prior run; the persona still said DALL-E 3. Also expanded the trigger regex to include `model` keyword. Design card label was fixed in auto-4; this fixes the verbal response.
+
+- `memory/brain.py:write_agent_improvement` — Fixed docstring: "after weekly review" → "after daily review". `_odin_agent_improvement_loop` sleeps 86400s (daily). Same stale-comment cleanup as previous passes on server.py.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical and non-breaking.
+
+**Git push:** PENDING — run `git add -A && git commit -m "auto-10: REST reject brain parity, auto-scorer bug fix, LOKI price, VULCAN model, brain docstring" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-11) UTC
+
+**Areas reviewed:** Pipeline robustness (pipeline.py — demo mode expense bug), Visual/UX (index.html — stale VULCAN greet, stale HEIMDALL niche list), Backend reliability (server.py — JSON parse blind spots in brain synthesis and improvement loops)
+
+**Changes made:**
+
+- `crew/pipeline.py:run_design_pipeline` — **FINANCIAL BUG FIX**: Expenses were logged even when Printify failed and the pipeline ran in demo mode. `product_id.startswith("demo_")` or `listing_demo=True` now skips the vault transaction entry and instead broadcasts an informational log. Previously every failed Printify call added ~$10.97 to reported expenses, making the P&L look worse than reality. The vault should only record real money spent.
+
+- `public/index.html:PERSONAS.VULCAN.greet` — Fixed stale "DALL-E" reference. The `respond()` function was updated in auto-10 (including the model/trigger regex), but the `greet()` function still said "I generate designs with DALL-E". The commander would see contradictory model names depending on whether they read the greeting or the response to a model question.
+
+- `public/index.html:PERSONAS.HEIMDALL.respond` — Updated stale 12-niche list. Auto-8 expanded the DuckDuckGo deep research pool from 6 to 24 niches, but the HEIMDALL persona's `respond()` still listed only the original 12. The response now accurately reflects all 24 niche categories and mentions the auto-approve threshold (demand 85+ + low competition).
+
+- `server.py:_brain_synthesis_loop` — Added targeted `json.JSONDecodeError` catch around `json.loads(raw)` that logs `raw[:120]` before continuing. Previously any model-returned non-JSON (e.g., explanation text, apologetic wrapper) caused a bare `JSONDecodeError` message with no indication of what the model actually returned, making Railway log debugging nearly impossible.
+
+- `server.py:_odin_agent_improvement_loop` — Same targeted `json.JSONDecodeError` catch with `raw[:120]` logging. The improvement loop uses the same JSON-dependent pattern and had the same blind spot as the synthesis loop.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical and non-breaking.
+
+**Git push:** PENDING — Windows `.git/index.lock` blocks sandbox git (recurring issue). Run `git add -A && git commit -m "auto-11: demo expense bug fix, VULCAN greet, HEIMDALL niche list, brain JSON debug logging" && git push` manually to deploy.

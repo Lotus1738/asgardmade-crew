@@ -539,6 +539,35 @@ async def reject_item(item_id: str):
         if item:
             item["status"] = "rejected"
             state.save_queue()
+            # Record rejection in brain — mirrors WebSocket reject_idea/reject_design handlers
+            if category == "ideas":
+                try:
+                    mem.heimdall_write_rejected(item)
+                except Exception:
+                    pass
+                try:
+                    brain.record_outcome(
+                        "HEIMDALL",
+                        f"Queued idea: '{item.get('title')}' ({item.get('niche')}, {item.get('productType')})",
+                        "REST API rejected — avoid similar ideas",
+                        2,
+                    )
+                except Exception:
+                    pass
+            elif category == "designs":
+                try:
+                    mem.vulcan_write_rejected(item)
+                except Exception:
+                    pass
+                try:
+                    brain.record_outcome(
+                        "VULCAN",
+                        f"Generated design for '{item.get('ideaTitle')}' ({item.get('niche')}) — variant {item.get('variantIndex')}",
+                        "REST API rejected — avoid this visual approach",
+                        2,
+                    )
+                except Exception:
+                    pass
             await manager.broadcast({"type": "queue_update", "data": {"category": category, "id": item_id, "status": "rejected"}})
             return {"ok": True, "type": category, "id": item_id}
     raise HTTPException(404, detail="Item not found")
@@ -975,6 +1004,33 @@ async def memory_browse():
     return {"available": True, "vault": str(vault.resolve()), "folders": folders}
 
 
+# ─── TTS ─────────────────────────────────────────────────────────────────────
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "onyx"
+
+@app.post("/api/tts")
+async def text_to_speech(req: TTSRequest):
+    """Convert text to speech using OpenAI TTS and return MP3 audio."""
+    from fastapi.responses import Response as _Resp
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        raise HTTPException(503, detail="OPENAI_API_KEY not set")
+    try:
+        from openai import AsyncOpenAI as _OAI
+        oai = _OAI(api_key=openai_key)
+        response = await oai.audio.speech.create(
+            model="tts-1",
+            voice=req.voice,
+            input=req.text[:4096],
+            response_format="mp3",
+        )
+        return _Resp(content=response.content, media_type="audio/mpeg")
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
 # ─── XP Helper ───────────────────────────────────────────────────────────────
 
 async def _award_xp_silent(agent: str, amount: int, action: str):
@@ -1307,7 +1363,12 @@ Return ONLY a JSON object: {{"improvements": ["instruction 1", "instruction 2"],
                         raw = raw.split("```")[1]
                         if raw.startswith("json"):
                             raw = raw[4:]
-                    data = json.loads(raw.strip())
+                    raw = raw.strip()
+                    try:
+                        data = json.loads(raw)
+                    except json.JSONDecodeError as json_err:
+                        print(f"[ODIN IMPROVEMENT] JSON error for {agent_name}: {json_err} — raw[:120]: {raw[:120]!r}")
+                        continue
                     improvements = data.get("improvements", [])
                     note = data.get("odin_note", "")
 
@@ -1663,7 +1724,11 @@ async def _brain_synthesis_loop():
                         if raw.startswith("json"):
                             raw = raw[4:]
                     raw = raw.strip()
-                    data = json.loads(raw)
+                    try:
+                        data = json.loads(raw)
+                    except json.JSONDecodeError as json_err:
+                        print(f"[BRAIN] synthesis JSON error for {agent_name}: {json_err} — raw[:120]: {raw[:120]!r}")
+                        continue
                     lessons = data.get("lessons", [])
                     summary = data.get("summary", "")
                     brain.write_agent_lessons(agent_name, lessons, summary)

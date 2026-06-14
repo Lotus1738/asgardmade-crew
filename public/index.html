@@ -1325,6 +1325,7 @@ const PixelBuilding = (() => {
       <button class="tab-btn active" onclick="switchTab('vault')">◈ VAULT P&amp;L</button>
       <button class="tab-btn" onclick="switchTab('designs')">◈ DESIGN QUEUE <span class="tab-badge" id="designs-badge">0</span></button>
       <button class="tab-btn" onclick="switchTab('ideas')">◈ IDEA QUEUE <span class="tab-badge" id="ideas-badge">0</span></button>
+      <button class="tab-btn" onclick="switchTab('memory')">◈ MEMORY</button>
     </div>
     <div class="tab-content active" id="vault-tab">
       <div class="vault-metrics">
@@ -1341,6 +1342,7 @@ const PixelBuilding = (() => {
     </div>
     <div class="tab-content" id="designs-tab"></div>
     <div class="tab-content" id="ideas-tab"></div>
+    <div class="tab-content" id="memory-tab" style="padding:12px;overflow-y:auto;flex-direction:column;gap:10px;"></div>
   </div>
 
 </div><!-- /app -->
@@ -2136,7 +2138,7 @@ const PERSONAS = {
     respond(m,s){
       m=m.toLowerCase();
       if(/list|publish|create/.test(m)) return `When a design clears the approval queue I spring into motion: title, tags, description, price, image — assembled and submitted to Etsy in one fluid transaction. If it fails, I retry. Loki always finds a way.`;
-      if(/price|cost/.test(m)) return `Default listing price: $24.99. Plus Etsy's $0.20 listing fee which I log to Vault automatically. Price optimization is a game of psychology. $24.99 outperforms $25.00 — always has.`;
+      if(/price|cost/.test(m)) return `Default listing price: $34.99. Plus Etsy's $0.20 listing fee which I log to Vault automatically. Price optimization is a game of psychology. $34.99 outperforms $35.00 — always has.`;
       if(/tag|seo/.test(m)) return `I cap at 13 tags per Etsy's limit. I lead with high-volume anchors, then layer niche-specific terms. Visibility through cunning precision — call it strategic trickery.`;
       return ['You want something published? Consider it already done.','Loki never fails to find an angle.','Every listing is a performance. I perform admirably.','The marketplace is my stage.'][Math.floor(Math.random()*4)];
     }
@@ -2145,7 +2147,7 @@ const PERSONAS = {
     greet(s){ return `From the Bifrost, I see every market horizon, Commander. I scan 12 niches every 2 minutes and generate ideas with demand scoring. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
     respond(m,s){
       m=m.toLowerCase();
-      if(/idea|product|niche/.test(m)) return `My 12 niche seeds: cottagecore, dark academia, retro gaming, plant parent, mental health, space exploration, hiking, coffee culture, pet portraits, witchy aesthetic, minimalist design, and pride. Each scored by demand and competition.`;
+      if(/idea|product|niche/.test(m)) return `I rotate through 24 niche categories every hour: cottagecore, dark academia, retro gaming, plant parent, mental health, pet portraits, boho, witch aesthetic, minimalist home, christian faith, dog mom, cat lover, nurse gift, teacher appreciation, hiking outdoor, coastal grandmother, Y2K nostalgia, anime aesthetic, true crime fan, book lover, funny sarcasm, birthday gift, baby shower, and wedding gift. Every 2 minutes I also quick-generate a fresh idea on a random niche. Demand 85+ with low competition = auto-approved.`;
       if(/demand|score/.test(m)) return `Demand scores range 80-96 in my database. High demand + low competition = golden window. I flag those intersections first and queue them for your approval.`;
       if(/ai|claude/.test(m)) return `With an Anthropic API key I use Claude Haiku to craft bespoke product concepts per niche. Without a key I use my template engine — still effective, less bespoke. Either way the ideas flow.`;
       return ['The rainbow bridge reveals all trends.','I scan twelve niches every two minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
@@ -2165,11 +2167,11 @@ const PERSONAS = {
     }
   },
   VULCAN:{
-    greet(s){ return `The forge burns bright, Commander. I generate designs with DALL-E and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
+    greet(s){ return `The forge burns bright, Commander. I generate designs with gpt-image-1 (OpenAI's latest image model) and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
     respond(m,s){
       m=m.toLowerCase();
       if(/design|create|generate/.test(m)) return `When you approve an idea, I build a DALL-E prompt optimized for POD: flat vector illustration, transparent background, centered composition. I generate 2 variants per idea — you pick which one goes to Printify.`;
-      if(/dalle|openai|ai/.test(m)) return `I call DALL-E 3 via OpenAI. Without an API key I run in demo mode — placeholder images so you can test the full approval flow. Set OPENAI_API_KEY in your .env to ignite real generation.`;
+      if(/dalle|openai|ai|model/.test(m)) return `I call gpt-image-1 (OpenAI's latest image model). Without an API key I run in demo mode — placeholder images so you can test the full approval flow. Set OPENAI_API_KEY in your .env to ignite real generation.`;
       if(/printify|upload|product/.test(m)) return `Approved design → upload image to Printify CDN → create product with your blueprint → publish it → notify Loki to create the Etsy listing. End-to-end in seconds, fully automated.`;
       return ['The forge creates what the mind imagines.','Art is not made — it is forged.','Every design begins with a vision. I translate vision into product.','Give me an approved idea and I will give you a product.'][Math.floor(Math.random()*4)];
     }
@@ -2356,30 +2358,36 @@ function toggleOdinVoice(){
 
 function toggleChatVoice(){ toggleOdinVoice(); }
 
-/* ─── ODIN speaks back via text-to-speech ─── */
-let _odinVoice=null;
-function _loadOdinVoice(){
-  const voices=speechSynthesis.getVoices();
-  _odinVoice = voices.find(v=>/david|uk english male|daniel|alex/i.test(v.name))
-            || voices.find(v=>v.lang.startsWith('en')&&/male/i.test(v.name))
-            || voices.find(v=>v.lang.startsWith('en'))
-            || null;
-}
-if(window.speechSynthesis){
-  speechSynthesis.onvoiceschanged=_loadOdinVoice;
-  _loadOdinVoice();
-}
+/* ─── ODIN speaks back via OpenAI TTS (onyx voice) ─── */
+let _ttsAudio=null;
 
-function odinSpeak(text){
-  if(!window.speechSynthesis) return;
-  speechSynthesis.cancel();
+async function odinSpeak(text){
   // Strip command tags before speaking
-  const clean=text.replace(/\[CMD:[^\]]+\]/g,'').trim();
+  const clean=text.replace(/\[CMD:[^\]]+\]/g,'').replace(/\*/g,'').trim();
   if(!clean) return;
-  const utt=new SpeechSynthesisUtterance(clean);
-  utt.rate=0.87; utt.pitch=0.7; utt.volume=0.9;
-  if(_odinVoice) utt.voice=_odinVoice;
-  speechSynthesis.speak(utt);
+  // Stop any playing audio
+  if(_ttsAudio){ _ttsAudio.pause(); _ttsAudio=null; }
+  try {
+    const res = await fetch('/api/tts', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text: clean, voice:'onyx'})
+    });
+    if(!res.ok) throw new Error('TTS '+res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    _ttsAudio = new Audio(url);
+    _ttsAudio.onended = ()=>{ URL.revokeObjectURL(url); _ttsAudio=null; };
+    _ttsAudio.play();
+  } catch(err){
+    // Fallback to browser TTS if OpenAI TTS fails
+    console.warn('[TTS] OpenAI TTS failed, using browser fallback:', err);
+    if(!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const utt=new SpeechSynthesisUtterance(clean);
+    utt.rate=0.87; utt.pitch=0.7; utt.volume=0.9;
+    speechSynthesis.speak(utt);
+  }
 }
 
 /* ═══════════════════════════════════════════════
@@ -2522,8 +2530,8 @@ async function parseAndFireInterAgentTasks(reply){
 // Called periodically to auto-approve low-risk items
 async function runAutoScorer(){
   const pending=[
-    ...(window.__queueData?.ideas||[]).filter(i=>i.status==='pending').map(i=>({id:i.id,type:'idea'})),
-    ...(window.__queueData?.designs||[]).filter(d=>d.status==='pending').map(d=>({id:d.id,type:'design'}))
+    ...(state.approvals?.ideas||[]).filter(i=>i.status==='pending').map(i=>({id:i.id,type:'idea'})),
+    ...(state.approvals?.designs||[]).filter(d=>d.status==='pending').map(d=>({id:d.id,type:'design'}))
   ];
   for(const item of pending.slice(0,5)){ // process up to 5 at a time
     try{
@@ -2876,8 +2884,38 @@ function updateArgusBar(metrics){
 }
 
 function switchTab(name){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['vault','designs','ideas'][i]===name));
-  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',['vault-tab','designs-tab','ideas-tab'][i]===`${name}-tab`));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['vault','designs','ideas','memory'][i]===name));
+  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',['vault-tab','designs-tab','ideas-tab','memory-tab'][i]===`${name}-tab`));
+  if(name==='memory') loadMemoryTab();
+}
+
+async function loadMemoryTab(){
+  const tab=document.getElementById('memory-tab');
+  tab.innerHTML='<div style="color:var(--txt2);font-size:11px;letter-spacing:2px;">LOADING MEMORY VAULT...</div>';
+  try{
+    const res=await fetch('/api/memory/browse');
+    const data=await res.json();
+    if(!data.available||!data.folders||!data.folders.length){
+      tab.innerHTML='<div style="color:var(--txt2);text-align:center;padding:20px;font-size:11px;letter-spacing:2px;">NO MEMORY NOTES YET — AGENTS WILL WRITE HERE AS THEY WORK</div>';
+      return;
+    }
+    tab.innerHTML='';
+    data.folders.forEach(folder=>{
+      if(!folder.count) return;
+      const sec=document.createElement('div');
+      sec.style.cssText='margin-bottom:14px;';
+      sec.innerHTML=`<div style="color:var(--c1);font-size:10px;letter-spacing:3px;margin-bottom:6px;border-bottom:1px solid rgba(201,168,76,.2);padding-bottom:4px;">${folder.folder.toUpperCase()} — ${folder.count} NOTES</div>`;
+      (folder.recent||[]).forEach(f=>{
+        const card=document.createElement('div');
+        card.style.cssText='background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.1);border-radius:4px;padding:8px 10px;margin-bottom:6px;cursor:pointer;';
+        card.innerHTML=`<div style="color:var(--txt1);font-size:11px;letter-spacing:1px;margin-bottom:4px;">${f.name}</div><div style="color:var(--txt2);font-size:10px;line-height:1.5;white-space:pre-wrap;">${(f.preview||'').slice(0,200)}</div>`;
+        sec.appendChild(card);
+      });
+      tab.appendChild(sec);
+    });
+  } catch(e){
+    tab.innerHTML=`<div style="color:var(--orange);font-size:11px;">Error loading memory: ${e.message}</div>`;
+  }
 }
 
 function initFromState(s,strategy){
