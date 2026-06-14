@@ -1,7 +1,7 @@
 """
 AsgardMade Brain — Self-improving memory layer.
 
-Every 6 hours, Claude reads each agent's raw conversation logs and outcome
+Every 1 hour, Claude reads each agent's raw conversation logs and outcome
 history, distills them into concrete lessons, and writes those lessons back.
 On every chat call, the agent's lessons get injected into its system prompt
 so it literally gets smarter from every interaction.

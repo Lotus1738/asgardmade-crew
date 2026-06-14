@@ -14,7 +14,18 @@ import traceback
 from pathlib import Path
 from datetime import datetime, date
 
-VAULT = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
+# Priority order for vault path:
+# 1. OBSIDIAN_VAULT_PATH env var (set this in Railway for cloud persistence)
+# 2. Local default at C:\Users\Mario\AsgardMade HQ (Windows dev machine)
+# 3. Fallback to ./data/obsidian (Railway ephemeral filesystem — still readable via /api/vault)
+_LOCAL_DEFAULT = Path(r"C:\Users\Mario\AsgardMade HQ")
+_ENV_PATH = os.getenv("OBSIDIAN_VAULT_PATH")
+if _ENV_PATH:
+    VAULT = Path(_ENV_PATH)
+elif _LOCAL_DEFAULT.exists():
+    VAULT = _LOCAL_DEFAULT
+else:
+    VAULT = Path("./data/obsidian")
 PREFS_PATH = "Odin Intelligence/Commander Preferences.md"
 
 _directive_counter = 0

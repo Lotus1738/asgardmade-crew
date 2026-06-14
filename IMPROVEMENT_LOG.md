@@ -170,3 +170,50 @@
 - Nothing. All 5 changes are surgical with no risk of breaking existing functionality.
 
 **Git push:** Completed via bash.
+
+---
+
+## Run 2026-06-14T(auto-8) UTC
+
+
+**Areas reviewed:** Visual/UX (index.html — WebSocket truncation), Backend reliability (server.py — niche rotation, exception logging), Code quality (brain.py)
+
+**Changes made:**
+
+- `public/index.html` — **CRITICAL RESTORE**: File was truncated at line 2727 mid-sentence inside `updateVault`, stripping all WebSocket code (`connect`, `handleMsg`, `initFromState`, `updateMissionStrip`, `connectWS`, swipe-to-approve, all approval functions, ODIN chat, vault graph modal, particle canvas, clock boot). HUD was completely non-functional with zero real-time capability. Restored ~600 missing lines from git commit `5083528` (the last intact version) and committed as `69f7247`.
+
+- `server.py:_odin_agent_improvement_loop` line 1236 — Added `type(e).__name__` to per-agent exception log. Was `print(f"[ODIN IMPROVEMENT] {agent_name} error: {e}")`, now includes the exception class. Matches the logging pattern used in every other loop (added in previous passes). Deferred from auto-6 and auto-7 — applied now.
+
+- `server.py:_heimdall_deep_research_loop` DDG niche list — Expanded from 6 hardcoded niches to a rotating pool of 24. Each hourly cycle now covers a different window of 6 niches, so all 24 get coverage every 4 cycles (~4 hours). Previous static list meant Heimdall researched the same 6 niches forever, missing high-demand categories like "dog mom", "nurse gift", "teacher appreciation", "anime aesthetic", and 16 others. Deferred from auto-6.
+
+- `memory/brain.py` docstring — Fixed "Every 6 hours" → "Every 1 hour". `_brain_synthesis_loop` sleeps `asyncio.sleep(3600)`. Same stale comment as the ones fixed in server.py (previous runs).
+
+**Skipped (risky):**
+
+- `server.py:_send_init vault_report` — Raw `state.vault` still sent instead of `_build_vault_report()` output. `initFromState` client-side workaround (auto-6) handles this adequately; backend change deferred.
+
+**Git push:** PENDING — Windows `.git/index.lock` blocks sandbox git (recurring issue). Run `git add -A && git commit -m "auto-8: niche pool, exception log, brain docstring" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-9) UTC
+
+**Areas reviewed:** Backend reliability (server.py — deep research auto-approve bug, REST endpoint brain gap), Code quality (dead code, stale comment, exception logging)
+
+**Changes made:**
+
+- `server.py:_heimdall_deep_research_loop` — **BUG FIX**: Added second `state.save_queue()` call after the auto-approval loop. The first save (line ~1417) persisted all new ideas as `"pending"` before the loop mutated high-demand ones to `"approved"`. On a server restart, all auto-approved deep research ideas would re-appear as pending in the queue and risk being double-processed or double-displayed. Now the approval status is persisted immediately after the loop.
+
+- `server.py:_odin_agent_improvement_loop` — Added `type(e).__name__` to the outer loop exception log: `error: {e}` → `error: {type(e).__name__}: {e}`. The inner per-agent except already had this (added in auto-8), but the outer catch did not. Now consistent with every other background loop for Railway log scanning.
+
+- `server.py:_send_init` — Removed dead `vault_report = _build_vault_report(state)` line. This ran `_build_vault_report()` (which sorts all transactions and builds daily breakdowns) on every WebSocket connection but the result was never used — `init_data` sent `state.vault` directly. Pure wasted CPU per connection.
+
+- `server.py:startup` — Fixed stale comment `# weekly agent improvement` → `# daily agent improvement`. The `_odin_agent_improvement_loop` docstring was corrected in auto-7 but the startup task comment was missed.
+
+- `server.py:/api/approve/{item_id}` — Added `brain.record_outcome` and `mem.write_approved` calls to the REST approve endpoint for both ideas and designs. The WebSocket `approve_idea`/`approve_design` handlers already did this, but REST approvals (used by automation tools, external scripts, and future integrations) were completely invisible to the brain and Obsidian memory. Now parity between REST and WebSocket approval paths.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical and low-risk.
+
+**Git push:** PENDING — run `git add -A && git commit -m "auto-9: deep-research save fix, REST brain feedback, dead code, stale comments" && git push` manually to deploy.

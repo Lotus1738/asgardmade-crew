@@ -199,7 +199,6 @@ async def _ws_handler(websocket: WebSocket):
 
 
 async def _send_init(ws: WebSocket):
-    vault_report = _build_vault_report(state)
     init_data = {
         "agentStats": {"agents": state.agents},
         "approvals": state.queue,
@@ -492,6 +491,19 @@ async def approve_item(item_id: str):
     if idea:
         idea["status"] = "approved"
         state.save_queue()
+        try:
+            mem.heimdall_write_approved(idea)
+        except Exception:
+            pass
+        try:
+            brain.record_outcome(
+                "HEIMDALL",
+                f"Queued idea: '{idea.get('title')}' ({idea.get('niche')}, {idea.get('productType')})",
+                "REST API approved — pipeline triggered",
+                9,
+            )
+        except Exception:
+            pass
         await manager.broadcast({"type": "queue_update", "data": {"category": "ideas", "id": item_id, "status": "approved"}})
         asyncio.create_task(run_idea_pipeline(idea, manager, state))
         return {"ok": True, "type": "idea", "id": item_id}
@@ -500,6 +512,19 @@ async def approve_item(item_id: str):
     if design:
         design["status"] = "approved"
         state.save_queue()
+        try:
+            mem.vulcan_write_approved(design)
+        except Exception:
+            pass
+        try:
+            brain.record_outcome(
+                "VULCAN",
+                f"Generated design for '{design.get('ideaTitle')}' ({design.get('niche')}) — variant {design.get('variantIndex')}",
+                "REST API approved — uploading to Printify",
+                9,
+            )
+        except Exception:
+            pass
         await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "approved"}})
         asyncio.create_task(run_design_pipeline(design, manager, state))
         return {"ok": True, "type": "design", "id": item_id}
@@ -778,6 +803,71 @@ async def get_prompt_overrides():
 async def get_brain_status():
     """Shows which agents have learned lessons and how many outcomes are tracked."""
     return brain.brain_status()
+
+
+# ─── Vault / Obsidian export ──────────────────────────────────────────────────
+
+@app.get("/api/vault")
+async def get_vault_contents():
+    """
+    Return all vault notes as a browsable JSON structure.
+    Since Railway can't write to the local Obsidian vault, this endpoint
+    lets the HUD or external tools read what the agents have written.
+    """
+    vault_path = mem.VAULT
+    if not vault_path.exists():
+        return {"ok": False, "reason": "Vault not initialized on this server", "vault_path": str(vault_path)}
+
+    result: dict[str, list] = {}
+    try:
+        for md_file in sorted(vault_path.rglob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True):
+            rel = md_file.relative_to(vault_path)
+            folder = str(rel.parent) if str(rel.parent) != "." else "root"
+            if folder not in result:
+                result[folder] = []
+            try:
+                content = md_file.read_text(encoding="utf-8")
+                result[folder].append({
+                    "name": md_file.stem,
+                    "path": str(rel).replace("\\", "/"),
+                    "modified": datetime.fromtimestamp(md_file.stat().st_mtime).isoformat(),
+                    "content": content[:3000],
+                    "truncated": len(content) > 3000,
+                })
+            except Exception:
+                pass
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    total = sum(len(v) for v in result.values())
+    return {
+        "ok": True,
+        "vault_path": str(vault_path),
+        "total_notes": total,
+        "folders": result,
+    }
+
+
+@app.get("/api/vault/note")
+async def get_vault_note(path: str):
+    """Return a single vault note by relative path (e.g. ?path=Revenue/Daily+P%26L+2026-06-14.md)."""
+    vault_path = mem.VAULT
+    try:
+        target = (vault_path / path).resolve()
+        if not str(target).startswith(str(vault_path.resolve())):
+            raise HTTPException(403, "Path traversal denied")
+        if not target.exists():
+            raise HTTPException(404, "Note not found")
+        return {
+            "ok": True,
+            "path": path,
+            "content": target.read_text(encoding="utf-8"),
+            "modified": datetime.fromtimestamp(target.stat().st_mtime).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.get("/api/brain/lessons/{agent_name}")
@@ -1233,11 +1323,11 @@ Return ONLY a JSON object: {{"improvements": ["instruction 1", "instruction 2"],
                     await asyncio.sleep(5)
 
                 except Exception as e:
-                    print(f"[ODIN IMPROVEMENT] {agent_name} error: {e}")
+                    print(f"[ODIN IMPROVEMENT] {agent_name} error: {type(e).__name__}: {e}")
                     continue
 
         except Exception as e:
-            print(f"[ODIN IMPROVEMENT LOOP] error: {e}")
+            print(f"[ODIN IMPROVEMENT LOOP] error: {type(e).__name__}: {e}")
         await asyncio.sleep(86400)  # 24 hours
 
 
@@ -1313,7 +1403,19 @@ async def _heimdall_deep_research_loop():
                             lines.append(f"[{query}] {title}: {snippet}")
             else:
                 # Free DuckDuckGo fallback — no API key needed
-                niches = ["cottagecore", "dark academia", "retro gaming", "plant parent", "mental health", "pet portraits"]
+                niches = [
+                    "cottagecore", "dark academia", "retro gaming", "plant parent",
+                    "mental health", "pet portraits", "boho aesthetic", "witch aesthetic",
+                    "minimalist home", "christian faith", "dog mom", "cat lover",
+                    "nurse gift", "teacher appreciation", "hiking outdoor",
+                    "coastal grandmother", "Y2K nostalgia", "anime aesthetic",
+                    "true crime fan", "book lover", "cat mom mug", "funny sarcasm",
+                    "birthday gift women", "baby shower gift", "wedding gift",
+                ]
+                # Rotate through a window of 6 per cycle so every niche gets coverage over time
+                import math
+                cycle_idx = int(asyncio.get_event_loop().time() / 3600) % math.ceil(len(niches) / 6)
+                niches = niches[cycle_idx * 6 : cycle_idx * 6 + 6]
                 for niche in niches:
                     ddg_results = await search_etsy_trends(niche)
                     for r in ddg_results:
@@ -1413,6 +1515,11 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                         asyncio.create_task(run_idea_pipeline(_idea, manager, state))
                     else:
                         needs_review.append(_idea)
+                # Persist auto-approval status changes — save_queue() above ran before
+                # the loop mutated statuses, so auto-approved ideas were stored as "pending".
+                # This second save ensures they survive a restart without re-appearing in queue.
+                if any(_i.get("status") == "approved" for _i in added):
+                    state.save_queue()
                 if needs_review:
                     await manager.broadcast({
                         "type": "approval_queue",
@@ -1766,7 +1873,7 @@ async def startup():
     asyncio.create_task(_vault_loop())              # P&L updates every 5 min
     asyncio.create_task(_odin_loop())               # strategy updates every 5 min
     asyncio.create_task(_odin_morning_briefing_loop())   # daily briefing
-    asyncio.create_task(_odin_agent_improvement_loop())  # weekly agent improvement
+    asyncio.create_task(_odin_agent_improvement_loop())  # daily agent improvement
     asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval check every 10 min
     asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 1h
 
