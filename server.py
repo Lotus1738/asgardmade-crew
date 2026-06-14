@@ -905,7 +905,7 @@ async def _odin_morning_briefing_loop():
 
 async def _odin_agent_improvement_loop():
     """
-    Weekly: Odin reviews each agent's outcome history and brain lessons,
+    Daily: Odin reviews each agent's outcome history and brain lessons,
     then uses Claude to write improvement notes that get injected into their prompts.
     First run: 4 minutes after startup (gives brain time to synthesize first).
     """
@@ -1491,7 +1491,7 @@ async def startup():
     asyncio.create_task(_odin_loop())               # strategy updates every 5 min
     asyncio.create_task(_odin_morning_briefing_loop())   # daily briefing
     asyncio.create_task(_odin_agent_improvement_loop())  # weekly agent improvement
-    asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval every 4h
+    asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval check every 10 min
     asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 6h
 
     log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"

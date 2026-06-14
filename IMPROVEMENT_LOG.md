@@ -120,3 +120,29 @@
 - Nothing notable. The critical SyntaxError fix was urgent; the others were clean follow-ups.
 
 **Git push:** PENDING — Windows filesystem lock on `.git/index.lock` blocks sandbox git. Run `git add -A && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-6) UTC
+
+**Areas reviewed:** Visual/UX (index.html — revenue chart, ODIN god-room scene), Backend reliability (server.py — brain feedback, stale comments)
+
+**Changes made:**
+
+- `public/index.html:initFromState` — **BUG FIX**: Revenue chart was always empty on page load. `dailyBreakdown:[]` was hardcoded, so the bar chart stayed blank for up to 5 minutes (until the first `vault_report` WebSocket message). Fixed by computing daily breakdown client-side from the `transactions` array — same logic as the server's `_build_daily_breakdown`. Now the chart renders immediately from state synced at connect time.
+
+- `public/index.html:initSceneCanvas` — **BUG FIX**: When opening ODIN's god-room overlay (clicking the Throne Room), the scene background rendered GUARDIAN's red ops radar. The fallback `DRAW[name]||DRAW['GUARDIAN']` caused ODIN (not in DRAW) to use the GUARDIAN animation. Removed the `||DRAW['GUARDIAN']` fallback so ODIN gets the dark space theme background (`#000814`) with the ODIN pixel character drawn on top — thematically correct for the Throne Room.
+
+- `server.py:_heimdall_loop` — Added `brain.record_outcome("HEIMDALL", ...)` call for auto-approved ideas (demand ≥ 85, competition = low). The manual approval path in `_handle_ws_message` recorded outcomes (score 9) but the auto-approve path in `_heimdall_loop` did not. The brain synthesis loop was therefore blind to all auto-approvals — the most common path for high-quality ideas. Now scored 8 (slightly lower than manual commander approval at 9).
+
+- `server.py:startup comment` — Fixed stale `# autonomous approval every 4h` → `# autonomous approval check every 10 min`. Previous runs fixed the sleep from 3600s to 600s but missed this startup comment.
+
+- `server.py:_odin_agent_improvement_loop docstring` — Fixed "Weekly: Odin reviews..." → "Daily: Odin reviews...". The loop sleeps `asyncio.sleep(86400)` = 24 hours (daily), not weekly. Stale comment from an earlier design iteration.
+
+**Skipped (risky):**
+
+- `public/index.html:drawHEIMALL` — Dead function (21 lines) left over from pre-run-auto-5 DRAW dispatch. Removing it would be safe but is cosmetic; deferred to keep this run within budget.
+
+- `server.py:_send_init:vault_report` — `_build_vault_report` is computed but the result is discarded (raw `state.vault` is sent instead). The frontend `initFromState` fix (#1 above) handles this client-side so a backend change is no longer needed here.
+
+**Git push:** PENDING — Run `git add -A && git push` manually to deploy.

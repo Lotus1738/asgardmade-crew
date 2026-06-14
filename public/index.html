@@ -442,6 +442,36 @@ header{
 }
 .ms-cmd:hover{background:rgba(0,60,160,.3);border-color:rgba(0,212,255,.35);color:var(--c1);box-shadow:0 0 8px rgba(0,100,255,.2);}
 
+/* ── ODIN Voice Interface ── */
+#voice-odin-btn{
+  background:rgba(0,60,180,.25);border-color:#00d4ff88;color:#00d4ff;
+  font-size:8px;letter-spacing:2px;text-align:center;padding:8px 4px;
+  margin-top:2px;width:100%;
+}
+#voice-odin-btn.listening{
+  background:rgba(220,0,60,.3);border-color:#ff2255cc;color:#ff6688;
+  animation:voicePulse .55s ease-in-out infinite alternate;
+}
+@keyframes voicePulse{
+  from{box-shadow:0 0 4px #ff003344;}
+  to{box-shadow:0 0 18px #ff2255cc,0 0 6px #ff2255 inset;}
+}
+#voice-indicator{
+  display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:rgba(0,3,16,.96);border:1px solid #00d4ff55;border-radius:6px;
+  padding:9px 22px;color:#00d4ff;font:bold 8px monospace;letter-spacing:2px;
+  z-index:10000;text-align:center;white-space:nowrap;
+  box-shadow:0 0 20px #00d4ff22;
+}
+#voice-indicator.active{display:block;}
+#chat-mic-btn{
+  background:rgba(0,60,180,.2);border:1px solid #00d4ff55;color:#00d4ff88;
+  font-size:13px;cursor:pointer;border-radius:var(--radius);padding:0 8px;
+  transition:var(--transition);flex-shrink:0;
+}
+#chat-mic-btn:hover{color:#00d4ff;border-color:#00d4ffaa;box-shadow:0 0 8px #00d4ff33;}
+#chat-mic-btn.listening{color:#ff6688;border-color:#ff2255;animation:voicePulse .55s ease-in-out infinite alternate;}
+
 /* ── Argus bar (hidden — metrics now in right panel) ── */
 #argus-bar{display:none;}
 .sys-metric{display:none;}
@@ -684,6 +714,16 @@ const PixelBuilding = (() => {
     const{x,bodyCol,accentCol,name,dir,walkFrame,status,pauseTimer,wanderState}=ag;
     const S=3,y=floorY;
     const walking=(pauseTimer<=0&&wanderState==='home')||(wanderState==='leaving'||wanderState==='returning');
+
+    // ── idle life animations ──────────────────────────────────────────
+    const idle=!walking;
+    const breathOff=idle?Math.sin(_t*1.4)*1.2:0;               // torso breathing
+    const headOff  =idle?Math.sin(_t*0.85)*0.9:0;              // gentle head sway
+    const blink    =idle&&(Math.floor(_t*3.2)%20===0);          // blink ~every 6s
+    const idleSw   =idle?Math.sin(_t*1.1)*1.2:0;               // idle arm rock
+    const waving   =wanderState==='visiting';
+    const waveAmp  =waving?-S*4-Math.sin(_t*7)*S*1.5:0;        // animated wave
+
     // shadow
     ctx.save();ctx.globalAlpha=.15;ctx.beginPath();ctx.ellipse(r(x),y+2,9,3,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
     // legs
@@ -693,25 +733,41 @@ const PixelBuilding = (() => {
     // boots
     rect(ctx,x+(dir>0?-5:-2),y-S+1,S*2+1,S,accentCol+'55');
     rect(ctx,x+(dir>0?1:2),y-S+1,S*2+1,S,accentCol+'55');
-    // torso
-    rect(ctx,x-5,y-S*8,S*5,S*4,bodyCol);
-    rect(ctx,x-5,y-S*8,S*5,2,lighten(bodyCol,55));
-    rect(ctx,x-3,y-S*7,S*2,2,accentCol+'77');
-    // arms
-    const sw=walking?(walkFrame%2===0?2:-2):0;
-    rect(ctx,x-8,y-S*7+sw,S,S*3,bodyCol);rect(ctx,x+5,y-S*7-sw,S,S*3,bodyCol);
-    rect(ctx,x-8,y-S*5+sw,S,S,'#e8c09a');rect(ctx,x+5,y-S*5-sw,S,S,'#e8c09a');
-    // head
-    rect(ctx,x-4,y-S*12,S*4,S*4,'#e8c09a');
-    // eyes
+    // torso (with breathing lift)
+    rect(ctx,x-5,y-S*8+breathOff,S*5,S*4,bodyCol);
+    rect(ctx,x-5,y-S*8+breathOff,S*5,2,lighten(bodyCol,55));
+    rect(ctx,x-3,y-S*7+breathOff,S*2,2,accentCol+'77');
+    // arms (walk swing | idle rock | wave when visiting)
+    const sw=walking?(walkFrame%2===0?2:-2):idleSw;
+    rect(ctx,x-8,y-S*7+sw+breathOff,S,S*3,bodyCol);
+    rect(ctx,x+5,y-S*7-sw+waveAmp+breathOff,S,S*3,bodyCol);
+    rect(ctx,x-8,y-S*5+sw+breathOff,S,S,'#e8c09a');
+    rect(ctx,x+5,y-S*5-sw+waveAmp+breathOff,S,S,'#e8c09a');
+    // head (with idle sway)
+    rect(ctx,x-4,y-S*12+headOff,S*4,S*4,'#e8c09a');
+    // eyes (blink effect)
     const ex=dir>0?x+1:x-3;
-    ctx.save();ctx.shadowColor=accentCol;ctx.shadowBlur=5;
-    ctx.fillStyle=accentCol;ctx.fillRect(r(ex),r(y-S*11),S,S);ctx.restore();
+    if(blink){
+      rect(ctx,ex,y-S*11+headOff+S*.45,S,1,accentCol+'55'); // squinted
+    } else {
+      ctx.save();ctx.shadowColor=accentCol;ctx.shadowBlur=5;
+      ctx.fillStyle=accentCol;ctx.fillRect(r(ex),r(y-S*11+headOff),S,S);ctx.restore();
+    }
+    // 👋 wave bubble when visiting another room
+    if(waving){
+      const bblY=y-S*20;
+      const ba=0.6+0.4*Math.sin(_t*8);
+      ctx.save();ctx.globalAlpha=ba;
+      ctx.fillStyle='rgba(0,0,0,.8)';ctx.fillRect(r(x)-11,r(bblY),22,15);
+      ctx.strokeStyle=accentCol+'bb';ctx.lineWidth=.8;ctx.strokeRect(r(x)-11+.5,r(bblY)+.5,21,14);
+      ctx.font='10px serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText('👋',r(x),r(bblY)+2);
+      ctx.restore();
+    }
     // status glow
     if(status==='working'||status==='active'){
       ctx.save();ctx.globalAlpha=.07+.04*Math.sin(_t*5);ctx.fillStyle=accentCol;ctx.beginPath();ctx.arc(r(x),r(y-S*6),18,0,Math.PI*2);ctx.fill();ctx.restore();
     }
-    drawAccessory(ctx,ag,x,y,S,dir);
+    drawAccessory(ctx,ag,x,y+breathOff,S,dir);
     // name tag — use display name when available
     const _dname=ag.display||name;
     const tw=r(_dname.length*4.2+10),tx=r(x-tw/2),ty=r(y-S*15);
@@ -1251,6 +1307,7 @@ const PixelBuilding = (() => {
       <button class="ms-cmd" onclick="switchTab('vault')">💰 VAULT</button>
       <button class="ms-cmd" onclick="switchTab('ideas')">💡 IDEAS</button>
       <button class="ms-cmd" onclick="switchTab('designs')">🎨 DESIGNS</button>
+      <button id="voice-odin-btn" onclick="toggleOdinVoice()">🎙 SPEAK TO ODIN</button>
     </div>
     <!-- Agent oversight in command zone -->
     <div id="odin-oversight-col">
@@ -1345,6 +1402,7 @@ const PixelBuilding = (() => {
         <div id="chat-history"></div>
         <div id="chat-input-row">
           <input id="chat-input" type="text" placeholder="SPEAK TO THE GOD — ENTER TO TRANSMIT" maxlength="400">
+          <button id="chat-mic-btn" onclick="toggleChatVoice()" title="Voice input">🎙</button>
           <button id="chat-send" onclick="sendChat()">TRANSMIT</button>
         </div>
       </div>
@@ -1353,6 +1411,7 @@ const PixelBuilding = (() => {
 </div>
 
 <div id="xp-toast-container"></div>
+<div id="voice-indicator"></div>
 <div id="alert-container"></div>
 
 <script>
@@ -2260,6 +2319,90 @@ function showTyping(){
 function removeTyping(){ const e=document.getElementById('_typ'); if(e) e.remove(); }
 
 /* ═══════════════════════════════════════════════
+   ODIN VOICE INTERFACE
+   🎙 Mic → transcript → ODIN chat
+   🔊 ODIN reply → speechSynthesis
+═══════════════════════════════════════════════ */
+let _voiceRec=null, _voiceActive=false;
+
+function _buildVoiceRec(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ addLog('ODIN','Voice recognition requires Chrome or Edge','error'); return null; }
+  const rec=new SR();
+  rec.lang='en-US'; rec.interimResults=true; rec.maxAlternatives=1; rec.continuous=false;
+  rec.onresult=(e)=>{
+    const res=e.results[e.results.length-1];
+    const transcript=res[0].transcript;
+    const ind=document.getElementById('voice-indicator');
+    if(ind) ind.textContent=`🎙 "${transcript}"`;
+    if(res.isFinal){
+      _stopVoice();
+      if(chatAgent!=='ODIN'){ openChat('ODIN'); }
+      setTimeout(()=>{
+        const inp=document.getElementById('chat-input');
+        if(inp){ inp.value=transcript; sendChat(); }
+      }, chatAgent==='ODIN'?50:420);
+    }
+  };
+  rec.onerror=(e)=>{ console.warn('[VOICE]',e.error); _stopVoice(); };
+  rec.onend=()=>{ if(_voiceActive) _stopVoice(); };
+  return rec;
+}
+
+function _setVoiceUI(on){
+  ['voice-odin-btn','chat-mic-btn'].forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    el.classList.toggle('listening',on);
+    if(id==='voice-odin-btn') el.textContent=on?'⏹ LISTENING...':'🎙 SPEAK TO ODIN';
+    if(id==='chat-mic-btn')   el.textContent=on?'⏹':'🎙';
+  });
+  const ind=document.getElementById('voice-indicator');
+  if(ind){ ind.className=on?'active':''; if(on) ind.textContent='🎙 LISTENING — speak now...'; }
+}
+
+function _stopVoice(){
+  _voiceActive=false;
+  try{ if(_voiceRec) _voiceRec.stop(); } catch(e){}
+  _setVoiceUI(false);
+}
+
+function toggleOdinVoice(){
+  if(_voiceActive){ _stopVoice(); return; }
+  if(!_voiceRec) _voiceRec=_buildVoiceRec();
+  if(!_voiceRec) return;
+  _voiceActive=true; _setVoiceUI(true);
+  try{ _voiceRec.start(); } catch(e){ _stopVoice(); }
+}
+
+function toggleChatVoice(){ toggleOdinVoice(); }
+
+/* ─── ODIN speaks back via text-to-speech ─── */
+let _odinVoice=null;
+function _loadOdinVoice(){
+  const voices=speechSynthesis.getVoices();
+  _odinVoice = voices.find(v=>/david|uk english male|daniel|alex/i.test(v.name))
+            || voices.find(v=>v.lang.startsWith('en')&&/male/i.test(v.name))
+            || voices.find(v=>v.lang.startsWith('en'))
+            || null;
+}
+if(window.speechSynthesis){
+  speechSynthesis.onvoiceschanged=_loadOdinVoice;
+  _loadOdinVoice();
+}
+
+function odinSpeak(text){
+  if(!window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  // Strip command tags before speaking
+  const clean=text.replace(/\[CMD:[^\]]+\]/g,'').trim();
+  if(!clean) return;
+  const utt=new SpeechSynthesisUtterance(clean);
+  utt.rate=0.87; utt.pitch=0.7; utt.volume=0.9;
+  if(_odinVoice) utt.voice=_odinVoice;
+  speechSynthesis.speak(utt);
+}
+
+/* ═══════════════════════════════════════════════
    ODIN UPGRADE COMMAND EXECUTOR
    ODIN can return [CMD:type:value] blocks in his reply.
    Server-side prompt instructs him to do so on upgrade requests.
@@ -2381,7 +2524,7 @@ async function sendChat(){
           }
         }
         // ODIN: execute upgrade commands embedded in reply
-        if(chatAgent==='ODIN') odinExecuteCommands(data.reply, txt);
+        if(chatAgent==='ODIN'){ odinExecuteCommands(data.reply, txt); odinSpeak(data.reply); }
       } else {
         appendAgentMsg(`⚠ No reply in API response — check Railway logs`);
       }
