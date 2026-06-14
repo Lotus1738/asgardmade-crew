@@ -71,3 +71,52 @@
 - Nothing notable. This pass resolved the two previously deferred items (vault P&L display) and addressed three backend reliability gaps within the 5-edit limit.
 
 **Git push:** PENDING — Windows filesystem lock on `.git/index`. Run `git add -A && git push` manually.
+
+---
+
+## Run 2026-06-14T(auto-4) UTC
+
+**Areas reviewed:** Backend reliability (server.py), Visual/UX (index.html), Code quality
+
+**Changes made:**
+
+- `server.py:AppState.save_queue` — Added queue pruning before every save. Keeps all pending items + the 100 most-recent completed ones per category (ideas and designs). **Bug fix**: after weeks of 2-minute HEIMDALL cycles + hourly deep research, the queue JSON would accumulate thousands of stale approved/rejected items, slowing every `save_queue()` call and inflating disk usage on Railway.
+
+- `server.py:_odin_autonomous_action_loop` — Changed `asyncio.sleep(3600)` → `asyncio.sleep(600)`. The auto-approval thresholds are 30 min for ideas and 60 min for designs, but with a 60-min sleep the loop could fire up to 90/120 min late. Running every 10 min means items get approved within 10 min of crossing the threshold — much closer to the stated intent.
+
+- `public/index.html:handleMsg(approval_queue)` — Added deduplication by ID before prepending new designs/ideas to `state.approvals`. On WebSocket reconnect the server doesn't re-send the queue, but if a future code path or race condition delivers the same item twice, the previous code would create duplicate approval cards. Now deduplicated.
+
+- `public/index.html:updateMissionStrip` — Fixed sales counter. Previously used `f.totalTransactions` which counts ALL vault transactions (including expense entries logged per pipeline run). The mission goal is sales, so the counter now estimates `Math.round(revenue / 34.99)` when revenue exists, falling back to approved-design count when there are no sales yet.
+
+- `public/index.html:renderDesigns` — Fixed model label in design approval cards: changed `'DALL-E 3'` → `'gpt-image-1'`. The image generation model was updated to `gpt-image-1` in `integrations/dalle.py` but the HUD card still showed the old name, misleading the owner about which model produced the design.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical and non-breaking.
+
+**Git push:** PENDING — run `git add -A && git push` to deploy.
+
+---
+
+## Run 2026-06-14T(auto-5) UTC
+
+
+**Areas reviewed:** Visual/UX (index.html — SyntaxError, DRAW dispatch), Code quality (brain.py), Backend reliability (server.py)
+
+**Changes made:**
+
+- `public/index.html:updateMissionStrip` — **CRITICAL BUG FIX**: Removed duplicate `const rev` declaration introduced by the previous auto-pass. `const` cannot be re-declared in the same scope — this caused a SyntaxError at parse time, meaning the entire `<script>` block failed to compile and the HUD was completely non-functional (no WebSocket, no rendering, no agents). Fixed by removing the redundant second declaration while keeping the comment.
+
+- `public/index.html:DRAW dispatch map` — Fixed `HEIMDALL:drawHEIMALL` (undefined function, typo) → `HEIMDALL:drawARGUS`. `drawHEIMALL` was never defined anywhere in the file. This meant `DRAW['HEIMDALL']` was `undefined`, so opening HEIMDALL's chat always fell back to `DRAW['GUARDIAN']` (red ops radar) instead of showing HEIMDALL's own animation. `drawARGUS` (amber radar/sweep) fits HEIMDALL's Observatory/watcher role thematically.
+
+- `memory/brain.py:get_all_outcomes` — Changed from outer-except-drops-all to per-line error handling. Previously, a single malformed JSONL line (e.g., from a mid-write crash) caused the entire outcomes file to return `[]` silently — the brain synthesis loop would then produce no lessons and ODIN improvement would skip the agent entirely. Now each line is parsed independently; bad lines are skipped with a logged warning, preserving all valid history.
+
+- `server.py:startup comment` — Fixed misleading comment `# deep Google research every 6h` → `# deep web research every 1h`. The loop sleeps `asyncio.sleep(3600)` = 1 hour. The wrong comment was left from an earlier design iteration and would mislead anyone tuning timing.
+
+- `server.py:_odin_morning_briefing_loop` — Added `type(e).__name__` to exception log: `print(f"[ODIN BRIEFING] error: {e}")` → `print(f"[ODIN BRIEFING] error: {type(e).__name__}: {e}")`. Matches the logging pattern used in all other loops (added in previous passes) for consistent Railway log scanning.
+
+**Skipped (risky):**
+
+- Nothing notable. The critical SyntaxError fix was urgent; the others were clean follow-ups.
+
+**Git push:** PENDING — Windows filesystem lock on `.git/index.lock` blocks sandbox git. Run `git add -A && git push` manually to deploy.

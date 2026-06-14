@@ -113,6 +113,13 @@ class AppState:
 
     def save_queue(self):
         try:
+            # Prune completed items before saving to prevent unbounded queue growth.
+            # Keeps all pending items + the 100 most-recent completed ones per category.
+            for cat in ("ideas", "designs"):
+                items = self.queue.get(cat, [])
+                pending = [i for i in items if i.get("status") == "pending"]
+                completed = [i for i in items if i.get("status") != "pending"]
+                self.queue[cat] = pending + completed[-100:]
             (DATA_DIR / "queue.json").write_text(json.dumps(self.queue, indent=2, default=str))
         except Exception as e:
             print(f"[STATE] save_queue error: {type(e).__name__}: {e}")
@@ -862,7 +869,7 @@ async def _odin_morning_briefing_loop():
             state.strategy_count += 1
 
         except Exception as e:
-            print(f"[ODIN BRIEFING] error: {e}")
+            print(f"[ODIN BRIEFING] error: {type(e).__name__}: {e}")
         await asyncio.sleep(86400)  # 24 hours
 
 
@@ -1415,7 +1422,7 @@ async def _odin_autonomous_action_loop():
 
         except Exception as e:
             print(f"[ODIN AUTONOMOUS] error: {type(e).__name__}: {e}")
-        await asyncio.sleep(3600)  # every 1 hour
+        await asyncio.sleep(600)  # every 10 minutes — tighter loop means auto-approvals fire closer to the 30/60-min thresholds
 
 
 # ─── Static file catch-all (must be LAST route so API routes match first) ────
@@ -1436,7 +1443,7 @@ async def startup():
     brain.initialize()  # ensure brain directory exists immediately
     asyncio.create_task(_guardian_loop())           # ops: logs + metrics + security
     asyncio.create_task(_heimdall_loop())           # rapid niche scan every 2 min
-    asyncio.create_task(_heimdall_deep_research_loop())  # deep Google research every 6h
+    asyncio.create_task(_heimdall_deep_research_loop())  # deep web research every 1h
     asyncio.create_task(_athena_loop())             # shop stats every 5 min
     asyncio.create_task(_vault_loop())              # P&L updates every 5 min
     asyncio.create_task(_odin_loop())               # strategy updates every 5 min

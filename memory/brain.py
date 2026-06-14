@@ -97,8 +97,12 @@ def get_all_outcomes(agent_name: str, limit: int = 20) -> list:
         results = []
         for line in lines[-limit:]:
             stripped = line.strip()
-            if stripped:
+            if not stripped:
+                continue
+            try:
                 results.append(json.loads(stripped))
+            except json.JSONDecodeError:
+                print(f"[BRAIN] Skipping malformed outcome line for {agent_name}: {stripped[:60]}")
         return results
     except Exception:
         return []
