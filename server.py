@@ -720,6 +720,225 @@ async def _vault_loop():
         await asyncio.sleep(300)
 
 
+async def _heimdall_deep_research_loop():
+    """6-hour Serper Google search cycle: searches → Claude scoring → 75+ ideas → queue."""
+    from integrations.serper import run_full_research
+    cycle = 0
+    await asyncio.sleep(45)  # Let startup settle before first run
+    while True:
+        try:
+            cycle += 1
+            await manager.broadcast({
+                "type": "agent_log",
+                "agent": "HEIMDALL",
+                "message": f"Deep research cycle #{cycle} — querying Google via Serper for live Etsy trend data.",
+                "level": "info",
+                "timestamp": datetime.now().isoformat(),
+            })
+
+            # Read past vault research so Claude can avoid duplicating niches
+            past_context = ""
+            try:
+                past_context = mem.heimdall_read_context()
+            except Exception:
+                pass
+
+            results = await run_full_research()
+
+            # Flatten all snippets into a single text block for Claude
+            lines = []
+            for items in results.values():
+                for item in items:
+                    query = item.get("query", "")
+                    title = item.get("title", "")
+                    snippet = item.get("snippet", "")
+                    if title or snippet:
+                        lines.append(f"[{query}] {title}: {snippet}")
+
+            if not lines:
+                await asyncio.sleep(21600)
+                continue
+
+            search_text = "\n".join(lines[:30])
+
+            scoring_prompt = f"""Search results from Google about trending Etsy and print-on-demand products:
+
+{search_text}
+
+Previously researched context (avoid exact duplicates of these concepts):
+{past_context[:800] if past_context else "No prior research — first cycle."}
+
+Extract 5-8 distinct, specific product ideas that have real commercial signal in these results.
+For each idea return these exact fields:
+- title: specific product concept (e.g. "Vintage Plant Mom Botanical Print")
+- niche: category (e.g. "plant parent")
+- productType: one of: t-shirt, hoodie, wall art, tote bag, mug, sticker
+- score: 1-100 based on demand signals × POD suitability × competition gap
+- demandScore: integer 60-99
+- competition: low / medium / high
+- estimatedMonthlyRevenue: e.g. "$600-1000"
+- priceRange: e.g. "$22-28"
+- keywords: array of 5-7 SEO keywords
+- description: one-sentence pitch
+
+Be selective — only include ideas with evidence from the search results above.
+Score 75+ = strong commercial signal. Scores below 75 are not worth queuing.
+
+Return ONLY a valid JSON array. No markdown fences, no explanation, just the array."""
+
+            client = get_anthropic_client()
+            response = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2000,
+                system="You are HEIMDALL, expert Etsy market analyst for a print-on-demand shop. Extract profitable product ideas from search data. Return only valid JSON array.",
+                messages=[{"role": "user", "content": scoring_prompt}],
+            )
+            raw = response.content[0].text.strip()
+
+            # Strip markdown fences if model wrapped the JSON
+            if raw.startswith("```"):
+                parts = raw.split("```")
+                raw = parts[1] if len(parts) > 1 else raw
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            raw = raw.strip()
+
+            ideas_raw = json.loads(raw)
+            if not isinstance(ideas_raw, list):
+                raise ValueError(f"Expected JSON array, got {type(ideas_raw)}")
+
+            high_signal = [i for i in ideas_raw if isinstance(i, dict) and i.get("score", 0) >= 75]
+
+            added = []
+            for idea_data in high_signal:
+                idea = {
+                    "id": str(uuid.uuid4()),
+                    "type": "idea",
+                    "status": "pending",
+                    "title": idea_data.get("title", "Untitled"),
+                    "niche": idea_data.get("niche", "general"),
+                    "productType": idea_data.get("productType", "t-shirt"),
+                    "demandScore": idea_data.get("demandScore", idea_data.get("score", 75)),
+                    "competition": idea_data.get("competition", "medium"),
+                    "estimatedMonthlyRevenue": idea_data.get("estimatedMonthlyRevenue", "Unknown"),
+                    "priceRange": idea_data.get("priceRange", "$22-28"),
+                    "keywords": idea_data.get("keywords", []),
+                    "description": idea_data.get("description", ""),
+                    "source": "serper_research",
+                    "researchScore": idea_data.get("score", 75),
+                    "createdAt": datetime.now().isoformat(),
+                }
+                state.queue["ideas"].append(idea)
+                added.append(idea)
+                try:
+                    mem.heimdall_write_research(idea)
+                except Exception:
+                    pass
+
+            if added:
+                state.save_queue()
+                await manager.broadcast({
+                    "type": "approval_queue",
+                    "agent": "HEIMDALL",
+                    "data": {"category": "ideas", "items": added},
+                })
+                top = added[0]
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "HEIMDALL",
+                    "message": (
+                        f"Deep research #{cycle} complete. {len(ideas_raw)} ideas scored, "
+                        f"{len(added)} cleared 75+ threshold and queued. "
+                        f"Top signal: '{top['title']}' (score {top['researchScore']}, "
+                        f"{top['niche']}, competition {top['competition']})."
+                    ),
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+
+                # Save research summary to Obsidian vault
+                try:
+                    today_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    summary_lines = [
+                        f"# Heimdall Deep Research — Cycle #{cycle}",
+                        f"Date: {today_str}",
+                        "",
+                        "## Queries Run",
+                    ]
+                    seen_queries: set[str] = set()
+                    for items in results.values():
+                        for item in items:
+                            q = item.get("query", "")
+                            if q and q not in seen_queries:
+                                summary_lines.append(f"- {q}")
+                                seen_queries.add(q)
+                    summary_lines += [
+                        "",
+                        f"## Results: {len(added)} high-signal ideas (of {len(ideas_raw)} scored)",
+                        "",
+                    ]
+                    for idea in added:
+                        summary_lines.append(
+                            f"### ✅ {idea['title']} — score {idea['researchScore']}"
+                        )
+                        summary_lines.append(f"- Niche: {idea['niche']}")
+                        summary_lines.append(f"- Product: {idea['productType']}")
+                        summary_lines.append(f"- Competition: {idea['competition']}")
+                        summary_lines.append(f"- Revenue est: {idea['estimatedMonthlyRevenue']}")
+                        summary_lines.append(f"- Keywords: {', '.join(idea['keywords'])}")
+                        summary_lines.append("")
+                    summary_lines.append("## All Ideas Scored")
+                    for d in ideas_raw:
+                        flag = "✅" if d.get("score", 0) >= 75 else "❌"
+                        summary_lines.append(
+                            f"- {flag} **{d.get('title', '?')}** — score {d.get('score', 0)} ({d.get('niche', '?')})"
+                        )
+                    mem.write(
+                        f"Niches/Research Cycles/Cycle-{cycle:03d}_{datetime.now().strftime('%Y-%m-%d')}.md",
+                        "\n".join(summary_lines),
+                    )
+                except Exception:
+                    pass
+
+                await _award_xp_silent("HEIMDALL", 50, "deep_research_cycle")
+            else:
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "HEIMDALL",
+                    "message": (
+                        f"Deep research #{cycle}: {len(ideas_raw)} ideas scored, "
+                        f"none cleared 75+ threshold. Market signal too diffuse — "
+                        f"adjusting focus for next cycle in 6 hours."
+                    ),
+                    "level": "warning",
+                    "timestamp": datetime.now().isoformat(),
+                })
+
+            ag = state.agents.get("HEIMDALL", {})
+            ag["lastAction"] = f"Deep research #{cycle}: {len(added)} high-signal ideas queued"
+            state.agents["HEIMDALL"] = ag
+            await manager.broadcast({
+                "type": "agent_status",
+                "agent": "HEIMDALL",
+                "data": {"status": "active", "lastAction": ag["lastAction"], "xp": ag.get("xp", 0), "level": ag.get("level", 1)},
+            })
+
+        except HTTPException:
+            pass  # No Anthropic key — skip silently, loop continues
+        except Exception as e:
+            print(f"[HEIMDALL DEEP RESEARCH] cycle={cycle} error={type(e).__name__}: {e}")
+            traceback.print_exc()
+            await manager.broadcast({
+                "type": "agent_log",
+                "agent": "HEIMDALL",
+                "message": f"Deep research #{cycle} error: {type(e).__name__}: {str(e)[:120]}. Retrying in 6 hours.",
+                "level": "warning",
+                "timestamp": datetime.now().isoformat(),
+            })
+
+        await asyncio.sleep(21600)  # 6 hours
+
+
 async def _odin_loop():
     await asyncio.sleep(30)
     while True:
@@ -783,6 +1002,7 @@ async def startup():
     asyncio.create_task(_argus_loop())
     asyncio.create_task(_hermes_loop())
     asyncio.create_task(_heimdall_loop())
+    asyncio.create_task(_heimdall_deep_research_loop())
     asyncio.create_task(_athena_loop())
     asyncio.create_task(_tyr_loop())
     asyncio.create_task(_vault_loop())
