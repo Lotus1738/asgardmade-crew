@@ -15,6 +15,8 @@
   --glow-sm:0 0 8px rgba(0,212,255,.4);
   --border:1px solid rgba(0,212,255,.2);
   --font:'Orbitron',monospace;
+  --panel-bg:rgba(0,6,22,.94);
+  --panel-border:rgba(0,212,255,.22);
 }
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
 html{height:100%;}
@@ -31,14 +33,17 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 /* ── App layout ── */
 #app{
   position:relative;z-index:1;
-  display:grid;
-  grid-template-rows:56px auto auto auto auto;
-  grid-template-columns:180px 1fr 260px;
+  display:flex;flex-direction:column;
   min-height:100vh;
+}
+#main-body{
+  flex:1;display:grid;
+  grid-template-columns:210px 1fr 270px;
+  min-height:0;overflow:hidden;
 }
 
 /* ── Header ── */
-header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:linear-gradient(90deg,rgba(0,20,60,.95),rgba(0,8,30,.98) 50%,rgba(0,20,60,.95));border-bottom:1px solid rgba(0,212,255,.3);box-shadow:0 0 30px rgba(0,100,255,.3);position:sticky;top:0;z-index:100;}
+header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:48px;flex-shrink:0;background:linear-gradient(90deg,rgba(0,20,60,.97),rgba(0,8,30,.99) 50%,rgba(0,20,60,.97));border-bottom:2px solid rgba(0,212,255,.35);box-shadow:0 0 30px rgba(0,100,255,.3);position:sticky;top:0;z-index:100;}
 .logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:900;letter-spacing:4px;color:var(--c1);text-shadow:var(--glow);}
 .logo-icon{font-size:24px;animation:pulse 3s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
@@ -56,23 +61,117 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 #conn-status{padding:4px 10px;border-radius:2px;font-size:8px;letter-spacing:2px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--green);}
 #conn-status.disconnected{background:rgba(255,51,85,.1);border-color:rgba(255,51,85,.3);color:var(--red);}
 
-/* ── ODIN COMMAND SECTION ── */
-#odin-section{
-  grid-column:1/-1;
-  display:flex;height:420px;
-  background:linear-gradient(180deg,rgba(0,10,40,.98) 0%,rgba(0,5,22,.99) 100%);
-  border-bottom:2px solid rgba(0,212,255,.35);
-  box-shadow:0 4px 40px rgba(0,80,200,.25);
+/* ── Quest Panel (left sidebar) ── */
+#quest-panel{
+  background:var(--panel-bg);border-right:1px solid var(--panel-border);
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;
+}
+.quest-section{padding:8px 10px;border-bottom:1px solid rgba(0,212,255,.1);}
+.quest-hdr{font-size:7px;letter-spacing:3px;color:var(--c1);padding:8px 10px 5px;
+  border-bottom:1px solid rgba(0,212,255,.12);text-shadow:var(--glow-sm);flex-shrink:0;}
+/* Mission goal */
+.mission-goal{padding:10px 10px 8px;}
+.mission-row{display:flex;align-items:baseline;gap:4px;margin-bottom:2px;}
+#ms-sales-num{font-size:28px;font-weight:900;color:var(--green);text-shadow:0 0 14px var(--green);line-height:1;}
+.ms-goal-denom{font-size:9px;color:var(--txt3);letter-spacing:1px;}
+#ms-goal-bar-wrap{height:4px;background:rgba(0,40,80,.6);border-radius:2px;margin:4px 0;}
+#ms-goal-bar{height:100%;background:linear-gradient(90deg,var(--c2),var(--green));border-radius:2px;transition:width .6s;width:0%;}
+.mission-sub{font-size:7px;color:var(--txt2);letter-spacing:1px;}
+/* Agent dots in quest panel */
+#ms-agent-lights{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;}
+.ms-adot{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:3px 5px;border-radius:2px;transition:.15s;border:1px solid transparent;}
+.ms-adot:hover{background:rgba(0,212,255,.08);border-color:rgba(0,212,255,.2);}
+.ms-adot-ring{width:10px;height:10px;border-radius:50%;background:var(--txt3);transition:.3s;}
+.ms-adot-ring.idle{background:var(--txt3);}
+.ms-adot-ring.active{background:var(--green);box-shadow:0 0 8px var(--green);animation:blink 1.5s infinite;}
+.ms-adot-ring.working{background:var(--yellow);box-shadow:0 0 8px var(--yellow);animation:blink .8s infinite;}
+.ms-adot-ring.error{background:var(--red);box-shadow:0 0 8px var(--red);animation:blink .4s infinite;}
+.ms-adot-label{font-size:5px;letter-spacing:.5px;color:var(--txt3);white-space:nowrap;}
+/* Quick approvals */
+#ms-approvals{display:flex;flex-direction:column;gap:4px;padding:6px 10px;}
+.ms-qa{
+  display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:2px;
+  font-family:var(--font);font-size:6px;letter-spacing:.5px;cursor:pointer;transition:.18s;
+  border:none;width:100%;text-align:left;
+}
+.ms-qa.green{background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--green);}
+.ms-qa.green:hover{background:rgba(0,255,136,.22);}
+.ms-qa.blue{background:rgba(0,100,255,.12);border:1px solid rgba(0,130,255,.3);color:var(--c2);}
+.ms-qa.blue:hover{background:rgba(0,100,255,.25);}
+.ms-qa-badge{min-width:16px;height:16px;border-radius:8px;background:rgba(255,140,0,.3);color:var(--orange);font-size:7px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;border:1px solid rgba(255,140,0,.4);margin-left:auto;}
+/* Oversight in quest panel */
+#oversight-list{padding:4px 6px;flex:1;}
+.ov-row{display:flex;align-items:center;gap:6px;padding:5px 7px;border-bottom:1px solid rgba(0,50,100,.15);cursor:pointer;transition:.15s;border-radius:2px;}
+.ov-row:hover{background:rgba(0,30,80,.3);}
+.ov-icon{font-size:13px;flex-shrink:0;}
+.ov-name{font-size:7px;font-weight:700;letter-spacing:1px;color:var(--txt);min-width:60px;}
+.ov-right{flex:1;min-width:0;}
+.ov-status{font-size:6px;color:var(--txt3);letter-spacing:1px;margin-bottom:2px;}
+.ov-bar-track{height:3px;background:rgba(0,40,100,.4);border-radius:2px;overflow:hidden;}
+.ov-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));transition:width .6s;}
+.ov-lvl{font-size:6px;color:var(--c1);min-width:20px;text-align:right;flex-shrink:0;}
+
+/* ── Center Column (pixel building hero) ── */
+#center-col{
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;
+  background:rgba(0,2,14,.96);
+  border-right:1px solid rgba(0,212,255,.12);
+}
+#building-hdr{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 14px;font-size:8px;letter-spacing:3px;color:var(--c1);
+  border-bottom:1px solid rgba(0,212,255,.15);
+  background:rgba(0,0,0,.6);flex-shrink:0;position:sticky;top:0;z-index:5;
+}
+#floor-hint{font-size:7px;color:var(--txt3);letter-spacing:2px;animation:pulse 2s infinite;}
+#pantheon-floor{flex:1;position:relative;cursor:crosshair;}
+#pantheon-floor canvas{display:block;width:100%!important;height:auto!important;image-rendering:pixelated;}
+#pantheon-agent-labels{
+  display:flex;justify-content:space-around;padding:5px 8px;
+  background:rgba(0,0,0,.7);border-top:1px solid rgba(0,212,255,.12);flex-shrink:0;
+}
+.floor-agent-label{font-size:7px;letter-spacing:2px;text-align:center;color:var(--txt2);cursor:pointer;padding:3px 8px;border-radius:2px;transition:.2s;}
+.floor-agent-label:hover{color:var(--c1);background:rgba(0,212,255,.08);}
+
+/* ── Log Panel (right sidebar) ── */
+#log-panel{
+  background:var(--panel-bg);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+#log-feed{overflow-y:auto;padding:6px;flex:1;min-height:0;}
+.log-entry{display:flex;gap:6px;padding:3px 4px;border-bottom:1px solid rgba(0,50,100,.2);animation:fadeIn .3s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
+.log-agent{font-size:7px;font-weight:700;letter-spacing:1px;min-width:62px;padding-top:1px;color:var(--c1);}
+.log-msg{font-size:8px;color:var(--txt2);line-height:1.5;flex:1;}
+.log-entry.warning .log-msg{color:var(--yellow);}
+.log-entry.error .log-msg{color:var(--red);}
+.log-time{font-size:7px;color:var(--txt3);min-width:42px;text-align:right;padding-top:1px;}
+/* Inline sys metrics in right panel */
+#argus-inline{padding:8px 10px;border-top:1px solid rgba(0,212,255,.12);flex-shrink:0;}
+.sys-row{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:7px;letter-spacing:1px;color:var(--txt3);}
+.sys-row .m-label{min-width:28px;}
+.sys-row .m-bar{flex:1;height:3px;background:rgba(0,50,100,.4);border-radius:2px;overflow:hidden;}
+.sys-row .m-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));transition:width .5s;}
+.sys-row .m-fill.warn{background:linear-gradient(90deg,var(--yellow),var(--orange));}
+.sys-row .m-fill.crit{background:linear-gradient(90deg,var(--orange),var(--red));}
+.sys-row .m-val{color:var(--c1);font-weight:700;min-width:32px;text-align:right;}
+
+/* ── ODIN COMMAND ZONE (bottom bar) ── */
+#command-zone{
+  flex-shrink:0;height:210px;
+  display:flex;
+  background:linear-gradient(180deg,rgba(0,10,40,.99) 0%,rgba(0,5,22,1) 100%);
+  border-top:2px solid rgba(0,212,255,.35);
+  border-bottom:1px solid rgba(0,212,255,.2);
+  box-shadow:0 -4px 40px rgba(0,80,200,.2);
   overflow:hidden;
 }
 #odin-char-col{
-  width:260px;flex-shrink:0;position:relative;
+  width:160px;flex-shrink:0;position:relative;
   border-right:var(--border);
 }
 #odin-canvas{width:100%;height:100%;display:block;}
-#odin-chat-col{
-  flex:1;display:flex;flex-direction:column;min-width:0;
-}
+#odin-chat-col{flex:1;display:flex;flex-direction:column;min-width:0;}
 #odin-strategy-bar{
   padding:8px 14px;border-bottom:var(--border);
   background:rgba(0,20,60,.5);flex-shrink:0;
@@ -131,73 +230,29 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
   padding:7px 12px;cursor:pointer;border-radius:2px;transition:.2s;
 }
 #odin-send:hover{background:rgba(0,120,255,.4);}
-/* ── Oversight panel ── */
-#odin-oversight-col{
-  width:230px;flex-shrink:0;border-left:var(--border);
-  display:flex;flex-direction:column;background:rgba(0,5,20,.7);
-}
-#oversight-list{flex:1;overflow-y:auto;padding:6px;}
-.ov-row{
-  display:flex;align-items:center;gap:6px;padding:5px 7px;
-  border-bottom:1px solid rgba(0,50,100,.2);cursor:pointer;transition:.15s;
-}
-.ov-row:hover{background:rgba(0,30,80,.3);}
-.ov-icon{font-size:12px;flex-shrink:0;}
-.ov-name{font-size:7px;font-weight:700;letter-spacing:1px;color:var(--txt);min-width:62px;}
-.ov-right{flex:1;min-width:0;}
-.ov-status{font-size:6px;color:var(--txt3);letter-spacing:1px;margin-bottom:2px;}
-.ov-bar-track{height:3px;background:rgba(0,40,100,.4);border-radius:2px;overflow:hidden;}
-.ov-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));transition:width .6s;}
-.ov-lvl{font-size:6px;color:var(--c1);min-width:20px;text-align:right;flex-shrink:0;}
+/* ── ODIN oversight col (now in command zone) ── */
+#odin-oversight-col{width:160px;flex-shrink:0;border-left:var(--border);display:flex;flex-direction:column;background:rgba(0,5,20,.7);overflow-y:auto;}
 
-/* ── Left Sidebar ── */
-#sidebar-left{grid-column:1;grid-row:3/7;background:rgba(0,8,30,.8);border-right:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
-.sidebar-header{padding:10px 12px;border-bottom:var(--border);font-size:9px;letter-spacing:3px;color:var(--c1);text-shadow:var(--glow-sm);flex-shrink:0;}
-#leaderboard-list{overflow-y:auto;padding:8px;flex:1;}
-.lb-item{display:flex;align-items:center;gap:6px;padding:6px 8px;margin-bottom:3px;border-radius:2px;background:rgba(0,20,60,.4);border:var(--border);}
+/* ── Sidebar shared ── */
+.sidebar-header{padding:8px 10px;border-bottom:var(--border);font-size:8px;letter-spacing:3px;color:var(--c1);text-shadow:var(--glow-sm);flex-shrink:0;}
+/* Leaderboard (in quest panel) */
+#leaderboard-list{overflow-y:auto;padding:6px;}
+.lb-item{display:flex;align-items:center;gap:5px;padding:5px 7px;margin-bottom:3px;border-radius:2px;background:rgba(0,20,60,.4);border:var(--border);}
 .lb-rank{font-size:9px;font-weight:700;color:var(--txt3);min-width:14px;}
 .lb-rank.gold{color:#ffd700;text-shadow:0 0 6px #ffd700;}
 .lb-rank.silver{color:#c0c0c0;}
 .lb-rank.bronze{color:#cd7f32;}
-.lb-name{font-size:8px;font-weight:700;color:var(--txt);flex:1;letter-spacing:1px;}
-.lb-xp{font-size:8px;color:var(--c1);min-width:40px;text-align:right;}
-.lb-lvl{font-size:7px;padding:1px 4px;border-radius:1px;background:rgba(0,100,255,.2);color:var(--c2);border:1px solid rgba(0,100,255,.3);}
+.lb-name{font-size:7px;font-weight:700;color:var(--txt);flex:1;letter-spacing:1px;}
+.lb-xp{font-size:7px;color:var(--c1);min-width:36px;text-align:right;}
+.lb-lvl{font-size:6px;padding:1px 4px;border-radius:1px;background:rgba(0,100,255,.2);color:var(--c2);border:1px solid rgba(0,100,255,.3);}
 .lb-status-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;background:var(--txt3);}
 .lb-status-dot.active{background:var(--green);box-shadow:0 0 4px var(--green);animation:blink 1.5s infinite;}
 .lb-status-dot.working{background:var(--yellow);box-shadow:0 0 4px var(--yellow);animation:blink .8s infinite;}
 .lb-status-dot.alert{background:var(--orange);box-shadow:0 0 4px var(--orange);animation:blink .5s infinite;}
 .lb-status-dot.error{background:var(--red);box-shadow:0 0 4px var(--red);}
 
-/* ── Agent Grid ── */
-/* Pantheon Floor */
-#pantheon-floor-wrap{
-  grid-column:2;grid-row:4;
-  display:flex;flex-direction:column;
-  border:1px solid rgba(0,212,255,.18);
-  background:rgba(0,4,20,.85);
-  border-radius:3px;overflow:hidden;
-  position:relative;
-}
-#pantheon-floor-header{
-  display:flex;justify-content:space-between;align-items:center;
-  padding:7px 12px;font-size:8px;letter-spacing:3px;
-  color:var(--c1);border-bottom:1px solid rgba(0,212,255,.12);
-  background:rgba(0,0,0,.5);flex-shrink:0;
-}
-#floor-hint{font-size:7px;color:var(--txt3);letter-spacing:2px;animation:pulse 2s infinite;}
-#pantheon-floor{flex:1;position:relative;min-height:410px;cursor:crosshair;}
-#pantheon-floor canvas{display:block;width:100%!important;height:auto!important;}
-#pantheon-agent-labels{
-  display:flex;justify-content:space-around;padding:5px 8px;
-  background:rgba(0,0,0,.6);border-top:1px solid rgba(0,212,255,.1);flex-shrink:0;
-}
-.floor-agent-label{
-  font-size:7px;letter-spacing:2px;text-align:center;color:var(--txt2);
-  cursor:pointer;padding:3px 8px;border-radius:2px;transition:.2s;
-}
-.floor-agent-label:hover{color:var(--c1);background:rgba(0,212,255,.08);}
-/* Agent grid stays below */
-#agents-grid{grid-column:2;grid-row:5;padding:8px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(240px,auto));gap:6px;}
+/* ── Hidden agent grid (DOM IDs kept for JS) ── */
+#agents-grid{display:none;position:absolute;pointer-events:none;}
 .agent-card{
   border:var(--border);border-radius:3px;
   display:flex;flex-direction:column;
@@ -265,19 +320,10 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .xp-bar-track{height:2px;background:rgba(0,50,120,.4);border-radius:2px;overflow:hidden;}
 .xp-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));box-shadow:0 0 6px rgba(0,212,255,.6);transition:width .5s ease;}
 
-/* ── Right Sidebar ── */
-#sidebar-right{grid-column:3;grid-row:3/7;background:rgba(0,5,20,.9);border-left:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
-#log-feed{overflow-y:auto;padding:6px;flex:1;}
-.log-entry{display:flex;gap:6px;padding:3px 4px;border-bottom:1px solid rgba(0,50,100,.2);animation:fadeIn .3s ease;}
-@keyframes fadeIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
-.log-agent{font-size:7px;font-weight:700;letter-spacing:1px;min-width:62px;padding-top:1px;color:var(--c1);}
-.log-msg{font-size:8px;color:var(--txt2);line-height:1.5;flex:1;}
-.log-entry.warning .log-msg{color:var(--yellow);}
-.log-entry.error .log-msg{color:var(--red);}
-.log-time{font-size:7px;color:var(--txt3);min-width:42px;text-align:right;padding-top:1px;}
+/* log panel already defined above */
 
 /* ── Bottom Panel ── */
-#bottom-panel{grid-column:1/-1;display:flex;flex-direction:column;border-top:var(--border);background:rgba(0,5,20,.95);overflow:hidden;position:sticky;bottom:0;z-index:50;}
+#bottom-panel{flex-shrink:0;height:200px;display:flex;flex-direction:column;border-top:var(--border);background:rgba(0,5,20,.96);overflow:hidden;}
 .panel-tabs{display:flex;border-bottom:var(--border);flex-shrink:0;}
 .tab-btn{padding:6px 16px;background:transparent;border:none;cursor:pointer;font-family:var(--font);font-size:8px;letter-spacing:2px;color:var(--txt2);border-right:var(--border);transition:.2s;position:relative;}
 .tab-btn.active{color:var(--c1);background:rgba(0,50,120,.2);text-shadow:var(--glow-sm);}
@@ -334,69 +380,21 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .empty-state .e-icon{font-size:28px;opacity:.3;}
 .empty-state .e-text{font-size:8px;letter-spacing:2px;}
 
-/* ── Mission Control Strip ── */
-#mission-strip{
-  grid-column:2;grid-row:3;
-  display:flex;align-items:center;gap:10px;
-  padding:0 14px;height:54px;
-  background:linear-gradient(90deg,rgba(0,6,22,.98),rgba(0,3,14,.99));
-  border-bottom:1px solid rgba(0,212,255,.18);
-  border-top:1px solid rgba(0,212,255,.1);
-  overflow:hidden;flex-shrink:0;z-index:10;
-}
-.ms-divider{width:1px;height:32px;background:rgba(0,212,255,.15);flex-shrink:0;}
-/* Sales goal block */
-#ms-goal-block{display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;min-width:110px;}
-.ms-goal-row{display:flex;align-items:baseline;gap:4px;}
-#ms-sales-num{font-size:22px;font-weight:900;color:var(--green);text-shadow:0 0 12px var(--green);line-height:1;}
-.ms-goal-denom{font-size:10px;color:var(--txt3);letter-spacing:1px;}
-.ms-goal-label-top{font-size:6px;letter-spacing:2px;color:var(--txt3);margin-bottom:1px;}
-.ms-goal-sub{font-size:6px;color:var(--txt2);letter-spacing:1px;}
-#ms-goal-bar-wrap{width:100%;height:3px;background:rgba(0,40,80,.6);border-radius:2px;margin-top:1px;}
-#ms-goal-bar{height:100%;background:linear-gradient(90deg,var(--c2),var(--green));border-radius:2px;transition:width .6s;width:0%;}
-/* Agent status dots */
-#ms-agent-lights{display:flex;gap:8px;align-items:center;flex-shrink:0;}
-.ms-adot{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:2px 4px;border-radius:2px;transition:.15s;}
-.ms-adot:hover{background:rgba(0,212,255,.08);}
-.ms-adot-ring{width:9px;height:9px;border-radius:50%;background:var(--txt3);transition:.3s;}
-.ms-adot-ring.idle{background:var(--txt3);}
-.ms-adot-ring.active{background:var(--green);box-shadow:0 0 7px var(--green);animation:blink 1.5s infinite;}
-.ms-adot-ring.working{background:var(--yellow);box-shadow:0 0 7px var(--yellow);animation:blink .8s infinite;}
-.ms-adot-ring.error{background:var(--red);box-shadow:0 0 7px var(--red);animation:blink .4s infinite;}
-.ms-adot-label{font-size:5px;letter-spacing:.5px;color:var(--txt3);white-space:nowrap;}
-/* Quick approve buttons */
-#ms-approvals{display:flex;gap:5px;flex-shrink:0;}
-.ms-qa{
-  display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:2px;
-  font-family:var(--font);font-size:6px;letter-spacing:.5px;cursor:pointer;transition:.18s;border:none;
-  white-space:nowrap;
-}
-.ms-qa.green{background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--green);}
-.ms-qa.green:hover{background:rgba(0,255,136,.22);}
-.ms-qa.blue{background:rgba(0,100,255,.12);border:1px solid rgba(0,130,255,.3);color:var(--c2);}
-.ms-qa.blue:hover{background:rgba(0,100,255,.25);}
-.ms-qa-badge{min-width:14px;height:14px;border-radius:7px;background:rgba(255,140,0,.3);color:var(--orange);font-size:7px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px;border:1px solid rgba(255,140,0,.4);}
-/* Quick commands */
-#ms-cmds{display:flex;gap:4px;margin-left:auto;flex-shrink:0;}
-.ms-cmd{padding:4px 8px;background:rgba(0,30,80,.35);border:1px solid rgba(0,130,255,.2);color:var(--txt2);font-family:var(--font);font-size:6px;letter-spacing:.5px;cursor:pointer;border-radius:2px;transition:.15s;white-space:nowrap;}
+/* ── Quick commands in command zone ── */
+#ms-cmds{display:flex;flex-direction:column;gap:4px;padding:8px;flex-shrink:0;width:140px;border-left:var(--border);}
+.ms-cmd{padding:5px 8px;background:rgba(0,30,80,.35);border:1px solid rgba(0,130,255,.2);color:var(--txt2);font-family:var(--font);font-size:6px;letter-spacing:.5px;cursor:pointer;border-radius:2px;transition:.15s;white-space:nowrap;text-align:left;}
 .ms-cmd:hover{background:rgba(0,80,200,.35);border-color:rgba(0,212,255,.5);color:var(--c1);}
 
-/* ── Argus bar ── */
-#argus-bar{position:fixed;top:56px;right:0;z-index:200;display:flex;}
-.sys-metric{padding:3px 10px;font-size:7px;letter-spacing:1px;background:rgba(0,5,20,.92);border-left:var(--border);border-bottom:var(--border);display:flex;gap:4px;align-items:center;}
-.sys-metric .m-label{color:var(--txt3);}
-.sys-metric .m-val{color:var(--c1);font-weight:700;}
-.sys-metric .m-bar{width:40px;height:3px;background:rgba(0,50,100,.4);border-radius:2px;overflow:hidden;}
-.sys-metric .m-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));transition:width .5s;}
-.sys-metric .m-fill.warn{background:linear-gradient(90deg,var(--yellow),var(--orange));}
-.sys-metric .m-fill.crit{background:linear-gradient(90deg,var(--orange),var(--red));}
+/* ── Argus bar (hidden — metrics now in right panel) ── */
+#argus-bar{display:none;}
+.sys-metric{display:none;}
 
 /* ── Toasts ── */
-#xp-toast-container{position:fixed;bottom:270px;right:10px;z-index:999;display:flex;flex-direction:column;gap:4px;}
+#xp-toast-container{position:fixed;bottom:420px;right:10px;z-index:999;display:flex;flex-direction:column;gap:4px;}
 .xp-toast{background:rgba(0,20,60,.9);border:var(--border);padding:6px 12px;border-radius:2px;font-size:9px;color:var(--c1);text-shadow:var(--glow-sm);animation:toastIn .3s ease,toastOut .3s ease 2.5s forwards;pointer-events:none;}
 @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
 @keyframes toastOut{to{opacity:0;transform:translateX(20px)}}
-#alert-container{position:fixed;top:76px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:6px;width:320px;pointer-events:none;}
+#alert-container{position:fixed;top:56px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:6px;width:320px;pointer-events:none;}
 .alert-toast{background:rgba(40,0,0,.92);border:1px solid rgba(255,51,85,.5);padding:8px 12px;border-radius:2px;font-size:9px;color:var(--red);animation:toastIn .3s ease,toastOut .3s ease 5s forwards;pointer-events:all;}
 /* Push action alerts */
 .push-alert{
@@ -563,7 +561,7 @@ const PixelBuilding = (() => {
   let _agents = [];
   let _t = 0;
   let _W = 800;
-  const FLOOR_H = 82;
+  const FLOOR_H = 120;
   const FLOOR_DEFS = [
     { name:'HEIMDALL', label:'RESEARCH',  bodyCol:'#3db8d8', accentCol:'#00d4ff', roomBg:'#010912', floorCol:'#071828', trim:'#00aacc' },
     { name:'VULCAN',   label:'FORGE',     bodyCol:'#ff6600', accentCol:'#ffaa00', roomBg:'#140400', floorCol:'#280900', trim:'#ff6600' },
@@ -581,8 +579,8 @@ const PixelBuilding = (() => {
   function makeAgent(def,idx){return{...def,idx,x:80+Math.random()*(_W-160),dir:Math.random()<.5?1:-1,speed:26+Math.random()*10,walkFrame:0,walkTimer:0,pauseTimer:Math.random()*1.5,status:'idle',activity:''};}
   function drawChar(ctx,ag,floorBottom){
     const{x,bodyCol,accentCol,name,dir,walkFrame,status,pauseTimer}=ag;
-    const y=floorBottom-9;const walking=pauseTimer<=0;const S=2;
-    ctx.save();ctx.globalAlpha=.28;ctx.beginPath();ctx.ellipse(r(x),y+2,8,3,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
+    const y=floorBottom-12;const walking=pauseTimer<=0;const S=3;
+    ctx.save();ctx.globalAlpha=.28;ctx.beginPath();ctx.ellipse(r(x),y+3,10,4,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.restore();
     const legOff=walking?(walkFrame%2===0?3:-3):0;
     rect(ctx,x-4,y-S*3+legOff,S,S*3,'#1a1a2e');rect(ctx,x+1,y-S*3-legOff,S,S*3,'#1a1a2e');
     rect(ctx,x-5+(dir>0?0:-1)+Math.round(legOff*.3),y-S+1,S*2,S,'#111');rect(ctx,x+(dir>0?1:0)-Math.round(legOff*.3),y-S+1,S*2,S,'#111');
@@ -691,7 +689,7 @@ const PixelBuilding = (() => {
     const er=ctx.createLinearGradient(W-18,0,W-8,0);er.addColorStop(0,'transparent');er.addColorStop(1,'rgba(0,180,255,0.18)');ctx.fillStyle=er;ctx.fillRect(W-22,0,14,H);
     rect(ctx,0,0,W,5,'#060a14');glowLine(ctx,8,5,W-8,5,`rgba(0,212,255,${.2+.08*Math.sin(t*.6)})`,4);
   }
-  function update(dt){const MARGIN=70;_agents.forEach(ag=>{if(ag.pauseTimer>0){ag.pauseTimer-=dt;return;}ag.walkTimer+=dt;if(ag.walkTimer>.2){ag.walkTimer=0;ag.walkFrame++;}ag.x+=ag.dir*ag.speed*dt;if(ag.x>_W-MARGIN){ag.x=_W-MARGIN;ag.dir=-1;ag.pauseTimer=.5+Math.random();}if(ag.x<MARGIN){ag.x=MARGIN;ag.dir=1;ag.pauseTimer=.5+Math.random();}});}
+  function update(dt){const MARGIN=90;_agents.forEach(ag=>{if(ag.pauseTimer>0){ag.pauseTimer-=dt;return;}ag.walkTimer+=dt;if(ag.walkTimer>.2){ag.walkTimer=0;ag.walkFrame++;}ag.x+=ag.dir*ag.speed*dt;if(ag.x>_W-MARGIN){ag.x=_W-MARGIN;ag.dir=-1;ag.pauseTimer=.5+Math.random();}if(ag.x<MARGIN){ag.x=MARGIN;ag.dir=1;ag.pauseTimer=.5+Math.random();}});}
   function render(){if(!_ctx||!_canvas)return;const ctx=_ctx;const W=_canvas.width;const H=_canvas.height;ctx.clearRect(0,0,W,H);rect(ctx,0,0,W,H,'#000408');_agents.forEach(ag=>drawFloor(ctx,ag,W,_t));drawBuildingChrome(ctx,W,H,_t);}
   function floorAtY(cy){const idx=Math.floor(cy/FLOOR_H);return(idx>=0&&idx<FLOOR_DEFS.length)?FLOOR_DEFS[idx].name:null;}
   function onCanvasClick(e){const r2=_canvas.getBoundingClientRect();const name=floorAtY(e.clientY-r2.top);if(name&&typeof openChat==='function')openChat(name);}
@@ -721,10 +719,12 @@ const PixelBuilding = (() => {
 <body>
 <canvas id="bg"></canvas>
 <div id="app">
+
+  <!-- SLIM HEADER -->
   <header>
     <div class="logo"><span class="logo-icon">⚡</span>PANTHEON</div>
     <div class="header-center">
-      <div class="system-status">COMMAND &amp; CONTROL ACTIVE</div>
+      <div class="system-status">ASGARDMADE COMMAND &amp; CONTROL</div>
       <div class="status-indicators">
         <div class="status-dot"><div class="dot" id="dot-ws"></div>NEXUS</div>
         <div class="status-dot"><div class="dot" id="dot-agents"></div>AGENTS</div>
@@ -738,13 +738,73 @@ const PixelBuilding = (() => {
     </div>
   </header>
 
-  <div id="odin-section">
-    <!-- Norse king canvas -->
+  <!-- 3-COLUMN MAIN BODY -->
+  <div id="main-body">
+
+    <!-- LEFT: QUEST PANEL -->
+    <aside id="quest-panel">
+      <div class="quest-hdr">🎯 MISSION CONTROL</div>
+      <!-- Goal block -->
+      <div class="mission-goal">
+        <div style="font-size:6px;letter-spacing:2px;color:var(--txt3);margin-bottom:3px">SALES GOAL</div>
+        <div class="mission-row">
+          <span id="ms-sales-num">0</span><span class="ms-goal-denom">/9 SALES</span>
+        </div>
+        <div id="ms-goal-bar-wrap"><div id="ms-goal-bar"></div></div>
+        <div class="mission-sub">$<span id="ms-revenue">0.00</span> / $200 GOAL</div>
+      </div>
+      <!-- Agent status dots -->
+      <div class="quest-hdr" style="margin-top:2px">⚡ LIVE AGENTS</div>
+      <div id="ms-agent-lights"></div>
+      <!-- Quick approvals -->
+      <div class="quest-hdr" style="margin-top:2px">◈ QUICK COMMANDS</div>
+      <div id="ms-approvals">
+        <button class="ms-qa green" onclick="approveAllIdeas()">⚡ APPROVE IDEAS <span class="ms-qa-badge" id="ms-ideas-badge">0</span></button>
+        <button class="ms-qa blue" onclick="approveAllDesigns()">✓ APPROVE DESIGNS <span class="ms-qa-badge" id="ms-designs-badge">0</span></button>
+        <button class="ms-qa blue" onclick="switchTab('ideas')">◈ IDEA QUEUE</button>
+        <button class="ms-qa blue" onclick="switchTab('designs')">◈ DESIGN QUEUE</button>
+      </div>
+      <!-- Agent oversight -->
+      <div class="quest-hdr" style="margin-top:2px">◈ AGENT STATUS</div>
+      <div id="oversight-list"></div>
+      <!-- Leaderboard -->
+      <div class="quest-hdr" style="margin-top:2px">⚔ RANKING</div>
+      <div id="leaderboard-list"></div>
+    </aside>
+
+    <!-- CENTER: PIXEL BUILDING HERO -->
+    <div id="center-col">
+      <div id="building-hdr">
+        <span>⚔ PANTHEON FLOOR</span>
+        <span id="floor-hint">CLICK AN AGENT TO INTERFACE</span>
+      </div>
+      <div id="pantheon-floor"></div>
+      <div id="pantheon-agent-labels"></div>
+    </div>
+
+    <!-- RIGHT: LOG PANEL -->
+    <aside id="log-panel">
+      <div class="sidebar-header">◈ LIVE LOG STREAM</div>
+      <div id="log-feed"></div>
+      <!-- Sys metrics inline -->
+      <div class="sidebar-header" style="font-size:7px;padding:6px 10px">⚙ SYSTEM METRICS</div>
+      <div id="argus-inline">
+        <div class="sys-row"><span class="m-label">CPU</span><div class="m-bar"><div class="m-fill" id="cpu-fill" style="width:0%"></div></div><span class="m-val" id="cpu-val">0%</span></div>
+        <div class="sys-row"><span class="m-label">RAM</span><div class="m-bar"><div class="m-fill" id="ram-fill" style="width:0%"></div></div><span class="m-val" id="ram-val">0%</span></div>
+        <div class="sys-row"><span class="m-label">DISK</span><div class="m-bar"><div class="m-fill" id="disk-fill" style="width:0%"></div></div><span class="m-val" id="disk-val">0%</span></div>
+        <div class="sys-row"><span class="m-label">NET↓</span><span class="m-val" id="net-rx">0KB/s</span></div>
+      </div>
+    </aside>
+
+  </div><!-- /main-body -->
+
+  <!-- COMMAND ZONE: ODIN at the bottom -->
+  <div id="command-zone">
+    <!-- ODIN character canvas -->
     <div id="odin-char-col">
       <canvas id="odin-canvas"></canvas>
     </div>
-
-    <!-- Chat + quick actions -->
+    <!-- ODIN chat + strategy -->
     <div id="odin-chat-col">
       <div id="odin-strategy-bar">
         <span class="odin-label">🔱 ODIN</span>
@@ -754,82 +814,40 @@ const PixelBuilding = (() => {
         <span class="odin-stat-pill">LVL <span id="odin-lvl-val">1</span></span>
       </div>
       <div id="odin-quick-actions">
-        <button class="odin-qa-btn" onclick="odinQuickAction('SYSTEM AUDIT')">⚙ SYSTEM AUDIT</button>
-        <button class="odin-qa-btn" onclick="odinQuickAction('REVENUE FORECAST')">📈 REVENUE FORECAST</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('SYSTEM AUDIT')">⚙ AUDIT</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('REVENUE FORECAST')">📈 FORECAST</button>
         <button class="odin-qa-btn" onclick="odinQuickAction('WEAK POINTS')">⚠ WEAK POINTS</button>
-        <button class="odin-qa-btn" onclick="odinQuickAction('AGENT REVIEW')">👁 AGENT REVIEW</button>
-        <button class="odin-qa-btn" onclick="odinQuickAction('DAILY BRIEFING')">📋 DAILY BRIEFING</button>
-        <button class="odin-qa-btn" onclick="odinQuickAction('BEST MOVE NOW')">⚡ BEST MOVE NOW</button>
-        <button class="odin-qa-btn" onclick="odinQuickAction('IMPROVE AGENTS')">🔨 IMPROVE AGENTS</button>
-        <button class="odin-qa-btn" onclick="odinQuickAction('GUIDE HEIMDALL')">🌈 GUIDE HEIMDALL</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('AGENT REVIEW')">👁 AGENTS</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('DAILY BRIEFING')">📋 BRIEFING</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('BEST MOVE NOW')">⚡ BEST MOVE</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('IMPROVE AGENTS')">🔨 IMPROVE</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('GUIDE HEIMDALL')">🌈 GUIDE</button>
       </div>
       <div id="odin-chat-history"></div>
       <div id="odin-input-row">
-        <input id="odin-input" type="text" placeholder="ASK ODIN ANYTHING — STRATEGY, HEALTH, REVENUE, NEXT STEPS..." maxlength="500">
+        <input id="odin-input" type="text" placeholder="ASK ODIN — STRATEGY, HEALTH, REVENUE, NEXT STEPS..." maxlength="500">
         <button id="odin-send" onclick="sendOdinChat()">TRANSMIT</button>
       </div>
     </div>
-
-    <!-- Agent oversight -->
-    <div id="odin-oversight-col">
-      <div class="sidebar-header" style="font-size:8px">◈ AGENT OVERSIGHT</div>
-      <div id="oversight-list"></div>
-    </div>
-  </div>
-
-  <!-- Mission Control Strip -->
-  <div id="mission-strip">
-    <!-- Goal tracker -->
-    <div id="ms-goal-block">
-      <div class="ms-goal-label-top">🎯 MISSION</div>
-      <div class="ms-goal-row">
-        <span id="ms-sales-num">0</span><span class="ms-goal-denom">/9 SALES</span>
-      </div>
-      <div id="ms-goal-bar-wrap"><div id="ms-goal-bar"></div></div>
-      <div class="ms-goal-sub">$<span id="ms-revenue">0.00</span> / $200 GOAL</div>
-    </div>
-    <div class="ms-divider"></div>
-    <!-- Agent status dots -->
-    <div id="ms-agent-lights"></div>
-    <div class="ms-divider"></div>
-    <!-- Quick approvals -->
-    <div id="ms-approvals">
-      <button class="ms-qa green" onclick="approveAllIdeas()">⚡ APPROVE IDEAS <span class="ms-qa-badge" id="ms-ideas-badge">0</span></button>
-      <button class="ms-qa blue" onclick="approveAllDesigns()">✓ APPROVE DESIGNS <span class="ms-qa-badge" id="ms-designs-badge">0</span></button>
-      <button class="ms-qa blue" onclick="switchTab('ideas')">◈ IDEA QUEUE</button>
-      <button class="ms-qa blue" onclick="switchTab('designs')">◈ DESIGN QUEUE</button>
-    </div>
-    <!-- Quick commands -->
+    <!-- Quick commands column -->
     <div id="ms-cmds">
+      <div class="sidebar-header" style="font-size:7px;padding:6px 8px;border-bottom:var(--border)">⚡ ACTIONS</div>
       <button class="ms-cmd" onclick="odinQuickAction('ESCALATE BLOCKER')">⚠ ESCALATE</button>
       <button class="ms-cmd" onclick="odinQuickAction('BEST MOVE NOW')">⚡ BEST MOVE</button>
       <button class="ms-cmd" onclick="odinQuickAction('AGENT REVIEW')">📊 XP REVIEW</button>
       <button class="ms-cmd" onclick="odinQuickAction('SYSTEM AUDIT')">⚙ AUDIT</button>
+      <button class="ms-cmd" onclick="switchTab('vault')">💰 VAULT</button>
+      <button class="ms-cmd" onclick="switchTab('ideas')">💡 IDEAS</button>
+      <button class="ms-cmd" onclick="switchTab('designs')">🎨 DESIGNS</button>
+    </div>
+    <!-- Agent oversight in command zone -->
+    <div id="odin-oversight-col">
+      <div class="sidebar-header" style="font-size:7px;padding:6px 8px">◈ OVERVIEW</div>
+      <div id="odin-oversight-mini"></div>
     </div>
   </div>
 
-  <div id="sidebar-left">
-    <div class="sidebar-header">⚔ AGENT RANKING</div>
-    <div id="leaderboard-list"></div>
-  </div>
-
-  <!-- Pantheon Floor — walking 3D agents -->
-  <div id="pantheon-floor-wrap">
-    <div id="pantheon-floor-header">
-      <span>⚔ PANTHEON FLOOR</span>
-      <span id="floor-hint">CLICK AN AGENT TO INTERFACE</span>
-    </div>
-    <div id="pantheon-floor"></div>
-    <div id="pantheon-agent-labels"></div>
-  </div>
-
-  <div id="agents-grid"></div>
-
-  <div id="sidebar-right">
-    <div class="sidebar-header">◈ LIVE LOG STREAM</div>
-    <div id="log-feed"></div>
-  </div>
-
+  <!-- BOTTOM TABS: Vault / Designs / Ideas -->
   <div id="bottom-panel">
     <div class="panel-tabs">
       <button class="tab-btn active" onclick="switchTab('vault')">◈ VAULT P&amp;L</button>
@@ -852,14 +870,18 @@ const PixelBuilding = (() => {
     <div class="tab-content" id="designs-tab"></div>
     <div class="tab-content" id="ideas-tab"></div>
   </div>
-</div>
 
-<!-- Argus bar -->
-<div id="argus-bar">
-  <div class="sys-metric"><span class="m-label">CPU</span><div class="m-bar"><div class="m-fill" id="cpu-fill" style="width:0%"></div></div><span class="m-val" id="cpu-val">0%</span></div>
-  <div class="sys-metric"><span class="m-label">RAM</span><div class="m-bar"><div class="m-fill" id="ram-fill" style="width:0%"></div></div><span class="m-val" id="ram-val">0%</span></div>
-  <div class="sys-metric"><span class="m-label">DISK</span><div class="m-bar"><div class="m-fill" id="disk-fill" style="width:0%"></div></div><span class="m-val" id="disk-val">0%</span></div>
-  <div class="sys-metric"><span class="m-label">NET↓</span><span class="m-val" id="net-rx">0KB/s</span></div>
+</div><!-- /app -->
+
+<!-- Hidden agent grid — keeps DOM IDs alive for JS compatibility -->
+<div id="agents-grid" style="display:none;position:absolute;pointer-events:none;"></div>
+
+<!-- Argus bar hidden — metrics now in right panel sidebar -->
+<div id="argus-bar" style="display:none;">
+  <div class="sys-metric"><span class="m-label">CPU</span><div class="m-bar"><div class="m-fill" id="cpu-fill-x"></div></div><span class="m-val" id="cpu-val-x">0%</span></div>
+  <div class="sys-metric"><span class="m-label">RAM</span><div class="m-bar"><div class="m-fill" id="ram-fill-x"></div></div><span class="m-val" id="ram-val-x">0%</span></div>
+  <div class="sys-metric"><span class="m-label">DISK</span><div class="m-bar"><div class="m-fill" id="disk-fill-x"></div></div><span class="m-val" id="disk-val-x">0%</span></div>
+  <div class="sys-metric"><span class="m-label">NET↓</span><span class="m-val" id="net-rx-x">0KB/s</span></div>
 </div>
 
 <!-- God Room Overlay -->
