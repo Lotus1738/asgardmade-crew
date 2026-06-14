@@ -1643,7 +1643,7 @@ function setAgentChips(name,chips){
 const MAX_LOGS=200;
 function addLog(agent,message,level='info',ts){
   const feed=document.getElementById('log-feed');
-  const time=ts?new Date(ts).toLocaleTimeString('en',{hour12:false}):new Date().toLocaleTimeString('en',{hour12:false});
+  const time=(ts?new Date(ts):new Date()).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'America/New_York'});
   const d=document.createElement('div'); d.className=`log-entry ${level}`;
   d.innerHTML=`<span class="log-agent">[${agent}]</span><span class="log-msg">${esc(message)}</span><span class="log-time">${time}</span>`;
   feed.insertBefore(d,feed.firstChild);
@@ -2226,7 +2226,7 @@ function handleMsg(msg){
 ═══════════════════════════════════════════════ */
 function tickClock(){
   const n=new Date();
-  document.getElementById('clock').textContent=n.toLocaleTimeString('en',{hour12:false});
+  document.getElementById('clock').textContent=n.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'America/New_York'});
   document.getElementById('date-display').textContent=n.toLocaleDateString('en',{weekday:'short',year:'numeric',month:'short',day:'numeric'}).toUpperCase();
 }
 setInterval(tickClock,1000); tickClock();
