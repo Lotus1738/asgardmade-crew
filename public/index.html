@@ -32,7 +32,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 #app{
   position:relative;z-index:1;
   display:grid;
-  grid-template-rows:56px auto auto auto;
+  grid-template-rows:56px auto auto auto auto;
   grid-template-columns:180px 1fr 260px;
   min-height:100vh;
 }
@@ -151,7 +151,7 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .ov-lvl{font-size:6px;color:var(--c1);min-width:20px;text-align:right;flex-shrink:0;}
 
 /* ── Left Sidebar ── */
-#sidebar-left{background:rgba(0,8,30,.8);border-right:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
+#sidebar-left{grid-column:1;grid-row:3/7;background:rgba(0,8,30,.8);border-right:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
 .sidebar-header{padding:10px 12px;border-bottom:var(--border);font-size:9px;letter-spacing:3px;color:var(--c1);text-shadow:var(--glow-sm);flex-shrink:0;}
 #leaderboard-list{overflow-y:auto;padding:8px;flex:1;}
 .lb-item{display:flex;align-items:center;gap:6px;padding:6px 8px;margin-bottom:3px;border-radius:2px;background:rgba(0,20,60,.4);border:var(--border);}
@@ -171,7 +171,7 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 /* ── Agent Grid ── */
 /* Pantheon Floor */
 #pantheon-floor-wrap{
-  grid-column:2;grid-row:2;
+  grid-column:2;grid-row:4;
   display:flex;flex-direction:column;
   border:1px solid rgba(0,212,255,.18);
   background:rgba(0,4,20,.85);
@@ -197,7 +197,7 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 }
 .floor-agent-label:hover{color:var(--c1);background:rgba(0,212,255,.08);}
 /* Agent grid stays below */
-#agents-grid{padding:8px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(240px,auto));gap:6px;}
+#agents-grid{grid-column:2;grid-row:5;padding:8px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(240px,auto));gap:6px;}
 .agent-card{
   border:var(--border);border-radius:3px;
   display:flex;flex-direction:column;
@@ -266,7 +266,7 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .xp-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));box-shadow:0 0 6px rgba(0,212,255,.6);transition:width .5s ease;}
 
 /* ── Right Sidebar ── */
-#sidebar-right{background:rgba(0,5,20,.9);border-left:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
+#sidebar-right{grid-column:3;grid-row:3/7;background:rgba(0,5,20,.9);border-left:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
 #log-feed{overflow-y:auto;padding:6px;flex:1;}
 .log-entry{display:flex;gap:6px;padding:3px 4px;border-bottom:1px solid rgba(0,50,100,.2);animation:fadeIn .3s ease;}
 @keyframes fadeIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
@@ -316,7 +316,16 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .btn-approve:hover{background:rgba(0,255,136,.28);}
 .btn-reject{background:rgba(255,51,85,.08);color:var(--red);border:1px solid rgba(255,51,85,.3);}
 .btn-reject:hover{background:rgba(255,51,85,.2);}
-.idea-card{background:rgba(0,15,50,.6);border:var(--border);border-radius:3px;width:210px;padding:10px;display:flex;flex-direction:column;gap:5px;flex-shrink:0;}
+.idea-card{background:rgba(0,15,50,.6);border:var(--border);border-radius:3px;width:210px;padding:10px;display:flex;flex-direction:column;gap:5px;flex-shrink:0;position:relative;overflow:hidden;user-select:none;cursor:grab;touch-action:pan-y;}
+.idea-card:active{cursor:grabbing;}
+.idea-card.swiping{transition:none!important;}
+.swipe-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;letter-spacing:3px;opacity:0;pointer-events:none;transition:opacity .12s;border-radius:3px;}
+.idea-card.swipe-right .swipe-overlay.ov-approve{opacity:1;}
+.idea-card.swipe-left .swipe-overlay.ov-reject{opacity:1;}
+.ov-approve{background:rgba(0,255,136,.18);color:var(--green);border:2px solid rgba(0,255,136,.5);}
+.ov-reject{background:rgba(255,51,85,.18);color:var(--red);border:2px solid rgba(255,51,85,.5);}
+.swipe-hint-bar{font-size:6px;letter-spacing:1px;color:var(--txt3);text-align:center;padding:3px 0 0;border-top:1px solid rgba(0,212,255,.1);margin-top:4px;}
+
 .idea-demand{font-size:20px;font-weight:900;color:var(--c1);text-shadow:var(--glow-sm);}
 .idea-demand-label{font-size:7px;color:var(--txt3);letter-spacing:1px;}
 .idea-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;}
@@ -324,6 +333,53 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;color:var(--txt3);gap:6px;text-align:center;width:100%;}
 .empty-state .e-icon{font-size:28px;opacity:.3;}
 .empty-state .e-text{font-size:8px;letter-spacing:2px;}
+
+/* ── Mission Control Strip ── */
+#mission-strip{
+  grid-column:2;grid-row:3;
+  display:flex;align-items:center;gap:10px;
+  padding:0 14px;height:54px;
+  background:linear-gradient(90deg,rgba(0,6,22,.98),rgba(0,3,14,.99));
+  border-bottom:1px solid rgba(0,212,255,.18);
+  border-top:1px solid rgba(0,212,255,.1);
+  overflow:hidden;flex-shrink:0;z-index:10;
+}
+.ms-divider{width:1px;height:32px;background:rgba(0,212,255,.15);flex-shrink:0;}
+/* Sales goal block */
+#ms-goal-block{display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;min-width:110px;}
+.ms-goal-row{display:flex;align-items:baseline;gap:4px;}
+#ms-sales-num{font-size:22px;font-weight:900;color:var(--green);text-shadow:0 0 12px var(--green);line-height:1;}
+.ms-goal-denom{font-size:10px;color:var(--txt3);letter-spacing:1px;}
+.ms-goal-label-top{font-size:6px;letter-spacing:2px;color:var(--txt3);margin-bottom:1px;}
+.ms-goal-sub{font-size:6px;color:var(--txt2);letter-spacing:1px;}
+#ms-goal-bar-wrap{width:100%;height:3px;background:rgba(0,40,80,.6);border-radius:2px;margin-top:1px;}
+#ms-goal-bar{height:100%;background:linear-gradient(90deg,var(--c2),var(--green));border-radius:2px;transition:width .6s;width:0%;}
+/* Agent status dots */
+#ms-agent-lights{display:flex;gap:8px;align-items:center;flex-shrink:0;}
+.ms-adot{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:2px 4px;border-radius:2px;transition:.15s;}
+.ms-adot:hover{background:rgba(0,212,255,.08);}
+.ms-adot-ring{width:9px;height:9px;border-radius:50%;background:var(--txt3);transition:.3s;}
+.ms-adot-ring.idle{background:var(--txt3);}
+.ms-adot-ring.active{background:var(--green);box-shadow:0 0 7px var(--green);animation:blink 1.5s infinite;}
+.ms-adot-ring.working{background:var(--yellow);box-shadow:0 0 7px var(--yellow);animation:blink .8s infinite;}
+.ms-adot-ring.error{background:var(--red);box-shadow:0 0 7px var(--red);animation:blink .4s infinite;}
+.ms-adot-label{font-size:5px;letter-spacing:.5px;color:var(--txt3);white-space:nowrap;}
+/* Quick approve buttons */
+#ms-approvals{display:flex;gap:5px;flex-shrink:0;}
+.ms-qa{
+  display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:2px;
+  font-family:var(--font);font-size:6px;letter-spacing:.5px;cursor:pointer;transition:.18s;border:none;
+  white-space:nowrap;
+}
+.ms-qa.green{background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--green);}
+.ms-qa.green:hover{background:rgba(0,255,136,.22);}
+.ms-qa.blue{background:rgba(0,100,255,.12);border:1px solid rgba(0,130,255,.3);color:var(--c2);}
+.ms-qa.blue:hover{background:rgba(0,100,255,.25);}
+.ms-qa-badge{min-width:14px;height:14px;border-radius:7px;background:rgba(255,140,0,.3);color:var(--orange);font-size:7px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px;border:1px solid rgba(255,140,0,.4);}
+/* Quick commands */
+#ms-cmds{display:flex;gap:4px;margin-left:auto;flex-shrink:0;}
+.ms-cmd{padding:4px 8px;background:rgba(0,30,80,.35);border:1px solid rgba(0,130,255,.2);color:var(--txt2);font-family:var(--font);font-size:6px;letter-spacing:.5px;cursor:pointer;border-radius:2px;transition:.15s;white-space:nowrap;}
+.ms-cmd:hover{background:rgba(0,80,200,.35);border-color:rgba(0,212,255,.5);color:var(--c1);}
 
 /* ── Argus bar ── */
 #argus-bar{position:fixed;top:56px;right:0;z-index:200;display:flex;}
@@ -340,8 +396,35 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
 .xp-toast{background:rgba(0,20,60,.9);border:var(--border);padding:6px 12px;border-radius:2px;font-size:9px;color:var(--c1);text-shadow:var(--glow-sm);animation:toastIn .3s ease,toastOut .3s ease 2.5s forwards;pointer-events:none;}
 @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
 @keyframes toastOut{to{opacity:0;transform:translateX(20px)}}
-#alert-container{position:fixed;top:130px;right:10px;z-index:999;display:flex;flex-direction:column;gap:4px;}
-.alert-toast{background:rgba(40,0,0,.92);border:1px solid rgba(255,51,85,.5);padding:8px 12px;border-radius:2px;font-size:9px;color:var(--red);max-width:240px;animation:toastIn .3s ease,toastOut .3s ease 5s forwards;}
+#alert-container{position:fixed;top:76px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:6px;width:320px;pointer-events:none;}
+.alert-toast{background:rgba(40,0,0,.92);border:1px solid rgba(255,51,85,.5);padding:8px 12px;border-radius:2px;font-size:9px;color:var(--red);animation:toastIn .3s ease,toastOut .3s ease 5s forwards;pointer-events:all;}
+/* Push action alerts */
+.push-alert{
+  pointer-events:all;width:100%;
+  background:rgba(0,5,22,.97);border:1px solid rgba(0,212,255,.4);
+  border-radius:3px;padding:11px 13px;
+  box-shadow:0 6px 36px rgba(0,60,180,.45);
+  animation:pushIn .28s cubic-bezier(.22,.61,.36,1);
+  font-family:var(--font);
+}
+.push-alert.warn{border-color:rgba(255,200,0,.55);}
+.push-alert.critical{border-color:rgba(255,51,85,.65);}
+.push-alert.success{border-color:rgba(0,255,136,.5);}
+@keyframes pushIn{from{opacity:0;transform:translateX(24px) scale(.97)}to{opacity:1;transform:none}}
+.pa-header{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+.pa-icon{font-size:15px;}
+.pa-title{font-size:8px;font-weight:700;letter-spacing:2px;color:var(--c1);flex:1;}
+.pa-close{background:none;border:none;color:var(--txt3);font-size:11px;cursor:pointer;padding:0;line-height:1;transition:.15s;}
+.pa-close:hover{color:var(--red);}
+.pa-msg{font-size:8px;color:var(--txt);line-height:1.7;margin-bottom:9px;}
+.pa-actions{display:flex;gap:5px;}
+.pa-btn{flex:1;padding:5px 0;font-family:var(--font);font-size:7px;letter-spacing:1px;cursor:pointer;border-radius:2px;transition:.15s;border:none;}
+.pa-btn.primary{background:rgba(0,212,255,.13);border:1px solid rgba(0,212,255,.4);color:var(--c1);}
+.pa-btn.primary:hover{background:rgba(0,212,255,.28);}
+.pa-btn.approve{background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.35);color:var(--green);}
+.pa-btn.approve:hover{background:rgba(0,255,136,.22);}
+.pa-btn.reject{background:rgba(255,51,85,.08);border:1px solid rgba(255,51,85,.3);color:var(--red);}
+.pa-btn.reject:hover{background:rgba(255,51,85,.18);}
 
 /* ══════════════════════════════════
    GOD ROOM OVERLAY
@@ -530,6 +613,37 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
     <div id="odin-oversight-col">
       <div class="sidebar-header" style="font-size:8px">◈ AGENT OVERSIGHT</div>
       <div id="oversight-list"></div>
+    </div>
+  </div>
+
+  <!-- Mission Control Strip -->
+  <div id="mission-strip">
+    <!-- Goal tracker -->
+    <div id="ms-goal-block">
+      <div class="ms-goal-label-top">🎯 MISSION</div>
+      <div class="ms-goal-row">
+        <span id="ms-sales-num">0</span><span class="ms-goal-denom">/9 SALES</span>
+      </div>
+      <div id="ms-goal-bar-wrap"><div id="ms-goal-bar"></div></div>
+      <div class="ms-goal-sub">$<span id="ms-revenue">0.00</span> / $200 GOAL</div>
+    </div>
+    <div class="ms-divider"></div>
+    <!-- Agent status dots -->
+    <div id="ms-agent-lights"></div>
+    <div class="ms-divider"></div>
+    <!-- Quick approvals -->
+    <div id="ms-approvals">
+      <button class="ms-qa green" onclick="approveAllIdeas()">⚡ APPROVE IDEAS <span class="ms-qa-badge" id="ms-ideas-badge">0</span></button>
+      <button class="ms-qa blue" onclick="approveAllDesigns()">✓ APPROVE DESIGNS <span class="ms-qa-badge" id="ms-designs-badge">0</span></button>
+      <button class="ms-qa blue" onclick="switchTab('ideas')">◈ IDEA QUEUE</button>
+      <button class="ms-qa blue" onclick="switchTab('designs')">◈ DESIGN QUEUE</button>
+    </div>
+    <!-- Quick commands -->
+    <div id="ms-cmds">
+      <button class="ms-cmd" onclick="odinQuickAction('ESCALATE BLOCKER')">⚠ ESCALATE</button>
+      <button class="ms-cmd" onclick="odinQuickAction('BEST MOVE NOW')">⚡ BEST MOVE</button>
+      <button class="ms-cmd" onclick="odinQuickAction('AGENT REVIEW')">📊 XP REVIEW</button>
+      <button class="ms-cmd" onclick="odinQuickAction('SYSTEM AUDIT')">⚙ AUDIT</button>
     </div>
   </div>
 
@@ -1161,6 +1275,7 @@ const DRAW = {
    BUILD GRID + ANIMATION LOOP
 ═══════════════════════════════════════════════ */
 function buildAgentGrid(){
+  initMissionAgentDots();
   const grid=document.getElementById('agents-grid');
   GRID_AGENTS.forEach(name=>{
     const m=AGENT_META[name];
@@ -1500,6 +1615,7 @@ document.addEventListener('keydown',e=>{
 ═══════════════════════════════════════════════ */
 function updateAgentCard(name,data){
   renderOversight();
+  updateMissionAgentDot(name,data.status||'idle');
   const {status='idle',lastAction='',xp=0,level=1}=data;
   const sk=status||'idle';
   const card=document.getElementById(`card-${name}`); if(!card) return;
@@ -1575,6 +1691,7 @@ function updateVault(r){
       return `<div class="chart-bar" style="height:${h2}px" data-val="$${d.revenue.toFixed(0)}"></div>`;
     }).join('');
   }
+  updateMissionStrip();
   const tl=document.getElementById('txn-list'); tl.innerHTML='';
   (r.recentTransactions||[]).slice(0,15).forEach(t=>{
     const d=document.createElement('div'); d.className='txn-item';
@@ -1587,6 +1704,7 @@ function renderDesigns(designs){
   const pend=designs.filter(d=>d.status==='pending');
   document.getElementById('designs-badge').textContent=pend.length;
   const tab=document.getElementById('designs-tab'); tab.innerHTML='';
+  updateMissionStrip();
   if(!pend.length){ tab.innerHTML=`<div class="empty-state"><div class="e-icon">⚒</div><div class="e-text">NO PENDING DESIGNS<br>VULCAN STANDING BY</div></div>`; return; }
   pend.forEach(d=>{
     const c=document.createElement('div'); c.className='approval-card'; c.id=`design-${d.id}`;
@@ -1626,7 +1744,12 @@ function renderIdeas(ideas){
         <button class="btn-reject"  onclick="rejectItem('idea','${idea.id}')">✗ REJECT</button>
       </div>`;
     tab.appendChild(c);
+    addSwipeToCard(c,
+      ()=>{ approveIdea(idea.id); },
+      ()=>{ rejectItem('idea',idea.id); }
+    );
   });
+  updateMissionStrip();
 }
 
 function approveDesign(id){ ws&&ws.send(JSON.stringify({type:'approve_design',id})); rmCard('design',id); addLog('COMMANDER','Design approved → uploading to Printify','info'); }
@@ -1635,6 +1758,125 @@ function rejectItem(type,id){ ws&&ws.send(JSON.stringify({type:`reject_${type}`,
 function rmCard(type,id){
   const el=document.getElementById(`${type}-${id}`);
   if(el){ el.style.opacity='0'; el.style.transform='scale(.9)'; el.style.transition='.28s'; setTimeout(()=>el.remove(),300); }
+}
+
+function approveAllIdeas(){
+  const pend=(state.approvals?.ideas||[]).filter(i=>i.status==='pending');
+  if(!pend.length){ addLog('COMMANDER','No pending ideas to approve','info'); return; }
+  pend.forEach(i=>{ ws&&ws.send(JSON.stringify({type:'approve_idea',id:i.id})); i.status='approved'; });
+  renderIdeas(state.approvals.ideas);
+  addLog('COMMANDER',`${pend.length} idea(s) bulk-approved → Vulcan generating designs`,'info');
+  updateMissionStrip();
+}
+
+function approveAllDesigns(){
+  const pend=(state.approvals?.designs||[]).filter(d=>d.status==='pending');
+  if(!pend.length){ addLog('COMMANDER','No pending designs to approve','info'); return; }
+  pend.forEach(d=>{ ws&&ws.send(JSON.stringify({type:'approve_design',id:d.id})); d.status='approved'; });
+  renderDesigns(state.approvals.designs);
+  addLog('COMMANDER',`${pend.length} design(s) bulk-approved → uploading to Printify`,'info');
+  updateMissionStrip();
+}
+
+/* ── Push Action Alerts ── */
+function pushActionAlert({icon='⚡',title='ALERT',msg,primaryLabel,primaryFn,secondaryLabel,secondaryFn,severity='info',timeout=10000}){
+  const c=document.getElementById('alert-container');
+  const el=document.createElement('div'); el.className=`push-alert ${severity}`;
+  el.innerHTML=`<div class="pa-header">
+    <span class="pa-icon">${icon}</span>
+    <span class="pa-title">${esc(title)}</span>
+    <button class="pa-close" onclick="this.closest('.push-alert').remove()">✕</button>
+  </div>
+  <div class="pa-msg">${esc(msg)}</div>
+  ${(primaryLabel||secondaryLabel)?`<div class="pa-actions">
+    ${primaryLabel?`<button class="pa-btn primary" id="_pp">${esc(primaryLabel)}</button>`:''}
+    ${secondaryLabel?`<button class="pa-btn approve" id="_ps">${esc(secondaryLabel)}</button>`:''}
+  </div>`:''}`;
+  c.insertBefore(el,c.firstChild);
+  if(primaryFn) el.querySelector('#_pp')?.addEventListener('click',()=>{ primaryFn(); el.remove(); });
+  if(secondaryFn) el.querySelector('#_ps')?.addEventListener('click',()=>{ secondaryFn(); el.remove(); });
+  if(timeout>0) setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateX(24px)'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); },timeout);
+}
+
+/* ── Mission Strip ── */
+function initMissionAgentDots(){
+  const wrap=document.getElementById('ms-agent-lights'); if(!wrap) return;
+  wrap.innerHTML=GRID_AGENTS.map(n=>{
+    const m=AGENT_META[n];
+    return `<div class="ms-adot" onclick="openChat('${n}')" title="Open ${n}">
+      <div class="ms-adot-ring idle" id="ms-dot-${n}"></div>
+      <div class="ms-adot-label">${m.icon} ${n.slice(0,3)}</div>
+    </div>`;
+  }).join('');
+}
+
+function updateMissionStrip(){
+  // Sales + revenue
+  const f=state.vault||state.finance||{};
+  const rev=parseFloat(f.totalRevenue||0);
+  const sales=parseInt(f.totalTransactions||0)||(state.approvals?.designs||[]).filter(d=>d.status==='approved').length||0;
+  const goalPct=Math.min(100,(rev/200)*100).toFixed(1);
+  const el_sales=document.getElementById('ms-sales-num');
+  const el_bar=document.getElementById('ms-goal-bar');
+  const el_rev=document.getElementById('ms-revenue');
+  if(el_sales) el_sales.textContent=sales;
+  if(el_bar) el_bar.style.width=goalPct+'%';
+  if(el_rev) el_rev.textContent=rev.toFixed(2);
+  // Update idea/design badges in strip
+  const pendI=(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length;
+  const pendD=(state.approvals?.designs||[]).filter(d=>d.status==='pending').length;
+  const ib=document.getElementById('ms-ideas-badge'); if(ib) ib.textContent=pendI;
+  const db=document.getElementById('ms-designs-badge'); if(db) db.textContent=pendD;
+}
+
+function updateMissionAgentDot(name,status){
+  const dot=document.getElementById(`ms-dot-${name}`); if(!dot) return;
+  dot.className='ms-adot-ring '+(status||'idle');
+}
+
+/* ── Swipe-to-approve for idea cards ── */
+function addSwipeToCard(el,onApprove,onReject){
+  // Insert overlays
+  el.insertAdjacentHTML('afterbegin',`<div class="swipe-overlay ov-approve">✓ APPROVE</div><div class="swipe-overlay ov-reject">✗ REJECT</div>`);
+  el.insertAdjacentHTML('beforeend',`<div class="swipe-hint-bar">← REJECT &nbsp;|&nbsp; APPROVE →</div>`);
+
+  let startX=0,dx=0,dragging=false,isTouch=false;
+  const THRESHOLD=70;
+
+  function onStart(e){
+    if(e.target.closest('button')) return;
+    startX=e.touches?e.touches[0].clientX:e.clientX;
+    dx=0; dragging=true; isTouch=!!e.touches;
+    el.classList.add('swiping');
+  }
+  function onMove(e){
+    if(!dragging) return;
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    dx=cx-startX;
+    const dy=cy-(e.touches?e.touches[0].clientY:e.clientY);
+    el.style.transform=`translateX(${dx}px) rotate(${dx*0.025}deg)`;
+    el.classList.toggle('swipe-right',dx>THRESHOLD*0.5);
+    el.classList.toggle('swipe-left',dx<-THRESHOLD*0.5);
+    if(isTouch&&Math.abs(dx)>8&&e.cancelable) e.preventDefault();
+  }
+  function onEnd(){
+    if(!dragging) return;
+    dragging=false; el.classList.remove('swiping');
+    if(dx>THRESHOLD){ onApprove(); }
+    else if(dx<-THRESHOLD){ onReject(); }
+    else{
+      el.style.transition='transform .25s cubic-bezier(.22,.61,.36,1)';
+      el.style.transform=''; el.classList.remove('swipe-right','swipe-left');
+      setTimeout(()=>el.style.transition='',280);
+    }
+  }
+  el.addEventListener('touchstart',onStart,{passive:true});
+  el.addEventListener('touchmove',onMove,{passive:false});
+  el.addEventListener('touchend',onEnd);
+  el.addEventListener('mousedown',onStart);
+  window.addEventListener('mousemove',onMove);
+  window.addEventListener('mouseup',onEnd);
 }
 
 function updateArgusBar(metrics){
@@ -1670,6 +1912,7 @@ function initFromState(s,strategy){
   }
   if(s.metrics) updateArgusBar(s.metrics);
   if(strategy) document.getElementById('odin-text').textContent=strategy;
+  updateMissionStrip();
   addLog('NEXUS','State synchronized — Pantheon online','info');
 }
 
@@ -1899,9 +2142,24 @@ function handleMsg(msg){
       if(data){
         const {category,item,items}=data;
         const ni=items?items:(item?[item]:[]);
-        if(category==='designs'){ state.approvals.designs=[...ni,...state.approvals.designs]; renderDesigns(state.approvals.designs); switchTab('designs'); }
-        else if(category==='ideas'){ state.approvals.ideas=[...ni,...state.approvals.ideas]; renderIdeas(state.approvals.ideas); }
+        if(category==='designs'){
+          state.approvals.designs=[...ni,...state.approvals.designs]; renderDesigns(state.approvals.designs);
+          pushActionAlert({icon:'⚒',title:'VULCAN — DESIGNS READY',
+            msg:`${ni.length} design${ni.length>1?'s':''} generated and awaiting your approval. Approve to push to Printify and launch Etsy listings.`,
+            primaryLabel:'◈ REVIEW DESIGNS',primaryFn:()=>switchTab('designs'),
+            secondaryLabel:`✓ APPROVE ALL (${ni.length})`,secondaryFn:approveAllDesigns,
+            severity:'info',timeout:15000});
+        } else if(category==='ideas'){
+          state.approvals.ideas=[...ni,...state.approvals.ideas]; renderIdeas(state.approvals.ideas);
+          const top=ni.reduce((a,b)=>(b.demandScore||0)>(a.demandScore||0)?b:a,ni[0]);
+          pushActionAlert({icon:'🌈',title:'HEIMDALL — IDEAS READY',
+            msg:`${ni.length} niche idea${ni.length>1?'s':''} queued for review. Top demand score: ${top?.demandScore||'N/A'} — ${top?.title||''}`,
+            primaryLabel:'◈ REVIEW IDEAS',primaryFn:()=>switchTab('ideas'),
+            secondaryLabel:`⚡ APPROVE ALL (${ni.length})`,secondaryFn:approveAllIdeas,
+            severity:'info',timeout:15000});
+        }
         addLog(agent,`${ni.length} new ${category==='designs'?'design(s)':'idea(s)'} awaiting approval`,'info');
+        updateMissionStrip();
       } break;
     case 'queue_update':
       if(data){
