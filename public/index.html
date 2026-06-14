@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PANTHEON — AIOps Command Center</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#000814;--bg2:#000d2a;--bg3:#001240;
+  --c1:#00d4ff;--c2:#0066ff;--c3:#003399;--c4:#00ffff;
+  --green:#00ff88;--yellow:#ffcc00;--orange:#ff8800;--red:#ff3355;--purple:#aa44ff;
+  --txt:#d0eeff;--txt2:#6699bb;--txt3:#334466;
+  --glow:0 0 15px rgba(0,212,255,.5),0 0 30px rgba(0,100,255,.25);
+  --glow-sm:0 0 8px rgba(0,212,255,.4);
+  --border:1px solid rgba(0,212,255,.2);
+  --font:'Orbitron',monospace;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html{height:100%;}
+body{
+  background:var(--bg);color:var(--txt);font-family:var(--font);font-size:11px;
+  min-height:100vh;
+  overflow-y:auto;  /* FIX: page scrolls */
+  position:relative;
+}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,100,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,100,255,.04) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.06) 3px,rgba(0,0,0,.06) 4px);pointer-events:none;z-index:1001;}
+#bg{position:fixed;inset:0;z-index:0;pointer-events:none;}
+
+/* ── App layout ── */
+#app{
+  position:relative;z-index:1;
+  display:grid;
+  grid-template-rows:56px auto auto auto;
+  grid-template-columns:180px 1fr 260px;
+  min-height:100vh;
+}
+
+/* ── Header ── */
+header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:linear-gradient(90deg,rgba(0,20,60,.95),rgba(0,8,30,.98) 50%,rgba(0,20,60,.95));border-bottom:1px solid rgba(0,212,255,.3);box-shadow:0 0 30px rgba(0,100,255,.3);position:sticky;top:0;z-index:100;}
+.logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:900;letter-spacing:4px;color:var(--c1);text-shadow:var(--glow);}
+.logo-icon{font-size:24px;animation:pulse 3s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.header-center{display:flex;flex-direction:column;align-items:center;gap:2px;}
+.system-status{font-size:9px;letter-spacing:3px;color:var(--c1);text-shadow:var(--glow-sm);}
+.status-indicators{display:flex;gap:8px;}
+.status-dot{display:flex;align-items:center;gap:4px;font-size:8px;letter-spacing:1px;color:var(--txt2);}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s infinite;}
+.dot.warn{background:var(--yellow);box-shadow:0 0 6px var(--yellow);}
+.dot.off{background:var(--txt3);box-shadow:none;animation:none;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.header-right{display:flex;align-items:center;gap:16px;}
+#clock{font-size:16px;font-weight:700;color:var(--c1);text-shadow:var(--glow);letter-spacing:2px;}
+#date-display{font-size:8px;color:var(--txt2);text-align:right;letter-spacing:2px;}
+#conn-status{padding:4px 10px;border-radius:2px;font-size:8px;letter-spacing:2px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--green);}
+#conn-status.disconnected{background:rgba(255,51,85,.1);border-color:rgba(255,51,85,.3);color:var(--red);}
+
+/* ── ODIN COMMAND SECTION ── */
+#odin-section{
+  grid-column:1/-1;
+  display:flex;height:420px;
+  background:linear-gradient(180deg,rgba(0,10,40,.98) 0%,rgba(0,5,22,.99) 100%);
+  border-bottom:2px solid rgba(0,212,255,.35);
+  box-shadow:0 4px 40px rgba(0,80,200,.25);
+  overflow:hidden;
+}
+#odin-char-col{
+  width:260px;flex-shrink:0;position:relative;
+  border-right:var(--border);
+}
+#odin-canvas{width:100%;height:100%;display:block;}
+#odin-chat-col{
+  flex:1;display:flex;flex-direction:column;min-width:0;
+}
+#odin-strategy-bar{
+  padding:8px 14px;border-bottom:var(--border);
+  background:rgba(0,20,60,.5);flex-shrink:0;
+  display:flex;align-items:center;gap:12px;position:relative;overflow:hidden;
+}
+#odin-strategy-bar::after{content:'';position:absolute;top:0;left:-100%;width:60px;height:100%;background:linear-gradient(90deg,transparent,rgba(0,212,255,.1),transparent);animation:scan 4s infinite linear;}
+@keyframes scan{to{left:110%;}}
+.odin-label{font-size:13px;font-weight:900;letter-spacing:4px;color:var(--c1);text-shadow:var(--glow);flex-shrink:0;}
+#odin-text{font-size:10px;color:var(--txt2);line-height:1.5;flex:1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.odin-stat-pill{font-size:7px;padding:3px 8px;border-radius:2px;background:rgba(0,50,120,.4);border:var(--border);color:var(--c1);letter-spacing:1px;flex-shrink:0;white-space:nowrap;}
+#odin-quick-actions{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:4px;
+  padding:8px 10px;border-bottom:var(--border);background:rgba(0,8,28,.6);flex-shrink:0;
+}
+.odin-qa-btn{
+  padding:5px 4px;background:rgba(0,40,100,.4);border:1px solid rgba(0,150,255,.25);
+  color:var(--c1);font-family:var(--font);font-size:6px;letter-spacing:.5px;
+  cursor:pointer;border-radius:2px;transition:.18s;text-align:center;line-height:1.4;
+}
+.odin-qa-btn:hover{background:rgba(0,80,200,.5);border-color:rgba(0,212,255,.6);box-shadow:0 0 10px rgba(0,150,255,.3);color:#fff;}
+#odin-chat-history{
+  flex:1;overflow-y:auto;padding:10px 12px;
+  display:flex;flex-direction:column;gap:8px;min-height:0;
+}
+.ocmsg{display:flex;gap:8px;animation:fadeIn .3s ease;}
+.ocmsg.user{flex-direction:row-reverse;}
+.ocbubble{
+  max-width:80%;padding:8px 12px;border-radius:3px;font-size:9px;line-height:1.7;
+}
+.ocmsg.agent .ocbubble{background:rgba(0,25,70,.8);border:1px solid rgba(0,212,255,.2);color:var(--txt);border-radius:0 3px 3px 3px;}
+.ocmsg.user  .ocbubble{background:rgba(0,60,160,.3);border:1px solid rgba(0,130,255,.3);color:var(--txt);border-radius:3px 0 3px 3px;}
+.ocmsg-icon{font-size:16px;flex-shrink:0;margin-top:2px;}
+.rec-chip{
+  display:inline-block;margin:3px 3px 0 0;padding:2px 8px;border-radius:2px;
+  background:rgba(0,212,255,.12);border:1px solid rgba(0,212,255,.35);
+  color:var(--c1);font-size:7px;cursor:pointer;transition:.15s;letter-spacing:.5px;
+}
+.rec-chip:hover{background:rgba(0,212,255,.28);box-shadow:0 0 8px rgba(0,212,255,.2);}
+.ctyping2{display:flex;gap:4px;align-items:center;padding:5px 0;}
+.ctyping2 span{width:5px;height:5px;border-radius:50%;background:var(--c1);animation:tdot 1.2s infinite;}
+.ctyping2 span:nth-child(2){animation-delay:.2s;} .ctyping2 span:nth-child(3){animation-delay:.4s;}
+#odin-input-row{
+  display:flex;gap:6px;padding:8px 10px;
+  background:rgba(0,6,22,1);border-top:1px solid rgba(0,212,255,.18);flex-shrink:0;
+}
+#odin-input{
+  flex:1;background:rgba(0,15,50,.7);border:1px solid rgba(0,212,255,.3);
+  color:var(--txt);font-family:var(--font);font-size:9px;padding:7px 12px;
+  border-radius:2px;outline:none;transition:border-color .2s;
+}
+#odin-input:focus{border-color:rgba(0,212,255,.75);}
+#odin-input::placeholder{color:var(--txt3);}
+#odin-send{
+  background:rgba(0,70,180,.3);border:1px solid rgba(0,140,255,.4);
+  color:var(--c1);font-family:var(--font);font-size:7px;letter-spacing:2px;
+  padding:7px 12px;cursor:pointer;border-radius:2px;transition:.2s;
+}
+#odin-send:hover{background:rgba(0,120,255,.4);}
+/* ── Oversight panel ── */
+#odin-oversight-col{
+  width:230px;flex-shrink:0;border-left:var(--border);
+  display:flex;flex-direction:column;background:rgba(0,5,20,.7);
+}
+#oversight-list{flex:1;overflow-y:auto;padding:6px;}
+.ov-row{
+  display:flex;align-items:center;gap:6px;padding:5px 7px;
+  border-bottom:1px solid rgba(0,50,100,.2);cursor:pointer;transition:.15s;
+}
+.ov-row:hover{background:rgba(0,30,80,.3);}
+.ov-icon{font-size:12px;flex-shrink:0;}
+.ov-name{font-size:7px;font-weight:700;letter-spacing:1px;color:var(--txt);min-width:62px;}
+.ov-right{flex:1;min-width:0;}
+.ov-status{font-size:6px;color:var(--txt3);letter-spacing:1px;margin-bottom:2px;}
+.ov-bar-track{height:3px;background:rgba(0,40,100,.4);border-radius:2px;overflow:hidden;}
+.ov-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));transition:width .6s;}
+.ov-lvl{font-size:6px;color:var(--c1);min-width:20px;text-align:right;flex-shrink:0;}
+
+/* ── Left Sidebar ── */
+#sidebar-left{background:rgba(0,8,30,.8);border-right:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
+.sidebar-header{padding:10px 12px;border-bottom:var(--border);font-size:9px;letter-spacing:3px;color:var(--c1);text-shadow:var(--glow-sm);flex-shrink:0;}
+#leaderboard-list{overflow-y:auto;padding:8px;flex:1;}
+.lb-item{display:flex;align-items:center;gap:6px;padding:6px 8px;margin-bottom:3px;border-radius:2px;background:rgba(0,20,60,.4);border:var(--border);}
+.lb-rank{font-size:9px;font-weight:700;color:var(--txt3);min-width:14px;}
+.lb-rank.gold{color:#ffd700;text-shadow:0 0 6px #ffd700;}
+.lb-rank.silver{color:#c0c0c0;}
+.lb-rank.bronze{color:#cd7f32;}
+.lb-name{font-size:8px;font-weight:700;color:var(--txt);flex:1;letter-spacing:1px;}
+.lb-xp{font-size:8px;color:var(--c1);min-width:40px;text-align:right;}
+.lb-lvl{font-size:7px;padding:1px 4px;border-radius:1px;background:rgba(0,100,255,.2);color:var(--c2);border:1px solid rgba(0,100,255,.3);}
+.lb-status-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;background:var(--txt3);}
+.lb-status-dot.active{background:var(--green);box-shadow:0 0 4px var(--green);animation:blink 1.5s infinite;}
+.lb-status-dot.working{background:var(--yellow);box-shadow:0 0 4px var(--yellow);animation:blink .8s infinite;}
+.lb-status-dot.alert{background:var(--orange);box-shadow:0 0 4px var(--orange);animation:blink .5s infinite;}
+.lb-status-dot.error{background:var(--red);box-shadow:0 0 4px var(--red);}
+
+/* ── Agent Grid ── */
+#agents-grid{padding:8px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(240px,auto));gap:6px;}
+.agent-card{
+  border:var(--border);border-radius:3px;
+  display:flex;flex-direction:column;
+  overflow:hidden;position:relative;
+  min-height:240px;
+  transition:border-color .3s,box-shadow .3s;cursor:pointer;
+  background:rgba(0,5,18,.9);
+}
+.agent-card:hover{border-color:rgba(0,212,255,.7);box-shadow:var(--glow-sm);}
+.agent-card:hover .card-click-hint{opacity:1;}
+.agent-card.working{border-color:rgba(255,200,0,.5);box-shadow:0 0 10px rgba(255,200,0,.2);}
+.agent-card.alert{border-color:rgba(255,140,0,.7);box-shadow:0 0 10px rgba(255,140,0,.3);}
+.agent-card.error{border-color:rgba(255,51,85,.7);box-shadow:0 0 10px rgba(255,51,85,.3);}
+.agent-card.active{border-color:rgba(0,255,136,.4);}
+.agent-card::before,.agent-card::after{content:'';position:absolute;width:8px;height:8px;z-index:3;pointer-events:none;}
+.agent-card::before{top:0;left:0;border-top:1px solid var(--c1);border-left:1px solid var(--c1);}
+.agent-card::after{bottom:0;right:0;border-bottom:1px solid var(--c1);border-right:1px solid var(--c1);}
+
+/* ── Character Stage (canvas room) ── */
+.character-stage{
+  position:relative;
+  height:110px;
+  flex:0 0 110px;
+  overflow:hidden;
+  background:#000;
+}
+.char-canvas{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  display:block;
+}
+.card-click-hint{
+  position:absolute;bottom:0;left:0;right:0;z-index:5;
+  font-size:6px;letter-spacing:2px;color:rgba(0,212,255,.8);
+  background:rgba(0,8,30,.85);padding:3px 0;text-align:center;
+  border-top:1px solid rgba(0,212,255,.2);
+  opacity:0;transition:opacity .25s;pointer-events:none;
+}
+
+/* ── Card Header / Body / Footer ── */
+.card-header{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-bottom:var(--border);background:rgba(0,0,0,.7);flex-shrink:0;}
+.agent-name-row{display:flex;align-items:center;gap:5px;}
+.agent-icon{font-size:13px;}
+.agent-name{font-size:9px;font-weight:700;letter-spacing:2px;color:var(--c1);text-shadow:var(--glow-sm);}
+.agent-role{font-size:6px;color:var(--txt2);letter-spacing:1px;}
+.status-badge{font-size:6px;padding:2px 5px;border-radius:1px;font-weight:700;letter-spacing:1px;background:rgba(0,255,136,.1);color:var(--green);border:1px solid rgba(0,255,136,.3);}
+.status-badge.working{background:rgba(255,200,0,.1);color:var(--yellow);border-color:rgba(255,200,0,.3);}
+.status-badge.alert{background:rgba(255,140,0,.1);color:var(--orange);border-color:rgba(255,140,0,.3);}
+.status-badge.error{background:rgba(255,51,85,.1);color:var(--red);border-color:rgba(255,51,85,.3);}
+.status-badge.idle{background:rgba(0,100,255,.1);color:var(--txt2);border-color:rgba(0,100,255,.2);}
+.activity-ring{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);z-index:4;}
+.activity-ring.working{background:var(--yellow);box-shadow:0 0 6px var(--yellow);animation:ringpulse .6s infinite;}
+.activity-ring.idle{background:var(--txt3);box-shadow:none;}
+.activity-ring.error{background:var(--red);box-shadow:0 0 6px var(--red);animation:ringpulse .4s infinite;}
+@keyframes ringpulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.7);opacity:.4}}
+.card-body{position:relative;z-index:2;padding:5px 8px;background:rgba(0,0,0,.55);border-top:var(--border);flex-shrink:0;}
+.last-action{font-size:7px;color:var(--txt2);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.card-metrics{margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;}
+.metric-chip{font-size:6px;padding:1px 5px;background:rgba(0,50,120,.3);border:var(--border);border-radius:1px;color:var(--txt2);}
+.metric-chip span{color:var(--c1);font-weight:700;}
+.card-footer{position:relative;z-index:2;padding:4px 8px;border-top:var(--border);background:rgba(0,0,0,.65);flex-shrink:0;}
+.xp-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+.xp-label{font-size:6px;color:var(--txt3);letter-spacing:1px;}
+.xp-value{font-size:7px;color:var(--c1);font-weight:700;}
+.xp-bar-track{height:2px;background:rgba(0,50,120,.4);border-radius:2px;overflow:hidden;}
+.xp-bar-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));box-shadow:0 0 6px rgba(0,212,255,.6);transition:width .5s ease;}
+
+/* ── Right Sidebar ── */
+#sidebar-right{background:rgba(0,5,20,.9);border-left:var(--border);display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 126px);position:sticky;top:56px;align-self:start;}
+#log-feed{overflow-y:auto;padding:6px;flex:1;}
+.log-entry{display:flex;gap:6px;padding:3px 4px;border-bottom:1px solid rgba(0,50,100,.2);animation:fadeIn .3s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
+.log-agent{font-size:7px;font-weight:700;letter-spacing:1px;min-width:62px;padding-top:1px;color:var(--c1);}
+.log-msg{font-size:8px;color:var(--txt2);line-height:1.5;flex:1;}
+.log-entry.warning .log-msg{color:var(--yellow);}
+.log-entry.error .log-msg{color:var(--red);}
+.log-time{font-size:7px;color:var(--txt3);min-width:42px;text-align:right;padding-top:1px;}
+
+/* ── Bottom Panel ── */
+#bottom-panel{grid-column:1/-1;display:flex;flex-direction:column;border-top:var(--border);background:rgba(0,5,20,.95);overflow:hidden;position:sticky;bottom:0;z-index:50;}
+.panel-tabs{display:flex;border-bottom:var(--border);flex-shrink:0;}
+.tab-btn{padding:6px 16px;background:transparent;border:none;cursor:pointer;font-family:var(--font);font-size:8px;letter-spacing:2px;color:var(--txt2);border-right:var(--border);transition:.2s;position:relative;}
+.tab-btn.active{color:var(--c1);background:rgba(0,50,120,.2);text-shadow:var(--glow-sm);}
+.tab-btn.active::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--c1);box-shadow:var(--glow-sm);}
+.tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:14px;height:14px;border-radius:7px;padding:0 4px;background:rgba(255,140,0,.3);color:var(--orange);font-size:7px;margin-left:6px;border:1px solid rgba(255,140,0,.4);}
+.tab-content{flex:1;overflow:hidden;display:none;min-height:0;}
+.tab-content.active{display:flex;}
+#vault-tab{padding:10px;gap:10px;align-items:flex-start;overflow-x:auto;}
+.vault-metrics{display:flex;gap:8px;flex-wrap:nowrap;}
+.vault-card{background:rgba(0,20,60,.4);border:var(--border);border-radius:2px;padding:8px 12px;min-width:100px;flex-shrink:0;}
+.vault-card-label{font-size:7px;letter-spacing:2px;color:var(--txt3);margin-bottom:4px;}
+.vault-card-value{font-size:16px;font-weight:900;color:var(--c1);text-shadow:var(--glow-sm);}
+.vault-card-value.positive{color:var(--green);}
+.vault-card-value.negative{color:var(--red);}
+.vault-card-sub{font-size:7px;color:var(--txt2);margin-top:2px;}
+.vault-chart{flex:1;min-width:180px;}
+.chart-label{font-size:7px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px;}
+#revenue-chart{display:flex;align-items:flex-end;gap:2px;height:80px;border-bottom:1px solid rgba(0,100,255,.2);border-left:1px solid rgba(0,100,255,.2);padding:0 4px;}
+.chart-bar{flex:1;min-width:4px;border-radius:1px 1px 0 0;background:linear-gradient(to top,var(--c2),var(--c1));box-shadow:0 0 4px rgba(0,212,255,.3);transition:height .5s;position:relative;}
+.chart-bar:hover::after{content:attr(data-val);position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:7px;color:var(--c1);white-space:nowrap;background:var(--bg2);padding:1px 4px;border:var(--border);border-radius:1px;}
+.vault-txns{width:200px;overflow-y:auto;flex-shrink:0;}
+.txn-item{display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-bottom:1px solid rgba(0,50,100,.2);}
+.txn-desc{font-size:7px;color:var(--txt2);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.txn-amount{font-size:8px;font-weight:700;min-width:50px;text-align:right;}
+.txn-amount.revenue{color:var(--green);}
+.txn-amount.expense{color:var(--red);}
+#designs-tab,#ideas-tab{padding:10px;gap:8px;flex-wrap:wrap;overflow-y:auto;align-content:flex-start;}
+.approval-card{background:rgba(0,15,50,.6);border:var(--border);border-radius:3px;width:190px;display:flex;flex-direction:column;gap:5px;padding:8px;flex-shrink:0;}
+.approval-img{width:100%;height:110px;object-fit:cover;border-radius:2px;border:var(--border);background:var(--bg2);}
+.approval-title{font-size:8px;font-weight:700;color:var(--txt);}
+.approval-meta{font-size:7px;color:var(--txt2);line-height:1.5;}
+.approval-badge{font-size:7px;padding:2px 6px;border-radius:1px;background:rgba(0,100,255,.1);color:var(--c2);border:var(--border);display:inline-block;margin:2px 0;}
+.approval-actions{display:flex;gap:6px;margin-top:4px;}
+.btn-approve,.btn-reject{flex:1;padding:5px;border:none;border-radius:2px;font-family:var(--font);font-size:8px;letter-spacing:1px;cursor:pointer;font-weight:700;transition:.2s;}
+.btn-approve{background:rgba(0,255,136,.12);color:var(--green);border:1px solid rgba(0,255,136,.4);}
+.btn-approve:hover{background:rgba(0,255,136,.28);}
+.btn-reject{background:rgba(255,51,85,.08);color:var(--red);border:1px solid rgba(255,51,85,.3);}
+.btn-reject:hover{background:rgba(255,51,85,.2);}
+.idea-card{background:rgba(0,15,50,.6);border:var(--border);border-radius:3px;width:210px;padding:10px;display:flex;flex-direction:column;gap:5px;flex-shrink:0;}
+.idea-demand{font-size:20px;font-weight:900;color:var(--c1);text-shadow:var(--glow-sm);}
+.idea-demand-label{font-size:7px;color:var(--txt3);letter-spacing:1px;}
+.idea-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;}
+.tag{font-size:6px;padding:1px 5px;border-radius:1px;background:rgba(0,100,255,.1);color:var(--txt2);border:var(--border);}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;color:var(--txt3);gap:6px;text-align:center;width:100%;}
+.empty-state .e-icon{font-size:28px;opacity:.3;}
+.empty-state .e-text{font-size:8px;letter-spacing:2px;}
+
+/* ── Argus bar ── */
+#argus-bar{position:fixed;top:56px;right:0;z-index:200;display:flex;}
+.sys-metric{padding:3px 10px;font-size:7px;letter-spacing:1px;background:rgba(0,5,20,.92);border-left:var(--border);border-bottom:var(--border);display:flex;gap:4px;align-items:center;}
+.sys-metric .m-label{color:var(--txt3);}
+.sys-metric .m-val{color:var(--c1);font-weight:700;}
+.sys-metric .m-bar{width:40px;height:3px;background:rgba(0,50,100,.4);border-radius:2px;overflow:hidden;}
+.sys-metric .m-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c2),var(--c1));transition:width .5s;}
+.sys-metric .m-fill.warn{background:linear-gradient(90deg,var(--yellow),var(--orange));}
+.sys-metric .m-fill.crit{background:linear-gradient(90deg,var(--orange),var(--red));}
+
+/* ── Toasts ── */
+#xp-toast-container{position:fixed;bottom:270px;right:10px;z-index:999;display:flex;flex-direction:column;gap:4px;}
+.xp-toast{background:rgba(0,20,60,.9);border:var(--border);padding:6px 12px;border-radius:2px;font-size:9px;color:var(--c1);text-shadow:var(--glow-sm);animation:toastIn .3s ease,toastOut .3s ease 2.5s forwards;pointer-events:none;}
+@keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateX(20px)}}
+#alert-container{position:fixed;top:130px;right:10px;z-index:999;display:flex;flex-direction:column;gap:4px;}
+.alert-toast{background:rgba(40,0,0,.92);border:1px solid rgba(255,51,85,.5);padding:8px 12px;border-radius:2px;font-size:9px;color:var(--red);max-width:240px;animation:toastIn .3s ease,toastOut .3s ease 5s forwards;}
+
+/* ══════════════════════════════════
+   CHAT OVERLAY
+══════════════════════════════════ */
+#chat-overlay{
+  position:fixed;inset:0;z-index:3000;
+  background:rgba(0,4,20,.87);
+  backdrop-filter:blur(6px);
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;
+  transition:opacity .22s;
+}
+#chat-overlay.open{opacity:1;pointer-events:all;}
+#chat-modal{
+  width:580px;max-width:96vw;height:68vh;max-height:620px;
+  display:flex;flex-direction:column;
+  border-radius:4px;overflow:hidden;
+  box-shadow:0 0 80px rgba(0,100,255,.4),0 0 140px rgba(0,0,0,.85);
+  border:1px solid rgba(0,212,255,.4);
+  animation:modalIn .22s ease;
+}
+@keyframes modalIn{from{transform:scale(.93);opacity:0}to{transform:scale(1);opacity:1}}
+#chat-modal-header{
+  position:relative;padding:14px 18px;display:flex;align-items:center;gap:14px;
+  border-bottom:1px solid rgba(0,212,255,.25);flex-shrink:0;overflow:hidden;
+}
+#chat-header-canvas{position:absolute;inset:0;pointer-events:none;}
+.chat-hdr-content{position:relative;z-index:2;display:flex;align-items:center;gap:14px;flex:1;min-width:0;}
+#chat-avatar{
+  width:52px;height:52px;border-radius:3px;border:2px solid rgba(0,212,255,.5);
+  display:flex;align-items:center;justify-content:center;font-size:26px;
+  background:rgba(0,0,0,.5);flex-shrink:0;
+}
+#chat-name{font-size:17px;font-weight:900;letter-spacing:4px;color:var(--c1);text-shadow:var(--glow);}
+#chat-role{font-size:8px;color:var(--txt2);letter-spacing:2px;margin-top:2px;}
+#chat-onl{font-size:7px;color:var(--green);letter-spacing:1px;margin-top:3px;}
+#chat-close{
+  position:relative;z-index:2;margin-left:auto;
+  background:rgba(255,51,85,.1);border:1px solid rgba(255,51,85,.3);
+  color:var(--red);padding:6px 12px;font-family:var(--font);font-size:8px;
+  letter-spacing:1px;cursor:pointer;border-radius:2px;transition:.2s;flex-shrink:0;
+}
+#chat-close:hover{background:rgba(255,51,85,.25);}
+#chat-history{
+  flex:1;overflow-y:auto;padding:14px;
+  background:rgba(0,5,20,.97);
+  display:flex;flex-direction:column;gap:10px;
+  min-height:0;
+}
+.cmsg{display:flex;gap:10px;animation:fadeIn .3s ease;}
+.cmsg.user{flex-direction:row-reverse;}
+.cbubble{
+  max-width:76%;padding:9px 13px;border-radius:3px;font-size:10px;line-height:1.7;
+}
+.cmsg.agent .cbubble{background:rgba(0,28,75,.75);border:1px solid rgba(0,212,255,.18);color:var(--txt);border-radius:0 3px 3px 3px;}
+.cmsg.user .cbubble{background:rgba(0,70,170,.3);border:1px solid rgba(0,140,255,.28);color:var(--txt);border-radius:3px 0 3px 3px;}
+.cmsg-icon{font-size:17px;flex-shrink:0;margin-top:3px;}
+.ctyping{display:flex;gap:4px;align-items:center;padding:6px 0;}
+.ctyping span{width:5px;height:5px;border-radius:50%;background:var(--c1);animation:tdot 1.2s infinite;}
+.ctyping span:nth-child(2){animation-delay:.2s;}
+.ctyping span:nth-child(3){animation-delay:.4s;}
+@keyframes tdot{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1.2)}}
+#chat-input-row{
+  display:flex;gap:8px;padding:11px 14px;
+  background:rgba(0,8,28,1);border-top:1px solid rgba(0,212,255,.18);flex-shrink:0;
+}
+#chat-input{
+  flex:1;background:rgba(0,18,55,.65);border:1px solid rgba(0,212,255,.3);
+  color:var(--txt);font-family:var(--font);font-size:10px;padding:8px 13px;
+  border-radius:2px;outline:none;transition:border-color .2s;
+}
+#chat-input:focus{border-color:rgba(0,212,255,.75);}
+#chat-input::placeholder{color:var(--txt3);}
+#chat-send{
+  background:rgba(0,80,200,.25);border:1px solid rgba(0,140,255,.4);
+  color:var(--c1);font-family:var(--font);font-size:8px;letter-spacing:2px;
+  padding:8px 14px;cursor:pointer;border-radius:2px;transition:.2s;
+}
+#chat-send:hover{background:rgba(0,120,255,.38);box-shadow:0 0 14px rgba(0,212,255,.28);}
+
+::-webkit-scrollbar{width:3px;height:3px;}
+::-webkit-scrollbar-track{background:rgba(0,10,40,.5);}
+::-webkit-scrollbar-thumb{background:rgba(0,100,200,.4);border-radius:2px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(0,150,255,.6);}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div id="app">
+  <header>
+    <div class="logo"><span class="logo-icon">⚡</span>PANTHEON</div>
+    <div class="header-center">
+      <div class="system-status">COMMAND &amp; CONTROL ACTIVE</div>
+      <div class="status-indicators">
+        <div class="status-dot"><div class="dot" id="dot-ws"></div>NEXUS</div>
+        <div class="status-dot"><div class="dot" id="dot-agents"></div>AGENTS</div>
+        <div class="status-dot"><div class="dot warn" id="dot-api"></div>APIS</div>
+        <div class="status-dot"><div class="dot" id="dot-sec"></div>SECURE</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div><div id="clock">00:00:00</div><div id="date-display"></div></div>
+      <div id="conn-status" class="disconnected">OFFLINE</div>
+    </div>
+  </header>
+
+  <div id="odin-section">
+    <!-- Norse king canvas -->
+    <div id="odin-char-col">
+      <canvas id="odin-canvas"></canvas>
+    </div>
+
+    <!-- Chat + quick actions -->
+    <div id="odin-chat-col">
+      <div id="odin-strategy-bar">
+        <span class="odin-label">🔱 ODIN</span>
+        <div id="odin-text">Initializing Pantheon intelligence network — all agents standing by.</div>
+        <span class="odin-stat-pill">STRAT <span id="strategy-count">0</span></span>
+        <span class="odin-stat-pill">XP <span id="odin-xp-val">0</span></span>
+        <span class="odin-stat-pill">LVL <span id="odin-lvl-val">1</span></span>
+      </div>
+      <div id="odin-quick-actions">
+        <button class="odin-qa-btn" onclick="odinQuickAction('SYSTEM AUDIT')">⚙ SYSTEM AUDIT</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('REVENUE FORECAST')">📈 REVENUE FORECAST</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('WEAK POINTS')">⚠ WEAK POINTS</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('AGENT REVIEW')">👁 AGENT REVIEW</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('DAILY BRIEFING')">📋 DAILY BRIEFING</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('BEST MOVE NOW')">⚡ BEST MOVE NOW</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('IMPROVE AGENTS')">🔨 IMPROVE AGENTS</button>
+        <button class="odin-qa-btn" onclick="odinQuickAction('GUIDE HEIMDALL')">🌈 GUIDE HEIMDALL</button>
+      </div>
+      <div id="odin-chat-history"></div>
+      <div id="odin-input-row">
+        <input id="odin-input" type="text" placeholder="ASK ODIN ANYTHING — STRATEGY, HEALTH, REVENUE, NEXT STEPS..." maxlength="500">
+        <button id="odin-send" onclick="sendOdinChat()">TRANSMIT</button>
+      </div>
+    </div>
+
+    <!-- Agent oversight -->
+    <div id="odin-oversight-col">
+      <div class="sidebar-header" style="font-size:8px">◈ AGENT OVERSIGHT</div>
+      <div id="oversight-list"></div>
+    </div>
+  </div>
+
+  <div id="sidebar-left">
+    <div class="sidebar-header">⚔ AGENT RANKING</div>
+    <div id="leaderboard-list"></div>
+  </div>
+
+  <div id="agents-grid"></div>
+
+  <div id="sidebar-right">
+    <div class="sidebar-header">◈ LIVE LOG STREAM</div>
+    <div id="log-feed"></div>
+  </div>
+
+  <div id="bottom-panel">
+    <div class="panel-tabs">
+      <button class="tab-btn active" onclick="switchTab('vault')">◈ VAULT P&amp;L</button>
+      <button class="tab-btn" onclick="switchTab('designs')">◈ DESIGN QUEUE <span class="tab-badge" id="designs-badge">0</span></button>
+      <button class="tab-btn" onclick="switchTab('ideas')">◈ IDEA QUEUE <span class="tab-badge" id="ideas-badge">0</span></button>
+    </div>
+    <div class="tab-content active" id="vault-tab">
+      <div class="vault-metrics">
+        <div class="vault-card"><div class="vault-card-label">TOTAL REVENUE</div><div class="vault-card-value positive" id="v-revenue">$0.00</div><div class="vault-card-sub">Since day one</div></div>
+        <div class="vault-card"><div class="vault-card-label">TOTAL EXPENSES</div><div class="vault-card-value" id="v-expenses" style="color:var(--orange)">$0.00</div><div class="vault-card-sub">All costs</div></div>
+        <div class="vault-card"><div class="vault-card-label">NET PROFIT</div><div class="vault-card-value" id="v-profit">$0.00</div><div class="vault-card-sub" id="v-margin">Margin: 0%</div></div>
+        <div class="vault-card"><div class="vault-card-label">TRANSACTIONS</div><div class="vault-card-value" id="v-txns" style="color:var(--purple)">0</div><div class="vault-card-sub" id="v-days">Day 0</div></div>
+      </div>
+      <div class="vault-chart"><div class="chart-label">30-DAY REVENUE</div><div id="revenue-chart"></div></div>
+      <div class="vault-txns">
+        <div class="sidebar-header" style="padding:4px 8px;font-size:7px">RECENT TRANSACTIONS</div>
+        <div id="txn-list"></div>
+      </div>
+    </div>
+    <div class="tab-content" id="designs-tab"></div>
+    <div class="tab-content" id="ideas-tab"></div>
+  </div>
+</div>
+
+<!-- Argus bar -->
+<div id="argus-bar">
+  <div class="sys-metric"><span class="m-label">CPU</span><div class="m-bar"><div class="m-fill" id="cpu-fill" style="width:0%"></div></div><span class="m-val" id="cpu-val">0%</span></div>
+  <div class="sys-metric"><span class="m-label">RAM</span><div class="m-bar"><div class="m-fill" id="ram-fill" style="width:0%"></div></div><span class="m-val" id="ram-val">0%</span></div>
+  <div class="sys-metric"><span class="m-label">DISK</span><div class="m-bar"><div class="m-fill" id="disk-fill" style="width:0%"></div></div><span class="m-val" id="disk-val">0%</span></div>
+  <div class="sys-metric"><span class="m-label">NET↓</span><span class="m-val" id="net-rx">0KB/s</span></div>
+</div>
+
+<!-- Chat overlay -->
+<div id="chat-overlay" onclick="overlayClick(event)">
+  <div id="chat-modal">
+    <div id="chat-modal-header">
+      <canvas id="chat-header-canvas"></canvas>
+      <div class="chat-hdr-content">
+        <div id="chat-avatar">?</div>
+        <div>
+          <div id="chat-name">AGENT</div>
+          <div id="chat-role">Loading...</div>
+          <div id="chat-onl">● ONLINE</div>
+        </div>
+        <button id="chat-close" onclick="closeChat()">✕ CLOSE</button>
+      </div>
+    </div>
+    <div id="chat-history"></div>
+    <div id="chat-input-row">
+      <input id="chat-input" type="text" placeholder="SPEAK TO THE AGENT — ENTER TO TRANSMIT" maxlength="400">
+      <button id="chat-send" onclick="sendChat()">TRANSMIT</button>
+    </div>
+  </div>
+</div>
+
+<div id="xp-toast-container"></div>
+<div id="alert-container"></div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   META & CONSTANTS
+═══════════════════════════════════════════════ */
+const AGENT_META = {
+  ODIN:       {icon:'🔱',role:'Master Orchestrator',   color:'#00d4ff'},
+  HERMES:     {icon:'🪶',role:'Log Scanner & Recon',   color:'#00ff88'},
+  HEPHAESTUS: {icon:'🔨',role:'Auto Patcher & Fixer',  color:'#ffcc00'},
+  ARGUS:      {icon:'👁', role:'System Monitor',        color:'#ffaa00'},
+  ATHENA:     {icon:'🦉',role:'Etsy Revenue Analyst',  color:'#3399ff'},
+  LOKI:       {icon:'🎭',role:'Listing Publisher',     color:'#cc66ff'},
+  TYR:        {icon:'🛡', role:'Security Guard',        color:'#ff3355'},
+  HEIMDALL:   {icon:'🌈',role:'Market Researcher',     color:'#8844ff'},
+  VAULT:      {icon:'💰',role:'Finance Manager',       color:'#00ffcc'},
+  VULCAN:     {icon:'⚒', role:'AI Design Generator',   color:'#ff6600'}
+};
+const GRID_AGENTS = ['HERMES','HEPHAESTUS','ARGUS','ATHENA','LOKI','TYR','HEIMDALL','VAULT','VULCAN'];
+const state = {agents:{},logs:[],approvals:{designs:[],ideas:[]},vault:null,leaderboard:[],strategyCount:0,metrics:{}};
+
+/* ═══════════════════════════════════════════════
+   CANVAS STATE (stateful particles)
+═══════════════════════════════════════════════ */
+const CS = {};
+function gcs(k){ return CS[k] || (CS[k]={}); }
+
+function mkFireParticle(w,h,cx,baseY){
+  return {
+    x:cx+(Math.random()-.5)*22, y:baseY,
+    vx:(Math.random()-.5)*.7, vy:-(Math.random()*2.2+.6),
+    life:0.7+Math.random()*.5, size:3+Math.random()*5
+  };
+}
+function mkSparkParticle(w,h,cx,cy,r){
+  const a=Math.random()*Math.PI*2;
+  return {
+    x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r,
+    vx:Math.cos(a)*(1+Math.random()*2), vy:Math.sin(a)*(1+Math.random()*2),
+    life:0.6+Math.random()*.6, size:1.5+Math.random()*2
+  };
+}
+
+/* ═══════════════════════════════════════════════
+   DRAW FUNCTIONS — 9 unique room animations
+═══════════════════════════════════════════════ */
+
+/* HERMES — green binary matrix rain + horizontal scan beam */
+function drawHERMES(ctx,w,h,t){
+  ctx.fillStyle='rgba(0,8,2,.22)'; ctx.fillRect(0,0,w,h);
+  const colW=9, cols=Math.floor(w/colW);
+  ctx.font='9px monospace';
+  for(let c=0;c<cols;c++){
+    const speed=.28+((c*7+11)%5)*.12;
+    const phaseOff=(c*37)%(h+80);
+    const headY=((t*speed+phaseOff)%(h+80))-40;
+    const trailLen=7+c%6;
+    for(let r=0;r<trailLen;r++){
+      const cy=headY-r*10;
+      if(cy<-12||cy>h+2) continue;
+      const ch=((c*3+r*7+Math.floor(t*speed*.6))%2)?'1':'0';
+      const bright=r===0?1:.7;
+      const a=(1-r/trailLen)*bright;
+      ctx.fillStyle=r===0?`rgba(180,255,180,${a})`:`rgba(0,255,65,${a*.85})`;
+      ctx.fillText(ch,c*colW+2,cy);
+    }
+  }
+  // scan beam
+  const bY=((t*1.4)%(h+24))-12;
+  ctx.save();
+  const g=ctx.createLinearGradient(0,bY-4,0,bY+4);
+  g.addColorStop(0,'rgba(0,255,80,0)'); g.addColorStop(.5,'rgba(0,255,80,.55)'); g.addColorStop(1,'rgba(0,255,80,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,bY-4,w,8);
+  ctx.strokeStyle='rgba(0,255,100,.7)'; ctx.lineWidth=1;
+  ctx.shadowColor='#00ff41'; ctx.shadowBlur=8;
+  ctx.beginPath(); ctx.moveTo(0,bY); ctx.lineTo(w,bY); ctx.stroke();
+  ctx.restore();
+}
+
+/* HEPHAESTUS — orange fire particles rising + molten core */
+function drawHEPHAESTUS(ctx,w,h,t){
+  ctx.fillStyle='rgba(8,2,0,.2)'; ctx.fillRect(0,0,w,h);
+  const cx=w/2, baseY=h*.84;
+  const s=gcs('HEPHAESTUS');
+  if(!s.ps){
+    s.ps=Array.from({length:40},()=>mkFireParticle(w,h,cx,baseY));
+  }
+  // heat shimmer columns
+  for(let i=0;i<w;i+=4){
+    const d=Math.abs(i-cx)/cx;
+    const fh=(h*.55)*(1-d*d)*(0.5+0.5*Math.abs(Math.sin(t*.025+i*.06)));
+    if(fh<4) continue;
+    const a=(.12-d*.08)*(0.4+0.6*Math.random());
+    const cg=ctx.createLinearGradient(i,baseY,i,baseY-fh);
+    cg.addColorStop(0,'rgba(255,100,0,0)'); cg.addColorStop(.5,`rgba(255,60,0,${a})`); cg.addColorStop(1,`rgba(255,180,0,${a*.4})`);
+    ctx.fillStyle=cg; ctx.fillRect(i-2,baseY-fh,4,fh);
+  }
+  // particles
+  s.ps.forEach(p=>{
+    p.life-=.014; if(p.life<=0){ Object.assign(p,mkFireParticle(w,h,cx,baseY)); return; }
+    p.x+=p.vx+(Math.sin(t*.04+p.x*.1)*.25); p.y+=p.vy; p.size*=.997;
+    const l=p.life, g2=Math.floor(l*l*110);
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size*l,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,${g2},0,${l*.85})`; ctx.fill();
+  });
+  // molten core glow
+  const pulse=.75+.25*Math.sin(t*.09);
+  const r=26*pulse;
+  const gr=ctx.createRadialGradient(cx,baseY,0,cx,baseY,r);
+  gr.addColorStop(0,'rgba(255,235,80,.98)'); gr.addColorStop(.35,'rgba(255,120,0,.75)');
+  gr.addColorStop(.7,'rgba(255,40,0,.35)'); gr.addColorStop(1,'rgba(180,0,0,0)');
+  ctx.beginPath(); ctx.arc(cx,baseY,r,0,Math.PI*2); ctx.fillStyle=gr; ctx.fill();
+}
+
+/* ARGUS — 12 amber orbiting eyes + radar sweep */
+function drawARGUS(ctx,w,h,t){
+  const cx=w/2, cy=h/2;
+  ctx.fillStyle='rgba(8,4,0,.2)'; ctx.fillRect(0,0,w,h);
+  // radar rings
+  [18,34,50].forEach((r,i)=>{
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(255,140,0,${.25-i*.06})`; ctx.lineWidth=.8; ctx.stroke();
+  });
+  // crosshairs
+  ctx.strokeStyle='rgba(255,140,0,.12)'; ctx.lineWidth=.5;
+  ctx.beginPath(); ctx.moveTo(cx-50,cy); ctx.lineTo(cx+50,cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy-50); ctx.lineTo(cx,cy+50); ctx.stroke();
+  // sweep
+  const sw=(t*.028)%(Math.PI*2);
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,50,sw-1.1,sw);
+  ctx.fillStyle='rgba(255,140,0,.1)'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,0);
+  ctx.lineTo(Math.cos(sw)*50,Math.sin(sw)*50);
+  ctx.strokeStyle='rgba(255,170,0,.88)'; ctx.lineWidth=1.5;
+  ctx.shadowColor='#ffaa00'; ctx.shadowBlur=8; ctx.stroke();
+  ctx.restore(); ctx.shadowBlur=0;
+  // 12 orbiting eyes
+  for(let i=0;i<12;i++){
+    const rad=16+(i%3)*16;
+    const spd=.007+(i%4)*.0025;
+    const ang=(i/12)*Math.PI*2+t*spd*(i%2?1:-1);
+    const ex=cx+Math.cos(ang)*rad, ey=cy+Math.sin(ang)*rad;
+    ctx.save(); ctx.translate(ex,ey); ctx.rotate(ang+Math.PI*.5);
+    ctx.beginPath(); ctx.ellipse(0,0,5,2.8,0,0,Math.PI*2);
+    ctx.strokeStyle='#ffaa00'; ctx.lineWidth=.9;
+    ctx.shadowColor='#ffaa00'; ctx.shadowBlur=5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0,1.4,0,Math.PI*2);
+    ctx.fillStyle='#ff7700'; ctx.fill();
+    ctx.restore();
+  }
+  ctx.shadowBlur=0;
+}
+
+/* ATHENA — blue animated bar charts + rising line graph */
+function drawATHENA(ctx,w,h,t){
+  ctx.fillStyle='rgba(0,4,14,.22)'; ctx.fillRect(0,0,w,h);
+  const bars=8, baseY=h-16, pad=10;
+  const barW=Math.floor((w-pad*2)/bars)-3;
+  // axis
+  ctx.strokeStyle='rgba(0,100,200,.25)'; ctx.lineWidth=.6;
+  ctx.beginPath(); ctx.moveTo(pad-2,12); ctx.lineTo(pad-2,baseY); ctx.lineTo(w-pad,baseY); ctx.stroke();
+  // bars
+  for(let i=0;i<bars;i++){
+    const bh=Math.floor((h-30)*(0.25+0.65*Math.abs(Math.sin(t*.02+i*.72))));
+    const x=pad+i*(barW+3);
+    const grd=ctx.createLinearGradient(x,baseY-bh,x,baseY);
+    grd.addColorStop(0,'rgba(0,150,255,.9)'); grd.addColorStop(1,'rgba(0,40,160,.25)');
+    ctx.fillStyle=grd; ctx.fillRect(x,baseY-bh,barW,bh);
+    ctx.fillStyle='rgba(0,200,255,.85)'; ctx.fillRect(x,baseY-bh-1,barW,2);
+  }
+  // line graph
+  ctx.beginPath(); ctx.strokeStyle='rgba(0,220,255,.9)'; ctx.lineWidth=1.5;
+  ctx.shadowColor='#00aaff'; ctx.shadowBlur=7;
+  for(let i=0;i<bars;i++){
+    const bh=Math.floor((h-30)*(0.25+0.65*Math.abs(Math.sin(t*.02+i*.72))));
+    const x=pad+i*(barW+3)+barW/2, y=baseY-bh;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+  // dots on peaks
+  for(let i=0;i<bars;i++){
+    const bh=Math.floor((h-30)*(0.25+0.65*Math.abs(Math.sin(t*.02+i*.72))));
+    const x=pad+i*(barW+3)+barW/2, y=baseY-bh;
+    ctx.beginPath(); ctx.arc(x,y,2,0,Math.PI*2);
+    ctx.fillStyle='#00ccff'; ctx.fill();
+  }
+  ctx.shadowBlur=0;
+}
+
+/* LOKI — purple vertical data streams + glowing deployment packets */
+function drawLOKI(ctx,w,h,t){
+  ctx.fillStyle='rgba(5,0,14,.22)'; ctx.fillRect(0,0,w,h);
+  const streams=7;
+  const chars=['◈','▸','⟨','⟩','△','∇','◆','▷','⬡'];
+  for(let s=0;s<streams;s++){
+    const x=(s+.5)*(w/streams);
+    const spd=.7+s*.28;
+    for(let j=0;j<10;j++){
+      const y=((t*spd+s*18+j*13)%(h+120))-60;
+      if(y<-14||y>h+4) continue;
+      const a=.65-j/10*.55;
+      ctx.fillStyle=`rgba(180,80,255,${a})`;
+      ctx.font='9px monospace';
+      ctx.fillText(chars[Math.floor((t*.08+s*3+j)%chars.length)],x-4,y);
+    }
+    // packet
+    const py=((t*spd*1.6+s*35)%(h+18))-9;
+    ctx.beginPath(); ctx.arc(x,py,3.5,0,Math.PI*2);
+    ctx.fillStyle='#cc66ff'; ctx.shadowColor='#9933ff'; ctx.shadowBlur=12; ctx.fill();
+    // trail
+    for(let k=1;k<4;k++){
+      const ty=py+k*(spd>1?-8:8); if(ty<0||ty>h) continue;
+      ctx.beginPath(); ctx.arc(x,ty,1.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(160,60,220,${.4-k*.1})`; ctx.shadowBlur=4; ctx.fill();
+    }
+  }
+  ctx.shadowBlur=0;
+}
+
+/* TYR — red threat radar + rotating sweep + blinking threat dots */
+function drawTYR(ctx,w,h,t){
+  const cx=w/2, cy=h/2;
+  ctx.fillStyle='rgba(10,0,0,.22)'; ctx.fillRect(0,0,w,h);
+  // rings
+  [14,28,44].forEach((r,i)=>{
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(255,0,50,${.3-i*.07})`; ctx.lineWidth=.9; ctx.stroke();
+  });
+  // crosshairs
+  ctx.strokeStyle='rgba(255,0,50,.13)'; ctx.lineWidth=.5;
+  ctx.beginPath(); ctx.moveTo(cx-46,cy); ctx.lineTo(cx+46,cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy-46); ctx.lineTo(cx,cy+46); ctx.stroke();
+  // sweep
+  const sw=(t*.028)%(Math.PI*2);
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,44,sw-1.05,sw);
+  ctx.fillStyle='rgba(255,0,50,.09)'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,0);
+  ctx.lineTo(Math.cos(sw)*44,Math.sin(sw)*44);
+  ctx.strokeStyle='rgba(255,30,60,.95)'; ctx.lineWidth=1.5;
+  ctx.shadowColor='#ff0033'; ctx.shadowBlur=9; ctx.stroke();
+  ctx.restore(); ctx.shadowBlur=0;
+  // threat dots
+  [[30,.85],[20,2.3],[40,3.9],[26,5.1]].forEach(([r,a],i)=>{
+    const tx=cx+Math.cos(a)*r, ty=cy+Math.sin(a)*r;
+    const fl=.35+.45*Math.abs(Math.sin(t*.09+i*1.7));
+    ctx.beginPath(); ctx.arc(tx,ty,2.5,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,50,0,${fl})`;
+    ctx.shadowColor='#ff2200'; ctx.shadowBlur=9; ctx.fill();
+  });
+  ctx.shadowBlur=0;
+}
+
+/* HEIMDALL — purple perspective grid + vertical scan beam */
+function drawHEIMALL(ctx,w,h,t){
+  ctx.fillStyle='rgba(3,0,11,.22)'; ctx.fillRect(0,0,w,h);
+  const gSz=20;
+  // grid
+  ctx.strokeStyle='rgba(100,50,200,.18)'; ctx.lineWidth=.6;
+  for(let x=0;x<w;x+=gSz){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+  for(let y=0;y<h;y+=gSz){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  // intersection dots
+  ctx.fillStyle='rgba(140,70,240,.28)';
+  for(let x=0;x<=w;x+=gSz) for(let y=0;y<=h;y+=gSz){
+    ctx.beginPath(); ctx.arc(x,y,.9,0,Math.PI*2); ctx.fill();
+  }
+  // vertical scan beam
+  const bX=((t*1.3)%(w+28))-14;
+  const gr=ctx.createLinearGradient(bX-14,0,bX+14,0);
+  gr.addColorStop(0,'rgba(120,60,255,0)'); gr.addColorStop(.5,'rgba(160,80,255,.55)'); gr.addColorStop(1,'rgba(120,60,255,0)');
+  ctx.fillStyle=gr; ctx.fillRect(bX-14,0,28,h);
+  ctx.beginPath(); ctx.moveTo(bX,0); ctx.lineTo(bX,h);
+  ctx.strokeStyle='rgba(200,120,255,.9)'; ctx.lineWidth=1.5;
+  ctx.shadowColor='#aa66ff'; ctx.shadowBlur=11; ctx.stroke();
+  ctx.shadowBlur=0;
+}
+
+/* VAULT — cyan scrolling trading terminal + rising chart line */
+function drawVAULT(ctx,w,h,t){
+  ctx.fillStyle='rgba(0,7,10,.22)'; ctx.fillRect(0,0,w,h);
+  // scrolling terminal numbers
+  ctx.font='7px monospace';
+  const rows=Math.floor(h/10)+2;
+  for(let i=0;i<rows;i++){
+    const y=((i*10-(t*.55)%10+h)%h);
+    const a=.07+.13*Math.abs(Math.sin(i*.9+t*.015));
+    ctx.fillStyle=`rgba(0,230,200,${a})`;
+    const v1=(3.14+Math.sin(i*2.6+t*.012)*8).toFixed(2);
+    ctx.fillText(`$${v1}`,4,y);
+    const v2=(24.99+Math.sin(i*1.4+t*.01)*4).toFixed(2);
+    ctx.fillText(`$${v2}`,w/2+2,y);
+  }
+  // price chart
+  const pts=22;
+  ctx.beginPath(); ctx.strokeStyle='rgba(0,255,204,.9)'; ctx.lineWidth=1.6;
+  ctx.shadowColor='#00ffcc'; ctx.shadowBlur=7;
+  for(let i=0;i<pts;i++){
+    const x=6+(i/(pts-1))*(w-12);
+    const trend=i/(pts-1)*22;
+    const y=h*.72-trend-18*Math.sin(i*.8+t*.03)-9*Math.sin(i*1.4+t*.05);
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+  // area under chart
+  ctx.lineTo(w-6,h-8); ctx.lineTo(6,h-8);
+  ctx.fillStyle='rgba(0,200,160,.07)'; ctx.fill();
+  ctx.shadowBlur=0;
+  // current price dot
+  const lx=w-6;
+  const ltrend=22;
+  const ly=h*.72-ltrend-18*Math.sin((pts-1)*.8+t*.03)-9*Math.sin((pts-1)*1.4+t*.05);
+  ctx.beginPath(); ctx.arc(lx,ly,3.5,0,Math.PI*2);
+  ctx.fillStyle='#00ffcc'; ctx.shadowColor='#00ffcc'; ctx.shadowBlur=14; ctx.fill();
+  ctx.shadowBlur=0;
+}
+
+/* VULCAN — orange forge orb + emanating spark rays */
+function drawVULCAN(ctx,w,h,t){
+  const cx=w/2, cy=h*.47;
+  ctx.fillStyle='rgba(9,3,0,.2)'; ctx.fillRect(0,0,w,h);
+  const s=gcs('VULCAN');
+  if(!s.sp){
+    s.sp=Array.from({length:24},()=>mkSparkParticle(w,h,cx,cy,10));
+  }
+  // pulsing orb
+  const pulse=1+.2*Math.sin(t*.09);
+  const r=18*pulse;
+  const gr=ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+  gr.addColorStop(0,'rgba(255,245,130,.98)'); gr.addColorStop(.4,'rgba(255,140,0,.75)');
+  gr.addColorStop(.8,'rgba(255,40,0,.3)'); gr.addColorStop(1,'rgba(200,0,0,0)');
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle=gr; ctx.fill();
+  // outer corona
+  const cg=ctx.createRadialGradient(cx,cy,r,cx,cy,r*2.2);
+  cg.addColorStop(0,'rgba(255,80,0,.2)'); cg.addColorStop(1,'rgba(255,30,0,0)');
+  ctx.beginPath(); ctx.arc(cx,cy,r*2.2,0,Math.PI*2); ctx.fillStyle=cg; ctx.fill();
+  // 8 spark rays
+  for(let i=0;i<8;i++){
+    const ba=(i/8)*Math.PI*2;
+    const wob=Math.sin(t*.065+i*.85)*.14;
+    const ang=ba+wob+t*.006;
+    const rl=22+14*Math.abs(Math.sin(t*.04+i*1.1));
+    const br=.45+.55*Math.abs(Math.sin(t*.055+i));
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(ang)*r,cy+Math.sin(ang)*r);
+    ctx.lineTo(cx+Math.cos(ang)*(r+rl),cy+Math.sin(ang)*(r+rl));
+    ctx.strokeStyle=`rgba(255,${110+Math.floor(90*br)},0,${br})`;
+    ctx.lineWidth=1.6; ctx.shadowColor='#ff6600'; ctx.shadowBlur=9; ctx.stroke();
+    const tx=cx+Math.cos(ang)*(r+rl), ty=cy+Math.sin(ang)*(r+rl);
+    ctx.beginPath(); ctx.arc(tx,ty,2.2,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,220,0,${br})`; ctx.fill();
+  }
+  // floating sparks
+  s.sp.forEach(p=>{
+    p.life-=.012; if(p.life<=0){ Object.assign(p,mkSparkParticle(w,h,cx,cy,r)); return; }
+    p.x+=p.vx*.9; p.y+=p.vy*.9; p.vx*=.98; p.vy*=.98;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,${Math.floor(180*p.life)},0,${p.life*.85})`; ctx.fill();
+  });
+  ctx.shadowBlur=0;
+}
+
+/* ODIN — Norse king with glowing eyes, winged helmet, spear, orbital rings */
+function drawODIN(ctx,w,h,t){
+  ctx.fillStyle='rgba(0,4,18,1)'; ctx.fillRect(0,0,w,h);
+  const s=gcs('ODIN');
+  if(!s.stars){ s.stars=Array.from({length:90},()=>({x:Math.random()*w,y:Math.random()*h,r:Math.random()*1.4+.2,tw:Math.random()*Math.PI*2})); }
+  s.stars.forEach(st=>{ ctx.beginPath(); ctx.arc(st.x,st.y,st.r,0,Math.PI*2); ctx.fillStyle=`rgba(180,200,255,${.2+.4*Math.abs(Math.sin(t*.018+st.tw))})`; ctx.fill(); });
+  const cx=w/2, cy=h*.52;
+  // Aura
+  const au=ctx.createRadialGradient(cx,cy,0,cx,cy,95);
+  au.addColorStop(0,`rgba(0,60,200,${.14+.06*Math.sin(t*.035)})`); au.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath(); ctx.arc(cx,cy,95,0,Math.PI*2); ctx.fillStyle=au; ctx.fill();
+  // Orbital rings
+  const ORBS=[
+    {r:65,spd:.016,tilt:.38,col:'#00d4ff',names:['HER','HEP','ARG']},
+    {r:82,spd:-.011,tilt:-.24,col:'#ffcc00',names:['ATH','LOK','TYR']},
+    {r:98,spd:.008,tilt:.52,col:'#aa44ff',names:['HEI','VAU','VUL']}
+  ];
+  ORBS.forEach(o=>{
+    ctx.save(); ctx.translate(cx,cy); ctx.scale(1,Math.cos(o.tilt));
+    ctx.beginPath(); ctx.arc(0,0,o.r,0,Math.PI*2);
+    ctx.strokeStyle=o.col+'55'; ctx.lineWidth=1; ctx.stroke(); ctx.restore();
+    o.names.forEach((nm,i)=>{
+      const ang=(i/3)*Math.PI*2+t*o.spd;
+      const ex=cx+Math.cos(ang)*o.r, ey=cy+Math.sin(ang)*o.r*Math.cos(o.tilt);
+      ctx.beginPath(); ctx.arc(ex,ey,3.5,0,Math.PI*2);
+      ctx.fillStyle=o.col; ctx.shadowColor=o.col; ctx.shadowBlur=10; ctx.fill();
+      ctx.shadowBlur=0; ctx.font='5px Orbitron,monospace'; ctx.fillStyle=o.col;
+      ctx.textAlign='center'; ctx.fillText(nm,ex,ey-7);
+    });
+  });
+  // Cape
+  ctx.beginPath(); ctx.moveTo(cx-28,cy+8); ctx.bezierCurveTo(cx-52,cy+45,cx-42,cy+95,cx-18,cy+105);
+  ctx.lineTo(cx+18,cy+105); ctx.bezierCurveTo(cx+42,cy+95,cx+52,cy+45,cx+28,cy+8); ctx.closePath();
+  ctx.fillStyle='rgba(0,20,70,.85)'; ctx.fill(); ctx.strokeStyle='#004499'; ctx.lineWidth=1.2; ctx.stroke();
+  // Armor torso
+  ctx.beginPath(); ctx.moveTo(cx-21,cy+8); ctx.lineTo(cx+21,cy+8); ctx.lineTo(cx+17,cy+56); ctx.lineTo(cx-17,cy+56); ctx.closePath();
+  ctx.fillStyle='rgba(0,55,130,.75)'; ctx.fill(); ctx.strokeStyle='#0077bb'; ctx.lineWidth=1.5; ctx.stroke();
+  // Armor lines
+  ctx.strokeStyle='rgba(0,180,255,.35)'; ctx.lineWidth=.8;
+  ctx.beginPath(); ctx.moveTo(cx-14,cy+16); ctx.lineTo(cx+14,cy+16); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-14,cy+30); ctx.lineTo(cx+14,cy+30); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy+8); ctx.lineTo(cx,cy+56); ctx.stroke();
+  // Rune
+  ctx.font='bold 12px serif'; ctx.fillStyle='rgba(0,220,255,.7)'; ctx.textAlign='center'; ctx.fillText('ᚱ',cx,cy+38);
+  // Spear (Gungnir) — tilted slightly, held right of body
+  const spX=cx+38, wobble=.1*Math.sin(t*.028);
+  ctx.save(); ctx.translate(spX,cy-85); ctx.rotate(.14+wobble);
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,165);
+  ctx.strokeStyle='#aaddff'; ctx.lineWidth=2.5; ctx.shadowColor='#00aaff'; ctx.shadowBlur=8; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-5,0); ctx.lineTo(0,-20); ctx.lineTo(5,0); ctx.closePath();
+  ctx.fillStyle='#fff'; ctx.shadowColor='#fff'; ctx.shadowBlur=14; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-10,14); ctx.lineTo(10,14);
+  ctx.strokeStyle='#ffd700'; ctx.lineWidth=2.2; ctx.shadowColor='#ffd700'; ctx.shadowBlur=7; ctx.stroke();
+  ctx.restore(); ctx.shadowBlur=0;
+  // Head
+  ctx.beginPath(); ctx.arc(cx,cy-38,22,0,Math.PI*2);
+  ctx.fillStyle='rgba(195,170,135,.92)'; ctx.fill(); ctx.strokeStyle='#aaddff'; ctx.lineWidth=1.5; ctx.stroke();
+  // Beard
+  ctx.beginPath(); ctx.moveTo(cx-12,cy-22); ctx.bezierCurveTo(cx-16,cy-4,cx-9,cy+8,cx,cy+10);
+  ctx.bezierCurveTo(cx+9,cy+8,cx+16,cy-4,cx+12,cy-22); ctx.fillStyle='rgba(140,115,70,.88)'; ctx.fill();
+  // Helmet cap
+  ctx.beginPath(); ctx.arc(cx,cy-48,24,Math.PI,0);
+  ctx.fillStyle='#2a3d5c'; ctx.fill(); ctx.strokeStyle='#4477aa'; ctx.lineWidth=1.5; ctx.stroke();
+  // Helmet rim
+  ctx.beginPath(); ctx.moveTo(cx-25,cy-38); ctx.lineTo(cx+25,cy-38);
+  ctx.strokeStyle='#ffd700'; ctx.lineWidth=2.2; ctx.shadowColor='#ffd700'; ctx.shadowBlur=6; ctx.stroke();
+  // Nose guard
+  ctx.beginPath(); ctx.moveTo(cx,cy-50); ctx.lineTo(cx,cy-28);
+  ctx.strokeStyle='#5588bb'; ctx.lineWidth=3; ctx.shadowBlur=0; ctx.stroke();
+  // Wings (left)
+  ctx.save(); ctx.translate(cx-22,cy-52);
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.bezierCurveTo(-28,-14,-38,-34,-20,-44);
+  ctx.bezierCurveTo(-13,-28,-6,-18,0,-7); ctx.closePath();
+  ctx.fillStyle=`rgba(255,228,140,${.68+.16*Math.sin(t*.04)})`; ctx.fill();
+  ctx.strokeStyle='#ffd700'; ctx.lineWidth=.8; ctx.stroke(); ctx.restore();
+  // Wings (right, mirror)
+  ctx.save(); ctx.translate(cx+22,cy-52); ctx.scale(-1,1);
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.bezierCurveTo(-28,-14,-38,-34,-20,-44);
+  ctx.bezierCurveTo(-13,-28,-6,-18,0,-7); ctx.closePath();
+  ctx.fillStyle=`rgba(255,228,140,${.68+.16*Math.sin(t*.04)})`; ctx.fill();
+  ctx.strokeStyle='#ffd700'; ctx.lineWidth=.8; ctx.stroke(); ctx.restore();
+  // Glowing eyes
+  const ep=.65+.35*Math.abs(Math.sin(t*.06));
+  [-7,7].forEach(ox=>{
+    ctx.beginPath(); ctx.ellipse(cx+ox,cy-40,5,3.5,0,0,Math.PI*2);
+    ctx.fillStyle=`rgba(0,220,255,${ep})`; ctx.shadowColor='#00ddff'; ctx.shadowBlur=18; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx+ox,cy-40,1.8,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.shadowBlur=22; ctx.fill();
+  });
+  ctx.shadowBlur=0;
+  // Runes above
+  ctx.font='7px monospace'; ctx.textAlign='center';
+  ctx.fillStyle=`rgba(0,210,255,${.45+.3*Math.sin(t*.02)})`; ctx.fillText('ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ',cx,cy-84);
+  // ODIN label glow
+  ctx.font='bold 9px Orbitron,monospace'; ctx.fillStyle='rgba(0,212,255,.6)'; ctx.fillText('ODIN',cx,h-12);
+}
+
+/* dispatch map */
+const DRAW = {
+  HERMES:drawHERMES, HEPHAESTUS:drawHEPHAESTUS, ARGUS:drawARGUS,
+  ATHENA:drawATHENA, LOKI:drawLOKI, TYR:drawTYR,
+  HEIMDALL:drawHEIMALL, VAULT:drawVAULT, VULCAN:drawVULCAN
+};
+
+/* ═══════════════════════════════════════════════
+   BUILD GRID + ANIMATION LOOP
+═══════════════════════════════════════════════ */
+function buildAgentGrid(){
+  const grid=document.getElementById('agents-grid');
+  GRID_AGENTS.forEach(name=>{
+    const m=AGENT_META[name];
+    const card=document.createElement('div');
+    card.className='agent-card'; card.id=`card-${name}`;
+    card.innerHTML=`
+      <div class="activity-ring idle" id="ring-${name}"></div>
+      <div class="card-header">
+        <div class="agent-name-row">
+          <span class="agent-icon">${m.icon}</span>
+          <div><div class="agent-name">${name}</div><div class="agent-role">${m.role}</div></div>
+        </div>
+        <div class="status-badge idle" id="badge-${name}">IDLE</div>
+      </div>
+      <div class="character-stage" id="stage-${name}">
+        <canvas class="char-canvas" id="canvas-${name}"></canvas>
+        <div class="card-click-hint">◈ CLICK TO INTERFACE</div>
+      </div>
+      <div class="card-body">
+        <div class="last-action" id="action-${name}">Initializing...</div>
+        <div class="card-metrics" id="metrics-${name}"></div>
+      </div>
+      <div class="card-footer">
+        <div class="xp-row">
+          <span class="xp-label">XP LVL <span id="lvl-${name}">1</span></span>
+          <span class="xp-value" id="xp-${name}">0 XP</span>
+        </div>
+        <div class="xp-bar-track"><div class="xp-bar-fill" id="bar-${name}" style="width:0%"></div></div>
+      </div>`;
+    card.addEventListener('click',()=>openChat(name));
+    grid.appendChild(card);
+  });
+  // size canvases
+  requestAnimationFrame(()=>{
+    initOdinCanvas();
+    GRID_AGENTS.forEach(name=>{
+      const stage=document.getElementById(`stage-${name}`);
+      const canvas=document.getElementById(`canvas-${name}`);
+      if(stage&&canvas){ canvas.width=stage.clientWidth||160; canvas.height=stage.clientHeight||110; }
+    });
+    startAnimLoop();
+    renderOversight();
+    odinGreet();
+  });
+}
+
+let animTick=0;
+function startAnimLoop(){
+  const odinC=document.getElementById('odin-canvas');
+  function loop(){
+    animTick++;
+    // ODIN big canvas
+    if(odinC){ const ctx=odinC.getContext('2d'); drawODIN(ctx,odinC.width,odinC.height,animTick); }
+    // Agent room canvases
+    GRID_AGENTS.forEach(name=>{
+      const c=document.getElementById(`canvas-${name}`);
+      if(!c) return;
+      const ctx=c.getContext('2d');
+      if(DRAW[name]) DRAW[name](ctx,c.width,c.height,animTick);
+    });
+    requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+function initOdinCanvas(){
+  const col=document.getElementById('odin-char-col');
+  const c=document.getElementById('odin-canvas');
+  if(col&&c){ c.width=col.clientWidth||260; c.height=col.clientHeight||420; }
+}
+
+/* ═══════════════════════════════════════════════
+   AGENT PERSONAS — in-character chat responses
+═══════════════════════════════════════════════ */
+const PERSONAS = {
+  HERMES:{
+    greet(s){ return `Fleet as thought, Commander. ${s.agents?.HERMES?.xp||0} XP earned in reconnaissance. My scanners comb every log file in this system every 60 seconds. What intelligence do you require?`; },
+    respond(m,s){
+      m=m.toLowerCase();
+      if(/log|scan|file/.test(m)) return `My latest scan touched ${3+Math.floor(Math.random()*8)} log files. I check each against 10 known error signatures — connection refusals, timeouts, memory leaks, unhandled promises. Hermes misses nothing.`;
+      if(/error|warning|issue/.test(m)) return `Critical errors get escalated to Hephaestus immediately via the issues_found event. Warnings I log and monitor. If you see red in the log stream, I found it first.`;
+      if(/speed|fast|quick/.test(m)) return `60-second scan cycles. In the time you blinked, I swept three directories. Speed is my domain — I was born running.`;
+      if(/help|what|do/.test(m)) return `I scout logs, detect error patterns, and alert Hephaestus for auto-patching. Think of me as the eyes inside your infrastructure. Nothing happens without me knowing first.`;
+      return ['Message received and routed at light speed.','All transmission channels clear.','Surveillance continues uninterrupted.','The messenger never rests.'][Math.floor(Math.random()*4)];
+    }
+  },
+  HEPHAESTUS:{
+    greet(s){ return `The forge is hot, Commander. ${s.agents?.HEPHAESTUS?.xp||0} XP earned in repairs. Hermes feeds me every error signal and I hammer out a diagnosis. What needs mending?`; },
+    respond(m,s){
+      m=m.toLowerCase();
+      if(/patch|fix|repair|bug/.test(m)) return `Each issue Hermes flags gets mapped to a FIX_RULE — rate limits get retry logic, ECONNREFUSED gets a reconnect strategy, memory leaks get NODE_OPTIONS tuning. Every patch gets a PATCH-XXXX ID for tracking.`;
+      if(/auto|automatic/.test(m)) return `I suggest patches, Commander — you approve critical ones. I only auto-fix what I'm 100% certain about. Your infrastructure deserves precision, not recklessness.`;
+      if(/status|running/.test(m)) return `No active patch queue at present. Forge stands ready. The moment Hermes raises a critical flag, I'm already analyzing.`;
+      return ['I\'ll hammer that out. The craftsman does not hurry, but he does not delay.','Every bug is just a nail awaiting the right hammer.','The forge creates solutions where problems existed.','Trust the process. Trust the craft.'][Math.floor(Math.random()*4)];
+    }
+  },
+  ARGUS:{
+    greet(s){ const mt=s.metrics||{}; return `Commander. All eyes open. CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%, Disk ${mt.disk||0}%. Every 30 seconds I pull fresh vitals. What are you watching?`; },
+    respond(m,s){
+      const mt=s.metrics||{}; m=m.toLowerCase();
+      if(/cpu|processor/.test(m)) return `CPU at ${mt.cpu||0}%. I warn at 70%, go critical at 90%. A Node.js process gone rogue shows up as a sustained spike — I catch that pattern before it takes down the server.`;
+      if(/ram|memory/.test(m)) return `RAM at ${mt.ram||0}%. Warning threshold 75%, critical 90%. Memory leaks in long-running agents are the usual culprit. Hermes and I cross-reference — a leak often shows in both metrics and logs.`;
+      if(/disk|storage/.test(m)) return `Disk at ${mt.disk||0}%. Log files accumulate fast — that's usually what pushes disk past 80%. I alert before you hit the ceiling, not after.`;
+      if(/alert|threshold/.test(m)) return `Three tiers: INFO (under threshold), WARNING (CPU>70, RAM>75, Disk>80), CRITICAL (CPU>90, RAM>90, Disk>95). Each level fires a broadcast to the HUD and the log feed.`;
+      return ['One hundred eyes. Zero blind spots.','Nothing escapes my watch, Commander.','All systems nominal. Vigilance continues.','I have been watching since boot. I will watch until shutdown.'][Math.floor(Math.random()*4)];
+    }
+  },
+  ATHENA:{
+    greet(s){ const f=s.finance||{}; return `Wisdom guides commerce, Commander. Revenue so far: $${(f.totalRevenue||0).toFixed(2)}. I pull Etsy receipts and listing data every 5 minutes. What aspect of your shop do you want to examine?`; },
+    respond(m,s){
+      const f=s.finance||{}; m=m.toLowerCase();
+      if(/revenue|sales|money/.test(m)) return `Current tracked revenue: $${(f.totalRevenue||0).toFixed(2)} from Etsy receipts. I feed this to Vault in real time so your P&L is always current. Trend analysis runs every 5-minute cycle.`;
+      if(/listing|product|etsy/.test(m)) return `I monitor active listing count, view-to-sale conversion, and favorite rates. Listings with high views but low conversions need description work — I surface that insight for you.`;
+      if(/insight|strategy|advice/.test(m)) return `Data pattern: shops with 20+ active listings earn 3x more than shops under 10. Weekend conversion rates run 23% higher. I feed these signals to ODIN so strategy reflects reality.`;
+      return ['The data speaks clearly to those who know how to listen.','Every number tells a story. I speak fluent data.','Analysis is ongoing. Every data point is a clue.','Wisdom is pattern recognition at scale.'][Math.floor(Math.random()*4)];
+    }
+  },
+  LOKI:{
+    greet(s){ return `Ha! The Commander approaches the Trickster! I am Loki — shapeshifter, publisher, opportunist. My queue holds ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs awaiting publication. What scheme do you wish to discuss?`; },
+    respond(m,s){
+      m=m.toLowerCase();
+      if(/list|publish|create/.test(m)) return `When a design clears the approval queue I spring into motion: title, tags, description, price, image — assembled and submitted to Etsy in one fluid transaction. If it fails, I retry. Loki always finds a way.`;
+      if(/price|cost/.test(m)) return `Default listing price: $24.99. Plus Etsy's $0.20 listing fee which I log to Vault automatically. Price optimization is a game of psychology. $24.99 outperforms $25.00 — always has.`;
+      if(/tag|seo/.test(m)) return `I cap at 13 tags per Etsy's limit. I lead with high-volume anchors, then layer niche-specific terms. Visibility through cunning precision — call it strategic trickery.`;
+      return ['You want something published? Consider it already done.','Loki never fails to find an angle.','Every listing is a performance. I perform admirably.','The marketplace is my stage.'][Math.floor(Math.random()*4)];
+    }
+  },
+  TYR:{
+    greet(s){ const b=s.blockedIps||{}; return `Commander. Perimeter status: ${(b.ips||[]).length} IPs blocked. The line holds. Tyr does not negotiate with threats. What do you need from the guardian?`; },
+    respond(m,s){
+      const b=s.blockedIps||{}; m=m.toLowerCase();
+      if(/block|ip|threat|attack/.test(m)) return `I monitor for SQL injection, path traversal, scanner signatures, and known malicious IP ranges (185.220.x, 194.165.x, and others). Detected threat → IP blocked immediately → logged with timestamp, type, and severity.`;
+      if(/how many|count|total/.test(m)) return `${(b.ips||[]).length} IPs currently on the blocklist. Each entry is permanent until manually reviewed. Justice is not temporary.`;
+      if(/false positive|remove/.test(m)) return `Blocklist lives in data/blocked-ips.json. Edit it directly if a block needs reversing. I am thorough — but your authority overrides mine.`;
+      return ['The line holds, Commander.','Sacrifice and duty. That is Tyr\'s creed.','Every blocked IP is a breach that never happened.','I do not sleep. The perimeter is always defended.'][Math.floor(Math.random()*4)];
+    }
+  },
+  HEIMDALL:{
+    greet(s){ return `From the Bifrost, I see every market horizon, Commander. I scan 12 niches every 2 minutes and generate ideas with demand scoring. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
+    respond(m,s){
+      m=m.toLowerCase();
+      if(/idea|product|niche/.test(m)) return `My 12 niche seeds: cottagecore, dark academia, retro gaming, plant parent, mental health, space exploration, hiking, coffee culture, pet portraits, witchy aesthetic, minimalist design, and pride. Each scored by demand and competition.`;
+      if(/demand|score/.test(m)) return `Demand scores range 80-96 in my database. High demand + low competition = golden window. I flag those intersections first and queue them for your approval.`;
+      if(/ai|claude/.test(m)) return `With an Anthropic API key I use Claude Haiku to craft bespoke product concepts per niche. Without a key I use my template engine — still effective, less bespoke. Either way the ideas flow.`;
+      return ['The rainbow bridge reveals all trends.','I scan twelve niches every two minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
+    }
+  },
+  VAULT:{
+    greet(s){ const f=s.finance||{}; return `Commander. Financial state: Revenue $${(f.totalRevenue||0).toFixed(2)}, Expenses $${(f.totalExpenses||0).toFixed(2)}, Net $${(f.netProfit||0).toFixed(2)}. Every coin tracked from day one. What do you want to review?`; },
+    respond(m,s){
+      const f=s.finance||{}; m=m.toLowerCase();
+      if(/profit|net|margin/.test(m)){
+        const mg=f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100).toFixed(1):0;
+        return `Net profit: $${(f.netProfit||0).toFixed(2)}. Margin: ${mg}%. Healthy print-on-demand margin sits between 40-60%. Below that, review Printify base costs or raise your listing price by $2-3.`;
+      }
+      if(/revenue|income/.test(m)) return `Total revenue: $${(f.totalRevenue||0).toFixed(2)} logged from ${(f.transactions||[]).filter(t=>t.type==='revenue').length} revenue events. Athena feeds this every cycle from Etsy receipts.`;
+      if(/expense|cost/.test(m)) return `Expenses: $${(f.totalExpenses||0).toFixed(2)}. Breakdown: ~$8.50 Printify base cost per product, $0.20 Etsy listing fee, 6.5% Etsy transaction fee. All auto-logged on each fulfillment.`;
+      return ['Every penny is accounted for, Commander.','The numbers do not lie. Vault does not speculate.','Transparency is the foundation of financial control.','Wealth tracked is wealth protected.'][Math.floor(Math.random()*4)];
+    }
+  },
+  VULCAN:{
+    greet(s){ return `The forge burns bright, Commander. I generate designs with DALL-E and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
+    respond(m,s){
+      m=m.toLowerCase();
+      if(/design|create|generate/.test(m)) return `When you approve an idea, I build a DALL-E prompt optimized for POD: flat vector illustration, transparent background, centered composition. I generate 2 variants per idea — you pick which one goes to Printify.`;
+      if(/dalle|openai|ai/.test(m)) return `I call DALL-E 3 via OpenAI. Without an API key I run in demo mode — placeholder images so you can test the full approval flow. Set OPENAI_API_KEY in your .env to ignite real generation.`;
+      if(/printify|upload|product/.test(m)) return `Approved design → upload image to Printify CDN → create product with your blueprint → publish it → notify Loki to create the Etsy listing. End-to-end in seconds, fully automated.`;
+      return ['The forge creates what the mind imagines.','Art is not made — it is forged.','Every design begins with a vision. I translate vision into product.','Give me an approved idea and I will give you a product.'][Math.floor(Math.random()*4)];
+    }
+  }
+};
+
+/* ═══════════════════════════════════════════════
+   CHAT OVERLAY
+═══════════════════════════════════════════════ */
+let chatAgent=null, chatHdrAF=null;
+const chatHistories={};
+
+function openChat(name){
+  chatAgent=name;
+  const m=AGENT_META[name];
+  const ov=document.getElementById('chat-overlay');
+  document.getElementById('chat-avatar').textContent=m.icon;
+  document.getElementById('chat-avatar').style.borderColor=m.color;
+  document.getElementById('chat-avatar').style.boxShadow=`0 0 20px ${m.color}44`;
+  document.getElementById('chat-name').textContent=name;
+  document.getElementById('chat-name').style.color=m.color;
+  document.getElementById('chat-role').textContent=m.role;
+  document.getElementById('chat-onl').textContent=`● ${(state.agents[name]?.status||'ONLINE').toUpperCase()}`;
+  // header bg
+  const hdr=document.getElementById('chat-modal-header');
+  hdr.style.background=`rgba(0,0,0,.92)`;
+  // header mini canvas
+  const hc=document.getElementById('chat-header-canvas');
+  hc.width=hdr.offsetWidth; hc.height=hdr.offsetHeight;
+  if(chatHdrAF) cancelAnimationFrame(chatHdrAF);
+  let ht=0;
+  function animHdr(){
+    ht++;
+    const c2=hc.getContext('2d'); c2.clearRect(0,0,hc.width,hc.height);
+    if(DRAW[name]){
+      c2.save(); c2.globalAlpha=.22;
+      c2.translate(hc.width*.65, hc.height*.5);
+      c2.scale(1.5,1.5);
+      const tmp=document.createElement('canvas'); tmp.width=160; tmp.height=80;
+      DRAW[name](tmp.getContext('2d'),160,80,ht);
+      c2.drawImage(tmp,-80,-40);
+      c2.restore();
+    }
+    chatHdrAF=requestAnimationFrame(animHdr);
+  }
+  animHdr();
+  // clear history, show overlay
+  document.getElementById('chat-history').innerHTML='';
+  ov.classList.add('open');
+  document.getElementById('chat-input').focus();
+  // greeting
+  setTimeout(()=>{
+    appendAgentMsg(PERSONAS[name]?.greet(state)||`${name} online.`);
+  },320);
+}
+
+function closeChat(){
+  document.getElementById('chat-overlay').classList.remove('open');
+  if(chatHdrAF){ cancelAnimationFrame(chatHdrAF); chatHdrAF=null; }
+  chatAgent=null;
+}
+function overlayClick(e){ if(e.target.id==='chat-overlay') closeChat(); }
+
+function appendUserMsg(txt){
+  const h=document.getElementById('chat-history');
+  const d=document.createElement('div'); d.className='cmsg user';
+  d.innerHTML=`<div class="cbubble">${esc(txt)}</div><div class="cmsg-icon">👤</div>`;
+  h.appendChild(d); h.scrollTop=h.scrollHeight;
+}
+
+function appendAgentMsg(txt){
+  const h=document.getElementById('chat-history');
+  const icon=AGENT_META[chatAgent]?.icon||'⚡';
+  const d=document.createElement('div'); d.className='cmsg agent';
+  d.innerHTML=`<div class="cmsg-icon">${icon}</div><div class="cbubble" id="_tb"></div>`;
+  h.appendChild(d);
+  const bub=d.querySelector('#_tb'); bub.removeAttribute('id');
+  let i=0;
+  const iv=setInterval(()=>{ bub.textContent=txt.slice(0,i++); h.scrollTop=h.scrollHeight; if(i>txt.length) clearInterval(iv); },16);
+}
+
+function showTyping(){
+  const h=document.getElementById('chat-history');
+  const d=document.createElement('div'); d.className='cmsg agent'; d.id='_typ';
+  d.innerHTML=`<div class="cmsg-icon">${AGENT_META[chatAgent]?.icon||'⚡'}</div><div class="cbubble"><div class="ctyping"><span></span><span></span><span></span></div></div>`;
+  h.appendChild(d); h.scrollTop=h.scrollHeight;
+}
+function removeTyping(){ const e=document.getElementById('_typ'); if(e) e.remove(); }
+
+async function sendChat(){
+  const inp=document.getElementById('chat-input');
+  const txt=inp.value.trim(); if(!txt||!chatAgent) return;
+  inp.value=''; appendUserMsg(txt); showTyping();
+  if(!chatHistories[chatAgent]) chatHistories[chatAgent]=[];
+  const history=chatHistories[chatAgent];
+  try {
+    const resp=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({agent:chatAgent,message:txt,history,ctx:{}})});
+    removeTyping();
+    if(resp.status===503){
+      appendAgentMsg(`⚠ ANTHROPIC_API_KEY not configured on server. Set it in your Railway environment variables.`);
+    } else if(!resp.ok){
+      const data=await resp.json().catch(()=>({}));
+      appendAgentMsg(`⚠ API error ${resp.status}: ${data.error||'unknown — check Railway logs'}`);
+    } else {
+      const data=await resp.json();
+      if(data.reply){
+        history.push({role:'user',content:txt});
+        history.push({role:'assistant',content:data.reply});
+        appendAgentMsg(data.reply);
+      } else {
+        appendAgentMsg(`⚠ No reply in API response — check Railway logs`);
+      }
+    }
+  } catch(e){
+    removeTyping();
+    appendAgentMsg(`⚠ Network error reaching /api/chat: ${e.message}`);
+  }
+  addLog(chatAgent,`[CHAT] ${txt.slice(0,60)}${txt.length>60?'...':''}`, 'info');
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') closeChat();
+  if(e.key==='Enter'&&document.getElementById('chat-overlay').classList.contains('open')) sendChat();
+});
+
+/* ═══════════════════════════════════════════════
+   DASHBOARD LOGIC
+═══════════════════════════════════════════════ */
+function updateAgentCard(name,data){
+  renderOversight();
+  const {status='idle',lastAction='',xp=0,level=1}=data;
+  const sk=status||'idle';
+  const card=document.getElementById(`card-${name}`); if(!card) return;
+  const badge=document.getElementById(`badge-${name}`);
+  const ring=document.getElementById(`ring-${name}`);
+  const action=document.getElementById(`action-${name}`);
+  card.className=`agent-card ${sk}`;
+  if(badge){ badge.className=`status-badge ${sk}`; badge.textContent=sk.toUpperCase(); }
+  if(ring) ring.className=`activity-ring ${sk}`;
+  if(action&&lastAction) action.textContent=lastAction;
+  const xpEl=document.getElementById(`xp-${name}`);
+  const lvlEl=document.getElementById(`lvl-${name}`);
+  const bar=document.getElementById(`bar-${name}`);
+  if(xpEl) xpEl.textContent=`${xp.toLocaleString()} XP`;
+  if(lvlEl) lvlEl.textContent=level;
+  if(bar) bar.style.width=((xp%500)/500*100)+'%';
+}
+
+function setAgentChips(name,chips){
+  const el=document.getElementById(`metrics-${name}`); if(!el) return;
+  el.innerHTML=chips.map(c=>`<div class="metric-chip">${c.label}:<span>${c.val}</span></div>`).join('');
+}
+
+const MAX_LOGS=200;
+function addLog(agent,message,level='info',ts){
+  const feed=document.getElementById('log-feed');
+  const time=ts?new Date(ts).toLocaleTimeString('en',{hour12:false}):new Date().toLocaleTimeString('en',{hour12:false});
+  const d=document.createElement('div'); d.className=`log-entry ${level}`;
+  d.innerHTML=`<span class="log-agent">[${agent}]</span><span class="log-msg">${esc(message)}</span><span class="log-time">${time}</span>`;
+  feed.insertBefore(d,feed.firstChild);
+  while(feed.children.length>MAX_LOGS) feed.removeChild(feed.lastChild);
+}
+
+function showXpToast(agent,amount,action){
+  const c=document.getElementById('xp-toast-container');
+  const t=document.createElement('div'); t.className='xp-toast';
+  t.textContent=`${AGENT_META[agent]?.icon||'⚡'} ${agent} +${amount} XP (${(action||'').replace(/_/g,' ')})`;
+  c.appendChild(t); setTimeout(()=>t.remove(),3000);
+}
+
+function showAlert(message,severity='warning'){
+  const c=document.getElementById('alert-container');
+  const t=document.createElement('div'); t.className='alert-toast';
+  t.innerHTML=`<b>⚠ ${esc(severity).toUpperCase()}:</b> ${esc(message)}`;
+  c.appendChild(t); setTimeout(()=>t.remove(),5500);
+}
+
+function updateLeaderboard(data){
+  const list=document.getElementById('leaderboard-list'); list.innerHTML='';
+  const ranks=['gold','silver','bronze'];
+  data.forEach((a,i)=>{
+    const d=document.createElement('div'); d.className='lb-item';
+    d.innerHTML=`<span class="lb-rank ${ranks[i]||''}">${i+1}</span><div class="lb-status-dot ${a.status||'idle'}"></div><span class="lb-name">${a.name}</span><span class="lb-xp">${(a.xp||0).toLocaleString()}</span><span class="lb-lvl">L${a.level||1}</span>`;
+    list.appendChild(d);
+  });
+}
+
+function updateVault(r){
+  if(!r) return;
+  const p=parseFloat(r.netProfit||0);
+  document.getElementById('v-revenue').textContent=`$${r.totalRevenue}`;
+  document.getElementById('v-expenses').textContent=`$${r.totalExpenses}`;
+  const pe=document.getElementById('v-profit'); pe.textContent=`$${r.netProfit}`;
+  pe.className=`vault-card-value ${p>=0?'positive':'negative'}`;
+  document.getElementById('v-margin').textContent=`Margin: ${r.profitMargin}`;
+  document.getElementById('v-txns').textContent=r.totalTransactions||0;
+  document.getElementById('v-days').textContent=`Day ${r.daysRunning||0}`;
+  const chart=document.getElementById('revenue-chart');
+  if(r.dailyBreakdown&&r.dailyBreakdown.length){
+    const max=Math.max(...r.dailyBreakdown.map(d=>d.revenue),1);
+    chart.innerHTML=r.dailyBreakdown.map(d=>{
+      const h2=Math.max(3,Math.round((d.revenue/max)*72));
+      return `<div class="chart-bar" style="height:${h2}px" data-val="$${d.revenue.toFixed(0)}"></div>`;
+    }).join('');
+  }
+  const tl=document.getElementById('txn-list'); tl.innerHTML='';
+  (r.recentTransactions||[]).slice(0,15).forEach(t=>{
+    const d=document.createElement('div'); d.className='txn-item';
+    d.innerHTML=`<span class="txn-desc">${esc(t.description||t.source||'Transaction')}</span><span class="txn-amount ${t.type}">${t.type==='revenue'?'+':'-'}$${(t.amount||0).toFixed(2)}</span>`;
+    tl.appendChild(d);
+  });
+}
+
+function renderDesigns(designs){
+  const pend=designs.filter(d=>d.status==='pending');
+  document.getElementById('designs-badge').textContent=pend.length;
+  const tab=document.getElementById('designs-tab'); tab.innerHTML='';
+  if(!pend.length){ tab.innerHTML=`<div class="empty-state"><div class="e-icon">⚒</div><div class="e-text">NO PENDING DESIGNS<br>VULCAN STANDING BY</div></div>`; return; }
+  pend.forEach(d=>{
+    const c=document.createElement('div'); c.className='approval-card'; c.id=`design-${d.id}`;
+    c.innerHTML=`<img class="approval-img" src="${esc(d.imageUrl)}" alt="${esc(d.ideaTitle)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22110%22><rect fill=%22%23001240%22/><text x=%22100%22 y=%2260%22 text-anchor=%22middle%22 fill=%22%2300d4ff%22 font-size=%2210%22>DESIGN</text></svg>'">
+      <div class="approval-title">${esc(d.ideaTitle||'Untitled')}</div>
+      <span class="approval-badge">${esc(d.productType||'Product')}</span>
+      <div class="approval-meta">Variant #${d.variantIndex||1} · ${d.demo?'DEMO':'DALL-E 3'}</div>
+      <div class="approval-actions">
+        <button class="btn-approve" onclick="approveDesign('${d.id}')">✓ APPROVE</button>
+        <button class="btn-reject"  onclick="rejectItem('design','${d.id}')">✗ REJECT</button>
+      </div>`;
+    tab.appendChild(c);
+  });
+}
+
+function renderIdeas(ideas){
+  const pend=ideas.filter(i=>i.status==='pending');
+  document.getElementById('ideas-badge').textContent=pend.length;
+  const tab=document.getElementById('ideas-tab'); tab.innerHTML='';
+  if(!pend.length){ tab.innerHTML=`<div class="empty-state"><div class="e-icon">🌈</div><div class="e-text">NO PENDING IDEAS<br>HEIMDALL IS RESEARCHING</div></div>`; return; }
+  pend.forEach(idea=>{
+    const c=document.createElement('div'); c.className='idea-card'; c.id=`idea-${idea.id}`;
+    c.innerHTML=`<div class="approval-title">${esc(idea.title)}</div>
+      <span class="approval-badge">${esc(idea.niche||'Niche')}</span>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin:4px 0">
+        <div><div class="idea-demand">${idea.demandScore||0}</div><div class="idea-demand-label">DEMAND</div></div>
+        <div style="font-size:7px;color:var(--txt2);line-height:1.8">
+          <div>Type:<b style="color:var(--c1);margin-left:3px">${esc(idea.productType||'N/A')}</b></div>
+          <div>Comp:<b style="color:var(--c1);margin-left:3px">${esc(idea.competition||'N/A')}</b></div>
+          <div>Rev:<b style="color:var(--green);margin-left:3px">${esc(idea.estimatedMonthlyRevenue||'N/A')}</b></div>
+        </div>
+      </div>
+      <div class="approval-meta">${esc((idea.description||'').slice(0,100))}${(idea.description||'').length>100?'...':''}</div>
+      <div class="idea-tags">${(idea.keywords||[]).slice(0,6).map(k=>`<span class="tag">${esc(k)}</span>`).join('')}</div>
+      <div class="approval-actions" style="margin-top:8px">
+        <button class="btn-approve" onclick="approveIdea('${idea.id}')">✓ APPROVE</button>
+        <button class="btn-reject"  onclick="rejectItem('idea','${idea.id}')">✗ REJECT</button>
+      </div>`;
+    tab.appendChild(c);
+  });
+}
+
+function approveDesign(id){ ws&&ws.send(JSON.stringify({type:'approve_design',id})); rmCard('design',id); addLog('COMMANDER','Design approved → uploading to Printify','info'); }
+function approveIdea(id){ ws&&ws.send(JSON.stringify({type:'approve_idea',id})); rmCard('idea',id); addLog('COMMANDER','Idea approved → Vulcan generating designs','info'); }
+function rejectItem(type,id){ ws&&ws.send(JSON.stringify({type:`reject_${type}`,id})); rmCard(type,id); }
+function rmCard(type,id){
+  const el=document.getElementById(`${type}-${id}`);
+  if(el){ el.style.opacity='0'; el.style.transform='scale(.9)'; el.style.transition='.28s'; setTimeout(()=>el.remove(),300); }
+}
+
+function updateArgusBar(metrics){
+  const {cpu=0,ram=0,disk=0,network={}}=metrics;
+  function sm(fi,vi,val){
+    const f=document.getElementById(fi),v=document.getElementById(vi); if(!f||!v) return;
+    f.style.width=val+'%'; f.className='m-fill'+(val>=90?' crit':val>=70?' warn':''); v.textContent=val+'%';
+  }
+  sm('cpu-fill','cpu-val',cpu); sm('ram-fill','ram-val',ram); sm('disk-fill','disk-val',disk);
+  document.getElementById('net-rx').textContent=(network.rx||0)+'KB/s';
+  setAgentChips('ARGUS',[{label:'CPU',val:cpu+'%'},{label:'RAM',val:ram+'%'},{label:'DISK',val:disk+'%'},{label:'NET↓',val:(network.rx||0)+'KB/s'}]);
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['vault','designs','ideas'][i]===name));
+  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',['vault-tab','designs-tab','ideas-tab'][i]===`${name}-tab`));
+}
+
+function initFromState(s,strategy){
+  if(!s) return;
+  if(s.agentStats&&s.agentStats.agents) Object.entries(s.agentStats.agents).forEach(([n,d])=>{ state.agents[n]=d; updateAgentCard(n,d); });
+  if(s.approvals){ state.approvals=s.approvals; renderDesigns(s.approvals.designs||[]); renderIdeas(s.approvals.ideas||[]); }
+  if(s.finance){
+    const f=s.finance;
+    updateVault({
+      totalRevenue:(f.totalRevenue||0).toFixed(2),totalExpenses:(f.totalExpenses||0).toFixed(2),
+      netProfit:(f.netProfit||0).toFixed(2),
+      profitMargin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100).toFixed(1)+'%':'0%',
+      totalTransactions:(f.transactions||[]).length,
+      daysRunning:Math.max(1,Math.floor((Date.now()-new Date(f.startDate||Date.now()).getTime())/86400000)+1),
+      dailyBreakdown:[],recentTransactions:(f.transactions||[]).slice(0,15)
+    });
+  }
+  if(s.metrics) updateArgusBar(s.metrics);
+  if(strategy) document.getElementById('odin-text').textContent=strategy;
+  addLog('NEXUS','State synchronized — Pantheon online','info');
+}
+
+/* ═══════════════════════════════════════════════
+   ODIN INLINE CHAT
+═══════════════════════════════════════════════ */
+function odinGreet(){
+  const greet=`All systems initializing, Commander. I am ODIN — master orchestrator of the Pantheon. I synthesize intelligence from all 9 agents and translate it into strategy. Ask me anything: system health, revenue outlook, what to do next, or how to push growth. I am your strategic second brain.`;
+  odinAppendAgent(greet);
+}
+
+const ODIN_PERSONA = {
+  respond(msg){
+    const m=msg.toLowerCase(), f=state.vault||{}, mt=state.metrics||{}, agents=state.agents||{};
+    const rev=parseFloat(f.totalRevenue||0), exp=parseFloat(f.totalExpenses||0), profit=rev-exp;
+    const pendD=(state.approvals?.designs||[]).filter(d=>d.status==='pending').length;
+    const pendI=(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length;
+    const agentList=GRID_AGENTS.map(n=>({name:n,xp:agents[n]?.xp||0,level:agents[n]?.level||1,status:agents[n]?.status||'idle'}));
+    const topAgent=agentList.sort((a,b)=>b.xp-a.xp)[0];
+    const weakAgent=agentList.sort((a,b)=>a.xp-b.xp)[0];
+    const errAgents=agentList.filter(a=>a.status==='error').map(a=>a.name);
+
+    if(/daily briefing|briefing|morning|today/.test(m)){
+      const recs=['Review the '+pendI+' pending idea'+(pendI!==1?'s':''),'Check agent logs for errors','Consider raising listing price by $2 if margin is below 40%'];
+      return {text:`DAILY BRIEFING — ${new Date().toLocaleDateString('en',{weekday:'long',month:'short',day:'numeric'})}.\n\nFinancials: Revenue $${rev.toFixed(2)}, Expenses $${exp.toFixed(2)}, Net $${profit.toFixed(2)}.\n\nSystem: CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%${errAgents.length?' ⚠ ERROR in '+errAgents.join(', '):''}.\n\nQueues: ${pendD} design(s) and ${pendI} idea(s) pending approval.\n\nTop performer: ${topAgent?.name} at ${topAgent?.xp} XP. Today's recommended actions:`,recs};
+    }
+    if(/system audit|audit|health/.test(m)){
+      const cpu=mt.cpu||0, ram=mt.ram||0, disk=mt.disk||0;
+      const issues=[];
+      if(cpu>70) issues.push('CPU elevated at '+cpu+'%');
+      if(ram>75) issues.push('RAM pressure at '+ram+'%');
+      if(disk>80) issues.push('Disk usage at '+disk+'%');
+      if(errAgents.length) issues.push('Agent errors: '+errAgents.join(', '));
+      const recs=issues.length?['Run Hephaestus manual patch cycle','Check agent logs for root cause']:['System running cleanly — no action required'];
+      return {text:`SYSTEM AUDIT COMPLETE.\n\nInfrastructure: CPU ${cpu}%, RAM ${ram}%, Disk ${disk}%, Net ${mt.network?.rx||0}KB/s.\n\n${issues.length?'⚠ Issues found:\n'+issues.map(i=>'• '+i).join('\n'):'✓ All thresholds nominal.'}\n\nAgent statuses: ${agentList.map(a=>a.name+'('+a.status+')').join(', ')}.\n\nRecommended:`,recs};
+    }
+    if(/revenue forecast|forecast|project/.test(m)){
+      const daily=rev/Math.max(1,state.vault?.daysRunning||1);
+      const monthly=(daily*30).toFixed(2), annual=(daily*365).toFixed(2);
+      const recs=['Approve '+pendI+' pending idea(s) to increase listing count','Each new Etsy listing adds ~$0.80 average daily revenue','Raise prices on top-performing listings by $2-3'];
+      return {text:`REVENUE FORECAST.\n\nCurrent: $${rev.toFixed(2)} total, ~$${daily.toFixed(2)}/day run rate.\n\nProjections at current pace:\n• 30-day: $${monthly}\n• 90-day: $${(daily*90).toFixed(2)}\n• Annual: $${annual}\n\nProfit margin: ${rev>0?((profit/rev)*100).toFixed(1):0}%.\n\nGrowth levers:`,recs};
+    }
+    if(/weak point|weakness|problem|gap|improve/.test(m)){
+      const recs=[];
+      if(pendI>0) recs.push('Approve '+pendI+' idea(s) — Vulcan is waiting to generate designs');
+      if(pendD>0) recs.push('Approve '+pendD+' design(s) — Loki is waiting to publish listings');
+      if(profit<0) recs.push('Expenses exceed revenue — review Printify costs or raise prices');
+      if((mt.cpu||0)>60) recs.push('CPU above 60% — consider reducing agent cycle frequency');
+      if(recs.length===0) recs.push('No critical weak points detected. Focus on throughput.');
+      return {text:`WEAK POINT ANALYSIS.\n\n${weakAgent?'Lowest XP agent: '+weakAgent.name+' ('+weakAgent.xp+' XP) — may need attention.':''}\n\nIdentified gaps:`,recs};
+    }
+    if(/agent review|agent performance|who is/.test(m)){
+      const rows=agentList.sort((a,b)=>b.xp-a.xp).map((a,i)=>`${i+1}. ${a.name} — ${a.xp} XP, Lvl ${a.level}, ${a.status}`).join('\n');
+      return {text:`AGENT PERFORMANCE REVIEW.\n\n${rows}\n\nTop performer: ${topAgent?.name}.\nLowest activity: ${weakAgent?.name}.\n\nRecommendations:`,recs:['Click any agent room to interface directly','Approve pending queues to give Vulcan and Loki work']};
+    }
+    if(/best move|what should|next step|action/.test(m)){
+      let move='', recs=[];
+      if(pendD>0){ move=`You have ${pendD} design(s) ready to review. Approving them launches the Loki publishing pipeline immediately — this is your highest-leverage action right now.`; recs=['Switch to DESIGN QUEUE tab and approve','Each approved design = one new Etsy listing within minutes']; }
+      else if(pendI>0){ move=`You have ${pendI} idea(s) from Heimdall pending. Approving them triggers Vulcan to generate DALL-E designs.`; recs=['Switch to IDEA QUEUE tab and approve','High demand-score ideas should be prioritized first']; }
+      else { move='No pending approvals. The system is autonomous and running. Focus on growth: add more product niches, raise prices on top listings, or wait for Heimdall\'s next research cycle.'; recs=['Ask Heimdall to focus on a specific niche','Review top Etsy listings in Athena\'s report']; }
+      return {text:`BEST MOVE NOW.\n\n${move}`,recs};
+    }
+    if(/guide heimdall|heimdall|niche|research/.test(m)){
+      const recs=['Dark academia — high demand, low saturation','Mental health — consistently trending','Retro gaming — loyal buyer base','Custom pet portraits — highest conversion rates in POD'];
+      return {text:`HEIMDALL GUIDANCE.\n\nHeimdall currently cycles through 12 niche seeds. To direct his attention, approve high-demand ideas quickly — this signals the pipeline to prioritize those niches in future cycles.\n\nNiches with strongest current demand signals:`,recs};
+    }
+    if(/improve agents|upgrade|optimize/.test(m)){
+      const recs=['Set ANTHROPIC_API_KEY to enable Claude-powered ODIN strategies and Heimdall ideas','Set OPENAI_API_KEY to enable real DALL-E design generation','Set ETSY_* vars to connect live Etsy shop data','Add PRINTIFY_* vars to publish directly to your store'];
+      return {text:`AGENT IMPROVEMENT RECOMMENDATIONS.\n\nCurrent mode: ${process?.env?.ANTHROPIC_API_KEY?'AI-powered':'Demo/template mode'}.\n\nTo unlock full AI capability:`,recs};
+    }
+    // Generic strategic response
+    const responses=[
+      {text:`I see ${pendD} design(s) and ${pendI} idea(s) awaiting your command. Revenue stands at $${rev.toFixed(2)} with a ${rev>0?((profit/rev)*100).toFixed(1):0}% margin. System health is ${(mt.cpu||0)<70?'nominal':'elevated'}. What strategic dimension do you want to explore?`,recs:['DAILY BRIEFING','BEST MOVE NOW','REVENUE FORECAST']},
+      {text:`The Pantheon runs ${GRID_AGENTS.length} specialist agents in continuous cycles. At current XP rates, ${topAgent?.name} leads the network. Your most impactful lever right now is the approval queue — ${pendD+pendI} item(s) are waiting on your command.`,recs:['APPROVE DESIGNS','APPROVE IDEAS','AGENT REVIEW']}
+    ];
+    return responses[Math.floor(Math.random()*responses.length)];
+  }
+};
+
+function odinAppendAgent(text, recs){
+  const h=document.getElementById('odin-chat-history');
+  const d=document.createElement('div'); d.className='ocmsg agent';
+  let html=`<div class="ocmsg-icon">🔱</div><div class="ocbubble"><span id="_otb"></span>`;
+  if(recs&&recs.length) html+=`<div style="margin-top:6px">${recs.map(r=>`<span class="rec-chip" onclick="injectOdinRec('${r.replace(/'/g,"\\'")}')">${esc(r)}</span>`).join('')}</div>`;
+  html+=`</div>`;
+  d.innerHTML=html; h.appendChild(d); h.scrollTop=h.scrollHeight;
+  const bub=d.querySelector('#_otb'); bub.removeAttribute('id');
+  let i=0;
+  const iv=setInterval(()=>{ bub.textContent=text.slice(0,i++); h.scrollTop=h.scrollHeight; if(i>text.length) clearInterval(iv); },12);
+}
+
+function odinAppendUser(txt){
+  const h=document.getElementById('odin-chat-history');
+  const d=document.createElement('div'); d.className='ocmsg user';
+  d.innerHTML=`<div class="ocbubble">${esc(txt)}</div><div class="ocmsg-icon">👤</div>`;
+  h.appendChild(d); h.scrollTop=h.scrollHeight;
+}
+
+function odinShowTyping(){
+  const h=document.getElementById('odin-chat-history');
+  const d=document.createElement('div'); d.className='ocmsg agent'; d.id='_otyp';
+  d.innerHTML=`<div class="ocmsg-icon">🔱</div><div class="ocbubble"><div class="ctyping2"><span></span><span></span><span></span></div></div>`;
+  h.appendChild(d); h.scrollTop=h.scrollHeight;
+}
+function odinRemoveTyping(){ const e=document.getElementById('_otyp'); if(e) e.remove(); }
+
+const odinChatHistory=[];
+
+async function sendOdinChat(){
+  const inp=document.getElementById('odin-input');
+  const txt=inp.value.trim(); if(!txt) return;
+  inp.value=''; odinAppendUser(txt); odinShowTyping();
+  const f=state.vault||{}, mt=state.metrics||{}, agents=state.agents||{};
+  const ctx={
+    netProfit:f.netProfit||0, totalRevenue:f.totalRevenue||0,
+    totalExpenses:f.totalExpenses||0,
+    margin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100):0,
+    pendingDesigns:(state.approvals?.designs||[]).filter(d=>d.status==='pending').length,
+    pendingIdeas:(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length,
+    cpu:mt.cpu||0, ram:mt.ram||0,
+    agentXP:Object.fromEntries(GRID_AGENTS.map(n=>[n,agents[n]?.xp||0]))
+  };
+  try {
+    const resp=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({agent:'ODIN',message:txt,history:odinChatHistory,ctx})});
+    odinRemoveTyping();
+    if(resp.status===503){
+      odinAppendAgent('⚠ ANTHROPIC_API_KEY not configured on server. Set it in your Railway environment variables.');
+    } else if(!resp.ok){
+      const data=await resp.json().catch(()=>({}));
+      odinAppendAgent(`⚠ API error ${resp.status}: ${data.error||'unknown — check Railway logs'}`);
+    } else {
+      const data=await resp.json();
+      if(data.reply){
+        odinChatHistory.push({role:'user',content:txt});
+        odinChatHistory.push({role:'assistant',content:data.reply});
+        odinAppendAgent(data.reply);
+      } else {
+        odinAppendAgent('⚠ No reply in API response — check Railway logs');
+      }
+    }
+  } catch(e){
+    odinRemoveTyping();
+    odinAppendAgent(`⚠ Network error reaching /api/chat: ${e.message}`);
+  }
+  addLog('ODIN','[STRATEGY] '+txt.slice(0,60),'info');
+}
+
+function odinQuickAction(action){
+  document.getElementById('odin-input').value=action;
+  sendOdinChat();
+}
+
+function injectOdinRec(text){
+  document.getElementById('odin-input').value=text;
+  document.getElementById('odin-input').focus();
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!document.getElementById('chat-overlay').classList.contains('open')){
+    const oi=document.getElementById('odin-input');
+    if(document.activeElement===oi) sendOdinChat();
+  }
+});
+
+/* ── Oversight panel ── */
+function renderOversight(){
+  const list=document.getElementById('oversight-list'); if(!list) return;
+  list.innerHTML='';
+  GRID_AGENTS.forEach(name=>{
+    const m=AGENT_META[name], ag=state.agents[name]||{};
+    const xp=ag.xp||0, lvl=ag.level||1, sk=ag.status||'idle';
+    const pct=((xp%500)/500*100).toFixed(1);
+    const d=document.createElement('div'); d.className='ov-row';
+    d.onclick=()=>openChat(name);
+    const dotCol={active:'#00ff88',working:'#ffcc00',alert:'#ff8800',error:'#ff3355',idle:'#334466'}[sk]||'#334466';
+    d.innerHTML=`<span class="ov-icon">${m.icon}</span>
+      <span class="ov-name">${name}</span>
+      <div class="ov-right">
+        <div class="ov-status" style="color:${dotCol}">● ${sk.toUpperCase()}</div>
+        <div class="ov-bar-track"><div class="ov-bar-fill" style="width:${pct}%;background:linear-gradient(90deg,${m.color}88,${m.color})"></div></div>
+      </div>
+      <span class="ov-lvl">L${lvl}</span>`;
+    list.appendChild(d);
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   WEBSOCKET
+═══════════════════════════════════════════════ */
+let ws, rcTimer;
+function connect(){
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(`${proto}//${location.host}`);
+  ws.onopen=()=>{
+    clearTimeout(rcTimer);
+    document.getElementById('conn-status').textContent='ONLINE';
+    document.getElementById('conn-status').className='';
+    document.getElementById('dot-ws').className='dot';
+    document.getElementById('dot-agents').className='dot';
+    addLog('NEXUS','WebSocket connection established','info');
+  };
+  ws.onclose=()=>{
+    document.getElementById('conn-status').textContent='OFFLINE';
+    document.getElementById('conn-status').className='disconnected';
+    document.getElementById('dot-ws').className='dot off';
+    addLog('NEXUS','Connection lost — reconnecting in 3s...','error');
+    rcTimer=setTimeout(connect,3000);
+  };
+  ws.onerror=()=>addLog('NEXUS','WebSocket error','error');
+  ws.onmessage=e=>{ try{ handleMsg(JSON.parse(e.data)); }catch(x){ console.error(x); } };
+}
+
+function handleMsg(msg){
+  const {type,agent,data}=msg;
+  switch(type){
+    case 'init': initFromState(msg.data,msg.strategy); break;
+    case 'agent_log': addLog(msg.agent||'SYS',msg.message,msg.level,msg.timestamp); break;
+    case 'agent_status':
+      if(data){ if(!state.agents[agent]) state.agents[agent]={}; Object.assign(state.agents[agent],data); updateAgentCard(agent,data); } break;
+    case 'xp_gain':
+      showXpToast(agent,msg.amount,msg.action||'task');
+      if(state.agents[agent]){ state.agents[agent].xp=msg.total; state.agents[agent].level=msg.level; updateAgentCard(agent,state.agents[agent]); } break;
+    case 'system_metrics': if(data&&data.metrics){ updateArgusBar(data.metrics); state.metrics=data.metrics; } break;
+    case 'alert': if(data) showAlert(data.message||JSON.stringify(data),data.severity); break;
+    case 'approval_queue':
+      if(data){
+        const {category,item,items}=data;
+        const ni=items?items:(item?[item]:[]);
+        if(category==='designs'){ state.approvals.designs=[...ni,...state.approvals.designs]; renderDesigns(state.approvals.designs); switchTab('designs'); }
+        else if(category==='ideas'){ state.approvals.ideas=[...ni,...state.approvals.ideas]; renderIdeas(state.approvals.ideas); }
+        addLog(agent,`${ni.length} new ${category==='designs'?'design(s)':'idea(s)'} awaiting approval`,'info');
+      } break;
+    case 'queue_update':
+      if(data){
+        const{category,id,status}=data;
+        const lst=state.approvals[category];
+        if(lst){ const it=lst.find(i=>i.id===id); if(it) it.status=status; }
+        if(category==='designs') renderDesigns(state.approvals.designs);
+        else renderIdeas(state.approvals.ideas);
+      } break;
+    case 'vault_report': if(data){ state.vault=data; updateVault(data); } break;
+    case 'odin_strategy':
+      if(data){
+        document.getElementById('odin-text').textContent=data.strategy||'';
+        state.strategyCount=data.strategyCount||state.strategyCount+1;
+        document.getElementById('strategy-count').textContent=state.strategyCount;
+        updateAgentCard('ODIN',{status:'idle',xp:state.agents['ODIN']?.xp||0,level:state.agents['ODIN']?.level||1,lastAction:`Strategy #${state.strategyCount} deployed`});
+        const xpEl=document.getElementById('odin-xp-val'), lvlEl=document.getElementById('odin-lvl-val');
+        if(xpEl) xpEl.textContent=(state.agents['ODIN']?.xp||0).toLocaleString();
+        if(lvlEl) lvlEl.textContent=state.agents['ODIN']?.level||1;
+      } break;
+    case 'leaderboard': if(data){ state.leaderboard=data; updateLeaderboard(data); } break;
+    case 'hermes_report': if(data) setAgentChips('HERMES',[{label:'ERR',val:data.errors?.length||0},{label:'WARN',val:data.warnings?.length||0},{label:'FILES',val:data.fileCount||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'tyr_report': if(data) setAgentChips('TYR',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'hephaestus_report': if(data&&data.patches) setAgentChips('HEPHAESTUS',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
+    case 'athena_report': if(data) setAgentChips('ATHENA',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
+    case 'loki_published': if(data) setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]); break;
+    case 'vulcan_published': if(data) setAgentChips('VULCAN',[{label:'PROD',val:data.product?.id||'N/A'}]); break;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   PARTICLE BG CANVAS
+═══════════════════════════════════════════════ */
+(function(){
+  const c=document.getElementById('bg'), ctx=c.getContext('2d');
+  const pts=[];
+  function resize(){ c.width=window.innerWidth; c.height=window.innerHeight; }
+  window.addEventListener('resize',resize); resize();
+  for(let i=0;i<70;i++) pts.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,s:Math.random()*1.4+.3,a:Math.random()*.35+.08});
+  function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+    pts.forEach(p=>{
+      p.x+=p.vx; p.y+=p.vy;
+      if(p.x<0) p.x=c.width; if(p.x>c.width) p.x=0;
+      if(p.y<0) p.y=c.height; if(p.y>c.height) p.y=0;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.s,0,Math.PI*2);
+      ctx.fillStyle=`rgba(0,180,255,${p.a})`; ctx.fill();
+    });
+    for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
+      const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<90){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y);
+        ctx.strokeStyle=`rgba(0,100,255,${.14*(1-d/90)})`; ctx.lineWidth=.5; ctx.stroke(); }
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+/* ═══════════════════════════════════════════════
+   CLOCK + BOOT
+═══════════════════════════════════════════════ */
+function tickClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent=n.toLocaleTimeString('en',{hour12:false});
+  document.getElementById('date-display').textContent=n.toLocaleDateString('en',{weekday:'short',year:'numeric',month:'short',day:'numeric'}).toUpperCase();
+}
+setInterval(tickClock,1000); tickClock();
+
+function esc(s){ if(!s) return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+buildAgentGrid();
+connect();
+</script>
+</body>
+</html>

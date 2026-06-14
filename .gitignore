@@ -1,0 +1,31 @@
+# Environment — never commit real keys
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Runtime data (regenerates on boot)
+data/vault.json
+data/queue.json
+data/blocked_ips.json
+data/agents.json
+logs/
+
+# Node (legacy files in this dir)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive files
+KEYS FOR MY AI.txt
+*.txt
