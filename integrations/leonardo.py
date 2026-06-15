@@ -117,7 +117,9 @@ async def _generate_via_ai_fallback(
 
     prompt = _build_pod_prompt(idea_title, niche, product_type=product_type)
     design_id = hashlib.md5(f"{idea_title}_{niche}_{product_type}".encode()).hexdigest()[:12]
-    cache_dir = Path("public/generated")
+    # Use data/generated/ — Railway volume, persists across redeploys
+    # public/generated/ is ephemeral and wiped on every redeploy
+    cache_dir = Path("data/generated")
     cache_dir.mkdir(parents=True, exist_ok=True)
     local_file = cache_dir / f"{design_id}.jpg"
 

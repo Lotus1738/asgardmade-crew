@@ -56,15 +56,19 @@ async def upload_image(image_url: str, filename: str = "design.png") -> dict:
     if not _has_credentials():
         return {"id": "demo_image_id", "preview_url": image_url, "demo": True}
 
-    # Detect local file path (gpt-image-1 returns /generated/filename.png)
+    # Detect local file path (gpt-image-1 returns /generated/filename.jpg)
+    # Check data/generated/ first (Railway volume — persists across redeploys)
+    # Fall back to public/generated/ for legacy compatibility
     if image_url.startswith("/generated/"):
-        local_path = Path("public") / image_url.lstrip("/")
+        local_path = Path("data") / image_url.lstrip("/")
+        if not local_path.exists():
+            local_path = Path("public") / image_url.lstrip("/")
         if local_path.exists():
             img_bytes = local_path.read_bytes()
             b64_contents = base64.b64encode(img_bytes).decode("utf-8")
             payload = {"file_name": filename, "contents": b64_contents}
         else:
-            raise FileNotFoundError(f"Generated image not found: {local_path}")
+            raise FileNotFoundError(f"Generated image not found: {local_path} (checked data/ and public/)")
     else:
         payload = {"file_name": filename, "url": image_url}
 

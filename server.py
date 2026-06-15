@@ -188,9 +188,11 @@ app = FastAPI(title="AsgardMade Pantheon", version="1.0.0")
 # Serve public files
 PUBLIC_DIR = Path("public")
 
-# Serve AI-generated images as static files (gpt-image-1 saves here)
-os.makedirs("public/generated", exist_ok=True)
-app.mount("/generated", StaticFiles(directory="public/generated"), name="generated")
+# Serve AI-generated images as static files
+# IMPORTANT: use data/generated/ (Railway volume — persists across redeploys)
+# public/generated/ is ephemeral and gets wiped on every Railway redeploy
+os.makedirs("data/generated", exist_ok=True)
+app.mount("/generated", StaticFiles(directory="data/generated"), name="generated")
 
 
 @app.get("/")

@@ -21,15 +21,16 @@ _GENERATOR = "Leonardo" if leonardo_available() else ("DALL-E" if _DALLE_AVAILAB
 
 async def _cache_image_locally(url: str, design_id: str) -> str:
     """
-    Download an image from an external URL and cache it in public/generated/.
+    Download an image from an external URL and cache it in data/generated/.
     Returns a local server path like /generated/<design_id>.jpg that never expires.
+    Uses data/generated/ (Railway volume) so images persist across redeploys.
     Falls back to the original URL if download fails.
     """
     if not url or url.startswith("/generated/"):
         return url
     try:
         import httpx as _httpx
-        cache_dir = Path("public/generated")
+        cache_dir = Path("data/generated")
         cache_dir.mkdir(parents=True, exist_ok=True)
         ext = "jpg"
         if ".png" in url.lower():
