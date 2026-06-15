@@ -1422,7 +1422,11 @@ async def _odin_morning_briefing_loop():
             goal = 200.0
             net_per_sale = 34.99 - 8.50 - (34.99 * 0.065) - 0.20  # ~$24.02
             sales_needed = round(goal / net_per_sale)
-            sales_done = round(rev / 34.99) if rev > 0 else 0
+            # Count actual revenue transactions rather than dividing by a hardcoded price.
+            # With dynamic pricing intel, listing prices vary by niche, so rev / 34.99
+            # would overstate or understate the real number of sales made.
+            # Revenue transactions are never pruned by save_vault, so this is always accurate.
+            sales_done = len([t for t in state.vault.get("transactions", []) if t.get("type") == "revenue"])
             sales_left = max(0, sales_needed - sales_done)
             pct = round((net / goal * 100), 1)
 
@@ -1896,6 +1900,17 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                         "agent": "HEIMDALL",
                         "data": {"category": "ideas", "items": needs_review},
                     })
+
+                # Write approved ideas to Obsidian memory — mirrors the gap fixed in auto-15
+                # for _heimdall_loop and _odin_autonomous_action_loop. Without this, the deep
+                # research auto-approve path (the highest-volume approval path) left Obsidian
+                # blind to every idea it approved autonomously.
+                for _ai in added:
+                    if _ai.get("status") == "approved":
+                        try:
+                            mem.heimdall_write_approved(_ai)
+                        except Exception:
+                            pass
                 top = added[0]
                 await manager.broadcast({
                     "type": "agent_log",

@@ -105,6 +105,21 @@ async def run_idea_pipeline(
     await _award_xp(manager, state, "VULCAN", 40, "design_generation")
     await _award_xp(manager, state, "HEIMDALL", 25, "idea_pipeline")
 
+    # Record VULCAN's design generation outcome so the brain can learn what styles
+    # the commander approves vs. rejects. VULCAN was the only pipeline agent that
+    # generated output without any brain outcome at the generation stage.
+    try:
+        import memory.brain as _brain_v
+        _is_demo_variants = bool(variants) and variants[0].get("demo", False)
+        _brain_v.record_outcome(
+            "VULCAN",
+            f"Generated {len(design_items)} design variant(s) for '{title}' ({niche}, {product_type})",
+            f"{'Demo placeholders — configure API key for ' + _GENERATOR if _is_demo_variants else _GENERATOR + ' designs generated successfully — awaiting commander review'}",
+            5 if _is_demo_variants else 8,
+        )
+    except Exception:
+        pass
+
     await manager.broadcast({
         "type": "approval_queue",
         "agent": "VULCAN",
@@ -141,6 +156,7 @@ async def run_design_pipeline(
         # Price 10% below niche average to maximize conversion speed
         price_usd = round(_suggested * 0.90, 2)
         price_usd = max(price_usd, 12.99)  # hard floor
+        price_usd = min(price_usd, 59.99)  # ceiling cap — prevents corrupted pricing intel from listing at absurd prices
     else:
         price_usd = 34.99  # default when no intel available
 
@@ -204,6 +220,21 @@ async def run_design_pipeline(
             await _log(manager, "VULCAN", f"Printify publish step: {e}", "warning")
 
     await _award_xp(manager, state, "VULCAN", 60, "product_created")
+
+    # Record VULCAN brain outcome for the Printify upload stage so the brain
+    # synthesis loop can learn which product types/designs upload successfully vs. fail.
+    try:
+        import memory.brain as _brain_vu
+        _demo_prod = product_id.startswith("demo_")
+        _brain_vu.record_outcome(
+            "VULCAN",
+            f"Uploaded design for '{title}' ({niche}, {product_type}) to Printify",
+            f"{'Printify API unavailable — demo product ID' if _demo_prod else 'Printify product ' + product_id[:12] + ' created successfully'}",
+            4 if _demo_prod else 9,
+        )
+    except Exception:
+        pass
+
     await _update_status(manager, state, "VULCAN", "active",
                          f"Product {product_id[:12]} created for '{title}'")
 

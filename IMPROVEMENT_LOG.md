@@ -361,3 +361,27 @@
 - `server.py:_heimdall_deep_research_loop` auto-approve path — also missing `mem.heimdall_write_approved(_idea)` (same pattern as edits 1-3 above). Skipped to stay within the 5-edit limit; deferred to next run.
 
 **Git push:** PENDING — run `git add -A && git commit -m "auto-15: autonomous approval Obsidian mem writes, deep research JSON parse logging, retrying msg fix" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-16) UTC
+
+**Areas reviewed:** Pipeline robustness (pipeline.py — VULCAN brain gap, price cap), Backend reliability (server.py — deep research Obsidian gap, briefing sales count), Code quality
+
+**Changes made:**
+
+- `server.py:_heimdall_deep_research_loop` — **MEMORY GAP FIX (deferred from auto-15)**: Added `mem.heimdall_write_approved()` calls for all ideas auto-approved within the deep research loop (demand≥85, low competition). This was the last remaining auto-approve path that recorded a brain outcome but never wrote the Obsidian note. HEIMDALL's approved-idea Obsidian folder was missing the majority of its entries — the high-quality deep-research ideas (the best ones) were all invisible to memory.
+
+- `crew/pipeline.py:run_idea_pipeline` — **BRAIN GAP FIX**: Added `brain.record_outcome("VULCAN", ...)` after design generation. VULCAN was the only pipeline agent that generated output with zero brain feedback. When designs are generated, VULCAN gets XP but the brain synthesis loop had no data on what design styles/niches were generated — it couldn't learn what the commander was approving vs. rejecting. Now scores 8 for real generations and 5 for demo placeholders (API key missing).
+
+- `crew/pipeline.py:run_design_pipeline` — **BRAIN GAP FIX**: Added `brain.record_outcome("VULCAN", ...)` after Printify product upload. Scores 9 for successful real products and 4 for demo mode (Printify unavailable). The brain can now learn which product types / niches fail to upload vs. succeed — useful for VULCAN's improvement loop.
+
+- `crew/pipeline.py:run_design_pipeline` — Added `price_usd = min(price_usd, 59.99)` ceiling cap after the 10%-below-average calculation. The existing `max(..., 12.99)` floor prevents prices from being too low, but there was no upper bound. If pricing intel stores a corrupted or wildly inflated average (e.g., a $200 outlier), the listing would go live at a price no Etsy buyer would pay. Cap prevents this at $59.99 — the realistic POD ceiling for the niches this shop targets.
+
+- `server.py:_odin_morning_briefing_loop` — **ACCURACY FIX**: Changed `sales_done = round(rev / 34.99)` → `sales_done = len([t for t in state.vault.get("transactions", []) if t.get("type") == "revenue"])`. With dynamic pricing intel, listing prices now vary by niche ($12.99–$59.99 range), so dividing total revenue by a hardcoded $34.99 produced wrong sales counts. Counting actual revenue transactions is exact. Revenue transactions are never pruned by save_vault (only expenses are pruned after 500 entries), so this count is always accurate.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical and non-breaking.
+
+**Git push:** PENDING — run `git add -A && git commit -m "auto-16: deep research Obsidian gap, VULCAN brain outcomes, price ceiling cap, briefing sales count fix" && git push` manually to deploy.
