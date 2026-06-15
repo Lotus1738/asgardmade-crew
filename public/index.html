@@ -3152,51 +3152,78 @@ function switchTab(name){
 
 // ── Integration status checks ────────────────────────────────────────────────
 async function checkIntegrations(){
-  // Etsy
+  // --- Etsy OAuth status ---
   try {
     const r = await fetch('/api/etsy/status');
     const d = await r.json();
     const btn = document.getElementById('etsy-connect-btn');
     const txt = document.getElementById('etsy-status-text');
-    if(d.connected && !d.is_expired){
-      txt.textContent = '✓ Connected — token valid, auto-refreshes automatically';
+    if(!btn||!txt) return;
+
+    if(!d.api_key_set){
+      txt.textContent = '✗ ETSY_API_KEY missing — add it in Railway → Variables';
+      txt.style.color = 'var(--orange)';
+      btn.textContent = 'CONNECT';
+    } else if(d.connected && !d.is_expired){
+      txt.textContent = '✓ Connected — token active, auto-refreshes every hour';
       txt.style.color = 'var(--green)';
       btn.textContent = 'RECONNECT';
       btn.style.borderColor = 'var(--green)';
       btn.style.color = 'var(--green)';
     } else if(d.connected && d.is_expired){
-      txt.textContent = '⚠ Connected but token expired — click Reconnect';
+      txt.textContent = '⚠ Token expired — auto-refreshing now...';
       txt.style.color = 'var(--orange)';
       btn.textContent = 'RECONNECT';
+      // trigger server-side refresh
+      fetch('/api/etsy/refresh', {method:'POST'}).then(()=>setTimeout(checkIntegrations, 3000));
     } else {
-      txt.textContent = 'Not connected — click Connect to authorize your Etsy shop';
-      btn.textContent = 'CONNECT';
+      const uri = d.redirect_uri || 'https://web-production-ed5a5.up.railway.app/etsy/callback';
+      txt.innerHTML = `Not connected. Before clicking Connect, add <code style="color:var(--c1)">${uri}</code> as a Callback URL in your <a href="https://www.etsy.com/developers/your-account/apps" target="_blank" style="color:var(--c1)">Etsy App settings</a>.`;
+      txt.style.color = 'var(--txt2)';
+      btn.textContent = 'CONNECT ETSY';
     }
   } catch(e){ /* offline */ }
 
-  // Status endpoint for others
+  // --- Other integrations ---
   try {
     const r = await fetch('/api/status');
     const d = await r.json();
     const integs = d.integrations || {};
 
+    // Leonardo (primary image generator)
+    const leonardoOk = bool(os?.getenv?.('LEONARDO_API_KEY')) || integs.leonardo;
+    setDot('leonardo-dot','leonardo-status-text', integs.leonardo || integs.dalle,
+      '✓ Connected — Vulcan generates real artwork via Leonardo AI',
+      'Add LEONARDO_API_KEY in Railway → Variables (free at leonardo.ai)');
+
     setDot('printify-dot','printify-status-text', integs.printify,
-      '✓ Connected — Vulcan can push designs automatically',
+      '✓ Connected — Vulcan uploads designs and creates products',
       'Add PRINTIFY_API_KEY + PRINTIFY_SHOP_ID in Railway → Variables');
 
     setDot('dalle-dot','dalle-status-text', integs.dalle || integs.openai,
-      '✓ Connected — Vulcan can generate AI designs',
-      'Add OPENAI_API_KEY in Railway → Variables (platform.openai.com)');
+      '✓ Connected — fallback image generation via OpenAI',
+      'Add OPENAI_API_KEY in Railway → Variables (optional fallback)');
 
     setDot('serper-dot','serper-status-text', integs.serper,
-      '✓ Connected — Heimdall uses real Google search results',
+      '✓ Connected — Heimdall uses real Google trend data',
       'Add SERPER_API_KEY in Railway → Variables (free at serper.dev)');
 
     setDot('discord-dot','discord-status-text', integs.discord,
-      '✓ Connected — you\'ll get pinged on every sale and alert',
+      '✓ Connected — alerts sent on every sale and error',
       'Add DISCORD_WEBHOOK_URL in Railway → Variables');
+
+    // Queue pile-up warning
+    const designs = d.queue_counts?.designs || 0;
+    const ideas = d.queue_counts?.ideas || 0;
+    if(designs > 5){
+      addLog('ODIN', `⚠ ${designs} designs are waiting in your approval queue — go to DESIGN QUEUE tab to approve them and get listings live.`, 'warning');
+    }
   } catch(e){ /* offline */ }
 }
+
+// Auto-refresh integrations tab every 60s while it's open
+let _integRefreshTimer = null;
+const _origSwitchForInteg = switchTab;
 
 function setDot(dotId, txtId, connected, okMsg, failMsg){
   const dot = document.getElementById(dotId);
@@ -3215,20 +3242,27 @@ function setDot(dotId, txtId, connected, okMsg, failMsg){
 }
 
 function connectEtsy(){
-  // Open the OAuth flow in the same window — Etsy will redirect back to /?etsy=connected
   window.location.href = '/etsy/connect';
 }
 
-// Auto-show success banner if redirected back after Etsy connect
+// Handle all Etsy redirect-back scenarios
 (function(){
   const params = new URLSearchParams(window.location.search);
-  if(params.get('etsy')==='connected'){
-    history.replaceState({}, '', '/');
-    setTimeout(()=>{
-      addLog('SYSTEM','✓ Etsy connected successfully — LOKI can now publish real listings','success');
+  const etsyParam = params.get('etsy');
+  if(!etsyParam) return;
+  history.replaceState({}, '', '/');
+  setTimeout(()=>{
+    if(etsyParam === 'connected'){
+      addLog('ODIN', '✓ Etsy connected! LOKI can now publish real listings directly to your shop.', 'success');
       switchTab('integrations');
-    }, 1200);
-  }
+    } else if(etsyParam === 'denied'){
+      addLog('ODIN', '✗ Etsy authorization was cancelled. Click Connect again when ready.', 'warning');
+      switchTab('integrations');
+    } else if(etsyParam === 'retry'){
+      addLog('ODIN', '⚠ Server restarted mid-login. Click Connect Etsy again — this is normal.', 'warning');
+      switchTab('integrations');
+    }
+  }, 1200);
 })();
 
 function initFromState(s,strategy){

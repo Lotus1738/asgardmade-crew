@@ -2775,21 +2775,26 @@ async def sheets_read(range_: str = "Sheet1!A1:Z100"):
         return {"data": [], "error": str(e)}
 
 
-# ─── Etsy OAuth Flow ─────────────────────────────────────────────────────────
-# One-click Connect button in the HUD handles the full OAuth flow automatically.
-# Tokens are saved to data/etsy_tokens.json and auto-refreshed every hour.
+# --- Etsy OAuth Flow ---------------------------------------------------------
+# PKCE-based OAuth2 (no client secret needed).
+# Tokens saved to data/etsy_tokens.json (Railway volume — survives redeploys).
+# PKCE state also saved to file so Railway restarts mid-flow don't break it.
+# Required env var: ETSY_API_KEY (just the keystring from etsy.com/developers)
+# Redirect URI to register in Etsy app: https://web-production-ed5a5.up.railway.app/etsy/callback
 
 import hashlib, base64, secrets, time
-_etsy_pkce: dict = {}
 
 def _etsy_app_url() -> str:
-    url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
-    if url:
-        return f"https://{url}"
-    return os.getenv("APP_URL", "http://localhost:8000")
+    domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if domain:
+        return f"https://{domain}"
+    return os.getenv("APP_URL", "https://web-production-ed5a5.up.railway.app")
 
 def _etsy_tokens_path() -> Path:
     return DATA_DIR / "etsy_tokens.json"
+
+def _etsy_pkce_path() -> Path:
+    return DATA_DIR / "etsy_pkce.json"
 
 def _load_etsy_tokens() -> dict:
     p = _etsy_tokens_path()
@@ -2800,17 +2805,45 @@ def _load_etsy_tokens() -> dict:
             pass
     return {}
 
-def _save_etsy_tokens(data: dict):
+def _save_etsy_tokens(data: dict) -> None:
     _etsy_tokens_path().write_text(json.dumps(data, indent=2))
 
-async def _refresh_etsy_token(refresh_token: str):
+def _load_pkce_store() -> dict:
+    """Load PKCE verifiers from file so restarts don't invalidate in-flight flows."""
+    p = _etsy_pkce_path()
+    if p.exists():
+        try:
+            store = json.loads(p.read_text())
+            # Prune entries older than 10 minutes
+            cutoff = time.time() - 600
+            return {k: v for k, v in store.items() if v.get("ts", 0) > cutoff}
+        except Exception:
+            pass
+    return {}
+
+def _save_pkce_store(store: dict) -> None:
+    _etsy_pkce_path().write_text(json.dumps(store))
+
+def _pkce_pop(state: str) -> str | None:
+    store = _load_pkce_store()
+    entry = store.pop(state, None)
+    _save_pkce_store(store)
+    return entry["verifier"] if entry else None
+
+def _pkce_put(state: str, verifier: str) -> None:
+    store = _load_pkce_store()
+    store[state] = {"verifier": verifier, "ts": time.time()}
+    _save_pkce_store(store)
+
+async def _refresh_etsy_token(refresh_token: str) -> dict | None:
     import httpx
-    client_id = os.getenv("ETSY_API_KEY", "").split(":")[0]
+    client_id = os.getenv("ETSY_API_KEY", "").strip()
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             resp = await client.post(
                 "https://api.etsy.com/v3/public/oauth/token",
-                data={"grant_type": "refresh_token", "client_id": client_id, "refresh_token": refresh_token},
+                data={"grant_type": "refresh_token", "client_id": client_id,
+                      "refresh_token": refresh_token},
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             if resp.status_code == 200:
@@ -2820,74 +2853,168 @@ async def _refresh_etsy_token(refresh_token: str):
                 existing.update(data)
                 _save_etsy_tokens(existing)
                 os.environ["ETSY_OAUTH_TOKEN"] = data["access_token"]
+                print(f"[ETSY] Token refreshed. Expires in {data.get('expires_in', 3600)}s.")
                 return data
+            else:
+                print(f"[ETSY] Refresh failed {resp.status_code}: {resp.text[:200]}")
         except Exception as e:
             print(f"[ETSY] Token refresh error: {e}")
     return None
 
 @app.get("/etsy/connect")
 async def etsy_connect():
-    client_id = os.getenv("ETSY_API_KEY", "").split(":")[0]
+    """Start Etsy OAuth PKCE flow. Redirects user to Etsy consent screen."""
+    client_id = os.getenv("ETSY_API_KEY", "").strip()
     if not client_id:
-        return JSONResponse({"error": "ETSY_API_KEY not set in Railway environment variables"}, status_code=400)
+        return JSONResponse({
+            "error": "ETSY_API_KEY not set",
+            "fix": "Go to Railway → your project → Variables → add ETSY_API_KEY with your Etsy app keystring"
+        }, status_code=400)
+
     code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
     digest = hashlib.sha256(code_verifier.encode()).digest()
     code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     state = secrets.token_urlsafe(16)
-    _etsy_pkce[state] = code_verifier
+
+    # Persist verifier to file — survives Railway restarts mid-flow
+    _pkce_put(state, code_verifier)
+
     redirect_uri = f"{_etsy_app_url()}/etsy/callback"
-    scopes = "listings_r listings_w transactions_r shops_r"
-    url = (
+    scopes = "listings_r%20listings_w%20transactions_r%20shops_r%20email_r"
+
+    auth_url = (
         f"https://www.etsy.com/oauth/connect"
-        f"?response_type=code&client_id={client_id}"
+        f"?response_type=code"
+        f"&client_id={client_id}"
         f"&redirect_uri={redirect_uri}"
-        f"&scope={scopes.replace(' ','%20')}"
-        f"&state={state}&code_challenge={code_challenge}&code_challenge_method=S256"
+        f"&scope={scopes}"
+        f"&state={state}"
+        f"&code_challenge={code_challenge}"
+        f"&code_challenge_method=S256"
     )
-    return RedirectResponse(url)
+    print(f"[ETSY] OAuth flow started. redirect_uri={redirect_uri}")
+    return RedirectResponse(auth_url)
 
 @app.get("/etsy/callback")
 async def etsy_callback(code: str = "", state: str = "", error: str = ""):
+    """Etsy redirects here after user grants permission. Exchange code for tokens."""
     import httpx
+
     if error:
-        return JSONResponse({"error": f"Etsy denied: {error}"}, status_code=400)
-    code_verifier = _etsy_pkce.pop(state, None)
+        print(f"[ETSY] OAuth denied by user: {error}")
+        return RedirectResponse("/?etsy=denied")
+
+    if not code or not state:
+        print(f"[ETSY] Callback missing code or state. code={bool(code)} state={bool(state)}")
+        return JSONResponse({"error": "Missing code or state parameter from Etsy."}, status_code=400)
+
+    code_verifier = _pkce_pop(state)
     if not code_verifier:
-        return JSONResponse({"error": "Invalid state. Try connecting again."}, status_code=400)
-    client_id = os.getenv("ETSY_API_KEY", "").split(":")[0]
+        print(f"[ETSY] Unknown state '{state}' — likely a Railway restart mid-flow. Ask user to retry.")
+        return RedirectResponse("/?etsy=retry")
+
+    client_id = os.getenv("ETSY_API_KEY", "").strip()
     redirect_uri = f"{_etsy_app_url()}/etsy/callback"
-    async with httpx.AsyncClient(timeout=15) as client:
+
+    print(f"[ETSY] Exchanging code for token. client_id={client_id[:8]}... redirect_uri={redirect_uri}")
+
+    async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(
             "https://api.etsy.com/v3/public/oauth/token",
-            data={"grant_type": "authorization_code", "client_id": client_id,
-                  "redirect_uri": redirect_uri, "code": code, "code_verifier": code_verifier},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "code": code,
+                "code_verifier": code_verifier,
+            },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
+
     if resp.status_code != 200:
-        return JSONResponse({"error": f"Token exchange failed: {resp.text}"}, status_code=400)
+        print(f"[ETSY] Token exchange failed {resp.status_code}: {resp.text[:500]}")
+        return JSONResponse({
+            "error": f"Etsy token exchange failed ({resp.status_code})",
+            "detail": resp.text[:300],
+            "fix": (
+                f"Ensure '{redirect_uri}' is in your Etsy app's Callback URLs at "
+                "https://www.etsy.com/developers/your-account/apps"
+            ),
+        }, status_code=400)
+
     data = resp.json()
     data["expires_at"] = time.time() + data.get("expires_in", 3600)
     data["connected_at"] = datetime.utcnow().isoformat()
     _save_etsy_tokens(data)
     os.environ["ETSY_OAUTH_TOKEN"] = data["access_token"]
-    print(f"[ETSY] OAuth connected. Token valid for {data.get('expires_in',3600)}s.")
+    print(f"[ETSY] OAuth connected successfully. Token valid for {data.get('expires_in', 3600)}s.")
     return RedirectResponse("/?etsy=connected")
 
 @app.get("/api/etsy/status")
 async def etsy_status():
+    """Return Etsy connection status and whether the token needs refreshing."""
+    client_id_set = bool(os.getenv("ETSY_API_KEY", "").strip())
     tokens = _load_etsy_tokens()
+
+    if not client_id_set:
+        return {
+            "connected": False,
+            "api_key_set": False,
+            "message": "ETSY_API_KEY not set. Add it in Railway → Variables.",
+            "connect_url": "/etsy/connect",
+        }
+
     if not tokens:
-        return {"connected": False, "message": "Not connected. Click Connect Etsy in the Integrations tab."}
+        return {
+            "connected": False,
+            "api_key_set": True,
+            "message": "API key set but not authorized yet. Click Connect Etsy.",
+            "connect_url": "/etsy/connect",
+            "redirect_uri": f"{_etsy_app_url()}/etsy/callback",
+        }
+
     is_expired = time.time() > tokens.get("expires_at", 0) - 60
-    return {"connected": True, "is_expired": is_expired, "connected_at": tokens.get("connected_at","unknown")}
+    if is_expired and tokens.get("refresh_token"):
+        # Auto-refresh in background
+        asyncio.create_task(_refresh_etsy_token(tokens["refresh_token"]))
+
+    return {
+        "connected": True,
+        "api_key_set": True,
+        "is_expired": is_expired,
+        "connected_at": tokens.get("connected_at", "unknown"),
+        "expires_at": tokens.get("expires_at", 0),
+        "message": "Connected and active." if not is_expired else "Token expired — auto-refreshing.",
+    }
 
 @app.post("/api/etsy/refresh")
 async def etsy_force_refresh():
+    """Force a token refresh. Used by the HUD Reconnect button."""
     tokens = _load_etsy_tokens()
     if not tokens or not tokens.get("refresh_token"):
-        return {"success": False, "error": "Not connected to Etsy."}
+        return {"success": False, "error": "Not connected to Etsy. Use /etsy/connect first."}
     result = await _refresh_etsy_token(tokens["refresh_token"])
-    return {"success": bool(result), "expires_in": result.get("expires_in", 3600) if result else 0}
+    if result:
+        return {"success": True, "expires_in": result.get("expires_in", 3600)}
+    return {"success": False, "error": "Refresh failed — check Railway logs for details."}
+
+@app.get("/api/etsy/debug")
+async def etsy_debug():
+    """Diagnostic endpoint — shows exactly what's configured and what's missing."""
+    client_id = os.getenv("ETSY_API_KEY", "").strip()
+    tokens = _load_etsy_tokens()
+    redirect_uri = f"{_etsy_app_url()}/etsy/callback"
+    return {
+        "api_key_set": bool(client_id),
+        "api_key_prefix": client_id[:8] + "..." if client_id else None,
+        "token_file_exists": _etsy_tokens_path().exists(),
+        "token_valid": bool(tokens) and time.time() < tokens.get("expires_at", 0),
+        "token_expires_at": tokens.get("expires_at"),
+        "redirect_uri": redirect_uri,
+        "etsy_app_settings_url": "https://www.etsy.com/developers/your-account/apps",
+        "required_callback_url": redirect_uri,
+        "scopes_requested": "listings_r listings_w transactions_r shops_r email_r",
+    }
 
 
 
@@ -2917,114 +3044,109 @@ async def pipeline_status():
     }
 
 
-@app.get("/api/debug/printify/providers/{blueprint_id}")
-async def debug_printify_providers(blueprint_id: int):
-    """List all print providers that support a given blueprint ID — use to find working combos."""
+
+@app.get("/api/debug/printify/providers")
+async def debug_printify_providers():
+    """Fetch Printify print providers (shipping carriers) for a given blueprint."""
+    from integrations.printify import _headers, PRINTIFY_BASE
     import httpx
-    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()  # strip() critical — key has trailing \n\n
-    if not api_key:
-        return {"error": "PRINTIFY_API_KEY not set"}
+    blueprint_id = 12  # t-shirt as test
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                f"https://api.printify.com/v1/catalog/blueprints/{blueprint_id}/print_providers.json",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers.json",
+                headers=_headers(),
             )
-            return {
-                "blueprint_id": blueprint_id,
-                "status_code": resp.status_code,
-                "raw": resp.text[:3000],
-            }
+            r.raise_for_status()
+            providers = r.json()
+            return {"blueprint_id": blueprint_id, "providers": providers}
     except Exception as e:
         return {"error": str(e)}
 
 
-@app.get("/api/debug/printify/variants/{blueprint_id}/{provider_id}")
-async def debug_printify_variants(blueprint_id: int, provider_id: int):
-    """Show raw Printify API response for a blueprint/provider variant combo."""
+@app.get("/api/debug/printify/catalog")
+async def debug_printify_catalog():
+    """
+    Fetch Printify catalog blueprints filtered to product types we use.
+    Returns verified IDs for mugs, totes, posters, t-shirts, hoodies.
+    Call this once to get real blueprint IDs then update BLUEPRINTS dict.
+    """
+    from integrations.printify import _headers, PRINTIFY_BASE
     import httpx
-    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()
-    if not api_key:
-        raise HTTPException(503, detail="PRINTIFY_API_KEY not set")
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(
-            f"https://api.printify.com/v1/catalog/blueprints/{blueprint_id}/print_providers/{provider_id}/variants.json",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        )
-        try:
-            body = resp.json()
-        except Exception:
-            body = {"raw_text": resp.text[:1000]}
-        return {
-            "blueprint_id": blueprint_id,
-            "provider_id": provider_id,
-            "status_code": resp.status_code,
-            "body_keys": list(body.keys()) if isinstance(body, dict) else f"list len={len(body)}",
-            "body_keys": list(body.keys()) if isinstance(body, dict) else f"list len={len(body)}",
-            "sample": body if not isinstance(body, list) else body[:3],
-        }
+    keywords = ["mug", "tote", "poster", "t-shirt", "hoodie", "phone", "pillow", "canvas"]
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.get(
+                f"{PRINTIFY_BASE}/catalog/blueprints.json",
+                headers=_headers(),
+            )
+            r.raise_for_status()
+            all_bp = r.json()
+        matched = []
+        for bp in all_bp:
+            title_lower = bp.get("title", "").lower()
+            for kw in keywords:
+                if kw in title_lower:
+                    matched.append({
+                        "id": bp["id"],
+                        "title": bp["title"],
+                        "matched_keyword": kw,
+                        "description": bp.get("description", "")[:80],
+                    })
+                    break
+        matched.sort(key=lambda x: x["matched_keyword"])
+        return {"total_in_catalog": len(all_bp), "matched": matched, "keywords_used": keywords}
+    except Exception as e:
+        return {"error": str(e)}
 
+
+# ---------------------------------------------------------------------------
+# Business Module routes
+# ---------------------------------------------------------------------------
 
 @app.get("/api/modules")
 async def list_modules():
-    """
-    Return all registered BusinessModules with their metadata and credential status.
-    Used by the HUD module selector.
-    """
-    _module_registry.discover()
-    modules = _module_registry.list()
-    # Attach live credential status to each module entry
-    enriched = []
-    for meta in modules:
-        mod = _module_registry.get(meta["module_id"])
-        creds = {}
-        if mod:
-            try:
-                creds = await mod.validate_credentials()
-            except Exception:
-                pass
-        enriched.append({**meta, "credentials": creds, "ready": all(creds.values()) if creds else False})
-    return {"modules": enriched, "count": len(enriched)}
-
-
-@app.post("/api/modules/{module_id}/run")
-async def run_module_autonomous(module_id: str, count: int = 3):
-    """
-    Trigger an autonomous run for a specific module (no commander approvals needed).
-    Runs count iterations of: generate_idea -> generate_asset -> publish -> track_revenue.
-    """
-    if not _module_registry.has(module_id):
-        raise HTTPException(404, detail=f"Module '{module_id}' not registered")
-    runner = _get_runner()
-    asyncio.create_task(runner.run_autonomous(module_id=module_id, count=count))
-    return {"status": "started", "module_id": module_id, "count": count}
+    """List all registered business modules and their credential status."""
+    try:
+        modules = _module_registry.list()
+        enriched = []
+        for m in modules:
+            mod = _module_registry.get(m["id"])
+            creds = {}
+            if mod:
+                try:
+                    creds = await mod.validate_credentials()
+                except Exception:
+                    creds = {}
+            enriched.append({**m, "credentials": creds})
+        return {"modules": enriched}
+    except Exception as e:
+        return {"modules": [], "error": str(e)}
 
 
 @app.post("/api/modules/{module_id}/idea")
-async def generate_module_idea(module_id: str):
-    """Generate a single idea from the specified module and add it to the queue."""
+async def module_generate_idea(module_id: str):
+    """Generate a single idea using a specific business module."""
     mod = _module_registry.get(module_id)
     if not mod:
-        raise HTTPException(404, detail=f"Module '{module_id}' not registered")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Module '{module_id}' not found")
     try:
-        idea = await mod.generate_idea({"manager": manager, "state": state})
-        idea.module_id = module_id
-        idea_dict = {
-            "id": str(uuid.uuid4()),
-            "type": "idea",
-            "status": "pending",
-            "module_id": module_id,
-            "module_name": mod.NAME,
-            **idea.to_dict(),
-            "productType": idea.product_type,
-        }
-        state.queue["ideas"].append(idea_dict)
-        state.save_queue()
-        await manager.broadcast({
-            "type": "approval_queue",
-            "agent": "HEIMDALL",
-            "data": {"category": "ideas", "items": [idea_dict]},
-        })
-        return {"ok": True, "idea": idea_dict}
+        idea = await mod.generate_idea(context={"state": state})
+        import dataclasses
+        return {"success": True, "idea": dataclasses.asdict(idea)}
     except Exception as e:
-        raise HTTPException(500, detail=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/modules/{module_id}/run")
+async def module_run_autonomous(module_id: str, count: int = 1):
+    """Run autonomous pipeline for a specific module (non-blocking)."""
+    mod = _module_registry.get(module_id)
+    if not mod:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Module '{module_id}' not found")
+    runner = _get_runner()
+    asyncio.create_task(runner.run_autonomous(module_id=module_id, count=count))
+    return {"status": "started", "module_id": module_id, "count": count,
+            "message": f"{mod.NAME} pipeline started — generating {count} item(s)"}
