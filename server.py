@@ -45,6 +45,19 @@ from crew.agents import get_system_prompt, ALL_AGENTS, GRID_AGENTS
 from crew.tools import get_system_metrics, scan_logs, generate_niche_idea
 from crew.pipeline import run_idea_pipeline, run_design_pipeline, _build_vault_report, run_autonomous_daily_pipeline
 from integrations import discord as _discord
+
+# ── Module registry + pipeline runner (new multi-business framework) ──────────
+from core.registry import registry as _module_registry
+from core.pipeline_runner import PipelineRunner
+
+def _get_runner() -> PipelineRunner:
+    """Return a PipelineRunner bound to the live manager + state."""
+    return PipelineRunner(manager, state)
+
+def _should_use_module_runner(item: dict) -> bool:
+    """Use the new PipelineRunner when the item has an explicit module_id."""
+    mid = item.get("module_id", "")
+    return bool(mid) and mid != "etsy_printify"
 from integrations.twilio_sms import send_sms, build_briefing_sms
 
 DATA_DIR = Path("data")
@@ -276,7 +289,10 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
             except Exception:
                 pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "ideas", "id": item_id, "status": "approved"}})
-            asyncio.create_task(run_idea_pipeline(idea, manager, state))
+            if _should_use_module_runner(idea):
+                asyncio.create_task(_get_runner().run_idea_pipeline(idea, module_id=idea.get("module_id")))
+            else:
+                asyncio.create_task(run_idea_pipeline(idea, manager, state))
 
     elif msg_type == "approve_design":
         item_id = msg.get("id")
@@ -298,7 +314,10 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
             except Exception:
                 pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "approved"}})
-            asyncio.create_task(run_design_pipeline(design, manager, state))
+            if _should_use_module_runner(design):
+                asyncio.create_task(_get_runner().run_asset_pipeline(design, module_id=design.get("module_id")))
+            else:
+                asyncio.create_task(run_design_pipeline(design, manager, state))
 
     elif msg_type == "reject_idea":
         item_id = msg.get("id")
@@ -2941,280 +2960,71 @@ async def debug_printify_variants(blueprint_id: int, provider_id: int):
             "provider_id": provider_id,
             "status_code": resp.status_code,
             "body_keys": list(body.keys()) if isinstance(body, dict) else f"list len={len(body)}",
+            "body_keys": list(body.keys()) if isinstance(body, dict) else f"list len={len(body)}",
             "sample": body if not isinstance(body, list) else body[:3],
         }
 
 
-@app.get("/api/debug/printify/catalog")
-async def debug_printify_catalog():
+@app.get("/api/modules")
+async def list_modules():
     """
-    Discover which Printify blueprint IDs actually have variants available for Printify Choice (provider 99).
-    Tests the common product blueprints and returns which ones work so we can update BLUEPRINTS mapping.
+    Return all registered BusinessModules with their metadata and credential status.
+    Used by the HUD module selector.
     """
-    import httpx
-    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()
-    if not api_key:
-        return {"error": "PRINTIFY_API_KEY not set"}
-
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-    # Blueprint IDs to test — common Printify product types
-    candidates = {
-        "t-shirt (6)":      (6,    99),
-        "hoodie (92)":      (92,   99),
-        "mug_11oz (462)":   (462,  99),
-        "mug_11oz (461)":   (461,  99),
-        "mug_11oz (68)":    (68,   99),
-        "tote_bag (77)":    (77,   99),
-        "tote_bag (532)":   (532,  99),
-        "poster (45)":      (45,   99),
-        "poster (446)":     (446,  99),
-        "poster (459)":     (459,  99),
-        "wall_art (242)":   (242,  99),
-        "phone_case (5)":   (5,    99),
-        "sticker (358)":    (358,  99),
-        "sweatshirt (146)": (146,  99),
-        "crewneck (92)":    (92,   29),
-    }
-
-    results = {}
-    async with httpx.AsyncClient(timeout=15) as client:
-        for label, (blueprint_id, provider_id) in candidates.items():
+    _module_registry.discover()
+    modules = _module_registry.list()
+    # Attach live credential status to each module entry
+    enriched = []
+    for meta in modules:
+        mod = _module_registry.get(meta["module_id"])
+        creds = {}
+        if mod:
             try:
-                r = await client.get(
-                    f"https://api.printify.com/v1/catalog/blueprints/{blueprint_id}/print_providers/{provider_id}/variants.json",
-                    headers=headers,
-                )
-                if r.status_code == 200:
-                    variants = r.json().get("variants", [])
-                    available = [v for v in variants if v.get("is_available", True)]
-                    results[label] = {
-                        "blueprint_id": blueprint_id,
-                        "provider_id": provider_id,
-                        "variant_count": len(available),
-                        "works": len(available) > 0,
-                        "sample": available[0].get("title", "") if available else None,
-                    }
-                else:
-                    results[label] = {"blueprint_id": blueprint_id, "works": False, "http": r.status_code}
-            except Exception as e:
-                results[label] = {"blueprint_id": blueprint_id, "works": False, "error": str(e)}
-
-    working = {k: v for k, v in results.items() if v.get("works")}
-    return {"working_blueprints": working, "all_results": results}
+                creds = await mod.validate_credentials()
+            except Exception:
+                pass
+        enriched.append({**meta, "credentials": creds, "ready": all(creds.values()) if creds else False})
+    return {"modules": enriched, "count": len(enriched)}
 
 
-@app.get("/api/debug/printify/test_create")
-async def debug_printify_test_create():
+@app.post("/api/modules/{module_id}/run")
+async def run_module_autonomous(module_id: str, count: int = 3):
     """
-    End-to-end Printify pipeline test.
-    Steps: upload test image → fetch variants → create product → return result.
-    Safe: creates a real draft product (not published) so you can see it in Printify.
+    Trigger an autonomous run for a specific module (no commander approvals needed).
+    Runs count iterations of: generate_idea -> generate_asset -> publish -> track_revenue.
     """
-    import httpx, base64
-    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()
-    shop_id = os.getenv("PRINTIFY_SHOP_ID", "").strip()
-    if not api_key or not shop_id:
-        return {"error": "PRINTIFY_API_KEY or PRINTIFY_SHOP_ID not set"}
+    if not _module_registry.has(module_id):
+        raise HTTPException(404, detail=f"Module '{module_id}' not registered")
+    runner = _get_runner()
+    asyncio.create_task(runner.run_autonomous(module_id=module_id, count=count))
+    return {"status": "started", "module_id": module_id, "count": count}
 
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    # Step 1: Upload a real test image via public URL (avoids small-image rejection)
-    # Use a known-good Unsplash 1024x1024 photo — no auth needed
-    test_image_url = "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=1024&q=80"
-
-    upload_result = None
+@app.post("/api/modules/{module_id}/idea")
+async def generate_module_idea(module_id: str):
+    """Generate a single idea from the specified module and add it to the queue."""
+    mod = _module_registry.get(module_id)
+    if not mod:
+        raise HTTPException(404, detail=f"Module '{module_id}' not registered")
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(
-                "https://api.printify.com/v1/uploads/images.json",
-                headers=headers,
-                json={"file_name": "debug_test.jpg", "url": test_image_url},
-            )
-            body_json = r.json() if r.headers.get("content-type","").startswith("application/json") else r.text[:400]
-            upload_result = {"status": r.status_code, "body": body_json}
-            if r.status_code >= 300:
-                return {"step": "upload_image", "FAILED": True, **upload_result}
-            image_id = r.json()["id"]
-    except Exception as e:
-        return {"step": "upload_image", "FAILED": True, "error": str(e)}
-
-    # Step 2: Fetch variants for blueprint 6 / provider 99
-    variant_ids = []
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(
-                "https://api.printify.com/v1/catalog/blueprints/6/print_providers/99/variants.json",
-                headers=headers,
-            )
-            variants = r.json().get("variants", [])
-            variant_ids = [v["id"] for v in variants[:3]]
-    except Exception as e:
-        return {"step": "fetch_variants", "FAILED": True, "error": str(e), "upload_ok": True, "image_id": image_id}
-
-    if not variant_ids:
-        return {"step": "fetch_variants", "FAILED": True, "error": "No variants returned", "upload_ok": True}
-
-    # Step 3: Create product (draft, not published)
-    payload = {
-        "title": "DEBUG TEST — AsgardMade Pipeline Check",
-        "description": "Automated pipeline test — safe to delete.",
-        "blueprint_id": 6,
-        "print_provider_id": 99,
-        "variants": [{"id": vid, "price": 2499, "is_enabled": True} for vid in variant_ids],
-        "print_areas": [{
-            "variant_ids": variant_ids,
-            "placeholders": [{"position": "front", "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1.0, "angle": 0}]}],
-        }],
-    }
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(
-                f"https://api.printify.com/v1/shops/{shop_id}/products.json",
-                headers=headers,
-                json=payload,
-            )
-            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text[:500]
-            return {
-                "upload_ok": True, "image_id": image_id,
-                "variants_found": len(variant_ids), "variant_ids_sample": variant_ids,
-                "create_product_status": r.status_code,
-                "create_product_body": body,
-                "SUCCESS": r.status_code in (200, 201),
-            }
-    except Exception as e:
-        return {"step": "create_product", "FAILED": True, "error": str(e), "upload_ok": True, "image_id": image_id}
-
-
-# ─── Skills API ──────────────────────────────────────────────────────────────
-
-@app.get("/api/skills")
-async def list_skills_endpoint(pack: str = ""):
-    try:
-        import skills as skill_registry
-        return {"skills": skill_registry.list_skills(pack=pack or None), "packs": skill_registry.list_packs()}
+        idea = await mod.generate_idea({"manager": manager, "state": state})
+        idea.module_id = module_id
+        idea_dict = {
+            "id": str(uuid.uuid4()),
+            "type": "idea",
+            "status": "pending",
+            "module_id": module_id,
+            "module_name": mod.NAME,
+            **idea.to_dict(),
+            "productType": idea.product_type,
+        }
+        state.queue["ideas"].append(idea_dict)
+        state.save_queue()
+        await manager.broadcast({
+            "type": "approval_queue",
+            "agent": "HEIMDALL",
+            "data": {"category": "ideas", "items": [idea_dict]},
+        })
+        return {"ok": True, "idea": idea_dict}
     except Exception as e:
         raise HTTPException(500, detail=str(e))
-
-class SkillRunRequest(BaseModel):
-    name: str
-    args: dict = {}
-
-@app.post("/api/skills/run")
-async def run_skill_endpoint(req: SkillRunRequest):
-    try:
-        import skills as skill_registry
-        result = await skill_registry.run_skill(req.name, req.args)
-        await manager.broadcast({"type": "skill_result", "skill": req.name,
-                                  "success": result.success, "summary": result.summary,
-                                  "timestamp": datetime.now().isoformat()})
-        return result.to_dict()
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
-
-@app.get("/api/skills/log")
-async def skill_run_log(limit: int = 20):
-    try:
-        import skills as skill_registry
-        return {"log": skill_registry.get_run_log(limit=limit)}
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
-
-
-# ─── Memory Vault API ────────────────────────────────────────────────────────
-
-@app.get("/api/vault/status")
-async def vault_status():
-    import memory.obsidian as _mem
-    return {"available": _mem.vault_available(), "vault_path": str(_mem.VAULT),
-            "preferences": _mem.read_preferences()[:500] if _mem.vault_available() else ""}
-
-@app.get("/api/vault/folder")
-async def vault_folder(path: str = "Odin Intelligence", limit: int = 10):
-    import memory.obsidian as _mem
-    files = _mem.read_folder(path, limit=limit)
-    return {"files": files, "folder": path, "count": len(files)}
-
-@app.get("/api/vault/read")
-async def vault_read_file(path: str):
-    import memory.obsidian as _mem
-    content = _mem.read(path)
-    return {"content": content, "path": path, "found": content is not None}
-
-class VaultWriteRequest(BaseModel):
-    path: str
-    content: str
-    append: bool = False
-
-@app.post("/api/vault/write")
-async def vault_write_file(req: VaultWriteRequest):
-    import memory.obsidian as _mem
-    result = _mem.write(req.path, req.content, req.append)
-    return {"success": bool(result), "path": req.path}
-
-
-# ─── OS System State ─────────────────────────────────────────────────────────
-
-@app.get("/api/os/status")
-async def os_status():
-    from integrations.google import google_status as _gs
-    from integrations.google.gmail import gmail_available, get_unread_count
-    import memory.obsidian as _mem
-    try:
-        import skills as skill_registry
-        skill_count = len(skill_registry.list_skills())
-        packs = skill_registry.list_packs()
-    except Exception:
-        skill_count = 0
-        packs = []
-    gs = _gs()
-    return {
-        "agents": state.agents, "vault_available": _mem.vault_available(),
-        "google": {**gs, "unread": get_unread_count() if gmail_available() else -1},
-        "skills": {"count": skill_count, "packs": packs},
-        "queue": {
-            "ideas": len(state.queue.get("ideas", [])),
-            "designs": len(state.queue.get("designs", [])),
-            "pending_ideas": len([i for i in state.queue.get("ideas",[]) if i.get("status")=="pending"]),
-            "pending_designs": len([d for d in state.queue.get("designs",[]) if d.get("status")=="pending"]),
-        },
-        "vault": state.vault, "metrics": state.metrics,
-    }
-
-
-# Static file catch-all (must be LAST route)
-@app.get("/{path:path}")
-async def serve_static(path: str):
-    file_path = PUBLIC_DIR / path
-    if file_path.exists() and file_path.is_file():
-        return FileResponse(str(file_path))
-    return FileResponse(str(PUBLIC_DIR / "index.html"))
-
-
-@app.on_event("startup")
-async def startup():
-    brain.initialize()
-    try:
-        vault_path = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
-        vault_path.mkdir(parents=True, exist_ok=True)
-        mem.write("System/startup.md",
-            f"Vault: {vault_path.resolve()}\nAll agents initialized.\n")
-        print(f"[MEMORY] Obsidian vault active at {vault_path.resolve()}")
-    except Exception as e:
-        print(f"[MEMORY] Vault init warning: {e}")
-
-    asyncio.create_task(_guardian_loop())
-    asyncio.create_task(_heimdall_loop())
-    asyncio.create_task(_heimdall_deep_research_loop())
-    asyncio.create_task(_athena_loop())
-    asyncio.create_task(_vault_loop())
-    asyncio.create_task(_odin_loop())
-    asyncio.create_task(_odin_morning_briefing_loop())
-    asyncio.create_task(_odin_agent_improvement_loop())
-    asyncio.create_task(_odin_autonomous_action_loop())
-    asyncio.create_task(_brain_synthesis_loop())
-    asyncio.create_task(_bestseller_requeue_loop())
-    asyncio.create_task(_ab_test_resolver_loop())
-    asyncio.create_task(_review_monitor_loop())
-    asyncio.create_task(_weekly_email_report_loop())
-    asyncio.create_task(_autonomous_listing_loop())

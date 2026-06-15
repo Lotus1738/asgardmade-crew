@@ -1175,6 +1175,105 @@ const PixelBuilding = (() => {
   }
   return{init,dispose,setAgentStatus};
 })();
+
+// ── Business Module Registry UI ──────────────────────────────────────────────
+let _activeModuleId = null;
+let _moduleData = [];
+
+async function loadModules() {
+  const grid = document.getElementById('module-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="color:var(--txt2);font-size:9px;letter-spacing:2px">LOADING MODULES...</div>';
+  try {
+    const res = await fetch('/api/modules');
+    const data = await res.json();
+    _moduleData = data.modules || [];
+    renderModuleGrid(_moduleData);
+  } catch(e) {
+    grid.innerHTML = '<div style="color:var(--orange);font-size:9px">Failed to load modules: ' + e.message + '</div>';
+  }
+}
+
+function renderModuleGrid(modules) {
+  const grid = document.getElementById('module-grid');
+  if (!grid) return;
+  if (!modules.length) {
+    grid.innerHTML = '<div style="color:var(--txt2);font-size:9px">No modules registered.</div>';
+    return;
+  }
+  grid.innerHTML = modules.map(m => {
+    const isActive = m.module_id === _activeModuleId;
+    const ready = m.ready;
+    const credLines = Object.entries(m.credentials || {})
+      .map(([k,v]) => `<div style="display:flex;justify-content:space-between;margin-top:2px">
+        <span style="color:var(--txt2)">${k}</span>
+        <span style="color:${v?'var(--green)':'var(--orange)'}">${v?'✓ SET':'✗ MISSING'}</span>
+      </div>`).join('');
+
+    return `<div onclick="selectModule('${m.module_id}')" style="
+      padding:12px;
+      border:1px solid ${isActive ? 'var(--c1)' : 'rgba(201,168,76,.15)'};
+      background:${isActive ? 'rgba(201,168,76,.08)' : 'rgba(201,168,76,.02)'};
+      cursor:pointer;
+      transition:all .2s;
+    ">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:20px">${m.icon}</span>
+        <div>
+          <div style="font-size:9px;letter-spacing:2px;color:${isActive?'var(--c1)':'var(--txt1)'}">${m.name}</div>
+          <div style="font-size:7px;color:${ready?'var(--green)':'var(--orange)'};letter-spacing:1px;margin-top:1px">${ready?'● READY':'○ NEEDS SETUP'}</div>
+        </div>
+        ${isActive ? '<div style="margin-left:auto;font-size:7px;letter-spacing:2px;color:var(--c1);background:rgba(201,168,76,.15);padding:2px 6px">ACTIVE</div>' : ''}
+      </div>
+      <div style="font-size:8px;color:var(--txt2);line-height:1.5;margin-bottom:6px">${m.description}</div>
+      ${credLines ? `<div style="font-size:7px;border-top:1px solid rgba(201,168,76,.1);padding-top:6px;margin-top:2px">${credLines}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function selectModule(moduleId) {
+  _activeModuleId = moduleId;
+  const mod = _moduleData.find(m => m.module_id === moduleId);
+  const controls = document.getElementById('module-controls');
+  const label = document.getElementById('active-module-label');
+  if (controls) controls.style.display = 'block';
+  if (label && mod) label.textContent = `ACTIVE: ${mod.icon} ${mod.name.toUpperCase()}`;
+  renderModuleGrid(_moduleData);
+  addLog('ODIN', `Business module selected: ${mod ? mod.name : moduleId}. Use the controls below to generate ideas or run autonomous pipeline.`, 'info');
+}
+
+async function moduleGenerateIdea() {
+  if (!_activeModuleId) { addLog('ODIN','Select a module first.','warning'); return; }
+  addLog('ODIN', `Generating idea via ${_activeModuleId} module...`, 'info');
+  try {
+    const res = await fetch(`/api/modules/${_activeModuleId}/idea`, {method:'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      addLog('HEIMDALL', `New idea generated: "${data.idea.title}" — check IDEA QUEUE tab.`, 'info');
+      switchTab('ideas');
+    } else {
+      addLog('ODIN', 'Idea generation failed: ' + JSON.stringify(data), 'error');
+    }
+  } catch(e) {
+    addLog('ODIN', 'Idea generation error: ' + e.message, 'error');
+  }
+}
+
+async function moduleRunAutonomous(count) {
+  if (!_activeModuleId) { addLog('ODIN','Select a module first.','warning'); return; }
+  const mod = _moduleData.find(m => m.module_id === _activeModuleId);
+  addLog('ODIN', `Starting ${count} autonomous run(s) via ${mod ? mod.name : _activeModuleId}...`, 'info');
+  try {
+    const res = await fetch(`/api/modules/${_activeModuleId}/run?count=${count}`, {method:'POST'});
+    const data = await res.json();
+    addLog('ODIN', `Autonomous pipeline started. Watch the agent logs.`, 'info');
+  } catch(e) {
+    addLog('ODIN', 'Autonomous run error: ' + e.message, 'error');
+  }
+}
+
+// Auto-load modules when the tab opens
+const _origSwitchTab = typeof switchTab !== 'undefined' ? switchTab : null;
 </script>
 </head>
 <body>
@@ -1326,6 +1425,7 @@ const PixelBuilding = (() => {
       <button class="tab-btn active" onclick="switchTab('vault')">◈ VAULT P&amp;L</button>
       <button class="tab-btn" onclick="switchTab('designs')">◈ DESIGN QUEUE <span class="tab-badge" id="designs-badge">0</span></button>
       <button class="tab-btn" onclick="switchTab('ideas')">◈ IDEA QUEUE <span class="tab-badge" id="ideas-badge">0</span></button>
+      <button class="tab-btn" onclick="switchTab('modules')">◈ BUSINESS MODULES</button>
       <button class="tab-btn" onclick="switchTab('integrations')">◈ INTEGRATIONS</button>
     </div>
     <div class="tab-content active" id="vault-tab">
@@ -1343,6 +1443,31 @@ const PixelBuilding = (() => {
     </div>
     <div class="tab-content" id="designs-tab"></div>
     <div class="tab-content" id="ideas-tab"></div>
+
+    <!-- ── BUSINESS MODULES TAB ─────────────────────────────────────── -->
+    <div class="tab-content" id="modules-tab">
+      <div style="padding:14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:8px;letter-spacing:3px;color:var(--c1)">BUSINESS MODULES — SELECT YOUR ACTIVE PIPELINE</div>
+          <button onclick="loadModules()" style="font-size:7px;letter-spacing:2px;padding:4px 10px;border:1px solid var(--c1);background:none;color:var(--c1);cursor:pointer">↺ REFRESH</button>
+        </div>
+        <div style="font-size:9px;color:var(--txt2);line-height:1.6">
+          Each module is a complete business pipeline. Select one to generate ideas, create assets, and publish — all using the same PANTHEON agents.
+        </div>
+        <div id="module-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px"></div>
+
+        <!-- Active module run controls -->
+        <div id="module-controls" style="display:none;margin-top:8px;padding:12px;border:1px solid rgba(201,168,76,.2);background:rgba(201,168,76,.04)">
+          <div id="active-module-label" style="font-size:8px;letter-spacing:2px;color:var(--c1);margin-bottom:8px">ACTIVE: —</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="moduleGenerateIdea()" style="font-size:8px;letter-spacing:2px;padding:6px 14px;border:1px solid var(--c1);background:rgba(201,168,76,.1);color:var(--c1);cursor:pointer">+ GENERATE IDEA</button>
+            <button onclick="moduleRunAutonomous(1)" style="font-size:8px;letter-spacing:2px;padding:6px 14px;border:1px solid var(--purple);background:rgba(168,85,247,.1);color:var(--purple);cursor:pointer">▶ RUN 1 AUTONOMOUS</button>
+            <button onclick="moduleRunAutonomous(3)" style="font-size:8px;letter-spacing:2px;padding:6px 14px;border:1px solid var(--purple);background:rgba(168,85,247,.1);color:var(--purple);cursor:pointer">▶ RUN 3 AUTONOMOUS</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="tab-content" id="integrations-tab">
       <div style="padding:12px;display:flex;flex-direction:column;gap:10px;max-width:700px">
         <div style="font-size:8px;letter-spacing:3px;color:var(--c1);margin-bottom:4px">INTEGRATIONS — CONNECT YOUR BUSINESS ACCOUNTS</div>
@@ -3017,11 +3142,12 @@ function updateArgusBar(metrics){
   setAgentChips('GUARDIAN',[{label:'CPU',val:cpu+'%'},{label:'RAM',val:ram+'%'},{label:'DISK',val:disk+'%'},{label:'NET↓',val:(network.rx||0)+'KB/s'}]);
 }
 
-const TAB_NAMES = ['vault','designs','ideas','integrations'];
+const TAB_NAMES = ['vault','designs','ideas','modules','integrations'];
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',TAB_NAMES[i]===name));
   document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',TAB_NAMES[i]+'-tab'===`${name}-tab`));
   if(name==='integrations') checkIntegrations();
+  if(name==='modules') loadModules();
 }
 
 // ── Integration status checks ────────────────────────────────────────────────
