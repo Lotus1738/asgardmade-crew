@@ -1175,105 +1175,6 @@ const PixelBuilding = (() => {
   }
   return{init,dispose,setAgentStatus};
 })();
-
-// ── Business Module Registry UI ──────────────────────────────────────────────
-let _activeModuleId = null;
-let _moduleData = [];
-
-async function loadModules() {
-  const grid = document.getElementById('module-grid');
-  if (!grid) return;
-  grid.innerHTML = '<div style="color:var(--txt2);font-size:9px;letter-spacing:2px">LOADING MODULES...</div>';
-  try {
-    const res = await fetch('/api/modules');
-    const data = await res.json();
-    _moduleData = data.modules || [];
-    renderModuleGrid(_moduleData);
-  } catch(e) {
-    grid.innerHTML = '<div style="color:var(--orange);font-size:9px">Failed to load modules: ' + e.message + '</div>';
-  }
-}
-
-function renderModuleGrid(modules) {
-  const grid = document.getElementById('module-grid');
-  if (!grid) return;
-  if (!modules.length) {
-    grid.innerHTML = '<div style="color:var(--txt2);font-size:9px">No modules registered.</div>';
-    return;
-  }
-  grid.innerHTML = modules.map(m => {
-    const isActive = m.module_id === _activeModuleId;
-    const ready = m.ready;
-    const credLines = Object.entries(m.credentials || {})
-      .map(([k,v]) => `<div style="display:flex;justify-content:space-between;margin-top:2px">
-        <span style="color:var(--txt2)">${k}</span>
-        <span style="color:${v?'var(--green)':'var(--orange)'}">${v?'✓ SET':'✗ MISSING'}</span>
-      </div>`).join('');
-
-    return `<div onclick="selectModule('${m.module_id}')" style="
-      padding:12px;
-      border:1px solid ${isActive ? 'var(--c1)' : 'rgba(201,168,76,.15)'};
-      background:${isActive ? 'rgba(201,168,76,.08)' : 'rgba(201,168,76,.02)'};
-      cursor:pointer;
-      transition:all .2s;
-    ">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:20px">${m.icon}</span>
-        <div>
-          <div style="font-size:9px;letter-spacing:2px;color:${isActive?'var(--c1)':'var(--txt1)'}">${m.name}</div>
-          <div style="font-size:7px;color:${ready?'var(--green)':'var(--orange)'};letter-spacing:1px;margin-top:1px">${ready?'● READY':'○ NEEDS SETUP'}</div>
-        </div>
-        ${isActive ? '<div style="margin-left:auto;font-size:7px;letter-spacing:2px;color:var(--c1);background:rgba(201,168,76,.15);padding:2px 6px">ACTIVE</div>' : ''}
-      </div>
-      <div style="font-size:8px;color:var(--txt2);line-height:1.5;margin-bottom:6px">${m.description}</div>
-      ${credLines ? `<div style="font-size:7px;border-top:1px solid rgba(201,168,76,.1);padding-top:6px;margin-top:2px">${credLines}</div>` : ''}
-    </div>`;
-  }).join('');
-}
-
-function selectModule(moduleId) {
-  _activeModuleId = moduleId;
-  const mod = _moduleData.find(m => m.module_id === moduleId);
-  const controls = document.getElementById('module-controls');
-  const label = document.getElementById('active-module-label');
-  if (controls) controls.style.display = 'block';
-  if (label && mod) label.textContent = `ACTIVE: ${mod.icon} ${mod.name.toUpperCase()}`;
-  renderModuleGrid(_moduleData);
-  addLog('ODIN', `Business module selected: ${mod ? mod.name : moduleId}. Use the controls below to generate ideas or run autonomous pipeline.`, 'info');
-}
-
-async function moduleGenerateIdea() {
-  if (!_activeModuleId) { addLog('ODIN','Select a module first.','warning'); return; }
-  addLog('ODIN', `Generating idea via ${_activeModuleId} module...`, 'info');
-  try {
-    const res = await fetch(`/api/modules/${_activeModuleId}/idea`, {method:'POST'});
-    const data = await res.json();
-    if (data.ok) {
-      addLog('HEIMDALL', `New idea generated: "${data.idea.title}" — check IDEA QUEUE tab.`, 'info');
-      switchTab('ideas');
-    } else {
-      addLog('ODIN', 'Idea generation failed: ' + JSON.stringify(data), 'error');
-    }
-  } catch(e) {
-    addLog('ODIN', 'Idea generation error: ' + e.message, 'error');
-  }
-}
-
-async function moduleRunAutonomous(count) {
-  if (!_activeModuleId) { addLog('ODIN','Select a module first.','warning'); return; }
-  const mod = _moduleData.find(m => m.module_id === _activeModuleId);
-  addLog('ODIN', `Starting ${count} autonomous run(s) via ${mod ? mod.name : _activeModuleId}...`, 'info');
-  try {
-    const res = await fetch(`/api/modules/${_activeModuleId}/run?count=${count}`, {method:'POST'});
-    const data = await res.json();
-    addLog('ODIN', `Autonomous pipeline started. Watch the agent logs.`, 'info');
-  } catch(e) {
-    addLog('ODIN', 'Autonomous run error: ' + e.message, 'error');
-  }
-}
-
-// Auto-load modules when the tab opens
-const _origSwitchTab = typeof switchTab !== 'undefined' ? switchTab : null;
 </script>
 </head>
 <body>
@@ -1410,8 +1311,6 @@ const _origSwitchTab = typeof switchTab !== 'undefined' ? switchTab : null;
       <button class="ms-cmd" onclick="switchTab('ideas')">💡 IDEAS</button>
       <button class="ms-cmd" onclick="switchTab('designs')">🎨 DESIGNS</button>
       <button id="voice-odin-btn" onclick="toggleOdinVoice()">🎙 SPEAK TO ODIN</button>
-      <button id="odin-mute-btn" onclick="toggleOdinMute()" style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px">🔊 MUTE ODIN</button>
-      <button id="odin-autospeak-btn" onclick="toggleAutoSpeak()" style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px">⚡ AUTO-SPEAK: OFF</button>
     </div>
     <!-- Agent oversight in command zone -->
     <div id="odin-oversight-col">
@@ -1426,8 +1325,6 @@ const _origSwitchTab = typeof switchTab !== 'undefined' ? switchTab : null;
       <button class="tab-btn active" onclick="switchTab('vault')">◈ VAULT P&amp;L</button>
       <button class="tab-btn" onclick="switchTab('designs')">◈ DESIGN QUEUE <span class="tab-badge" id="designs-badge">0</span></button>
       <button class="tab-btn" onclick="switchTab('ideas')">◈ IDEA QUEUE <span class="tab-badge" id="ideas-badge">0</span></button>
-      <button class="tab-btn" onclick="switchTab('modules')">◈ BUSINESS MODULES</button>
-      <button class="tab-btn" onclick="switchTab('integrations')">◈ INTEGRATIONS</button>
     </div>
     <div class="tab-content active" id="vault-tab">
       <div class="vault-metrics">
@@ -1444,93 +1341,6 @@ const _origSwitchTab = typeof switchTab !== 'undefined' ? switchTab : null;
     </div>
     <div class="tab-content" id="designs-tab"></div>
     <div class="tab-content" id="ideas-tab"></div>
-
-    <!-- ── BUSINESS MODULES TAB ─────────────────────────────────────── -->
-    <div class="tab-content" id="modules-tab">
-      <div style="padding:14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:100%">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div style="font-size:8px;letter-spacing:3px;color:var(--c1)">BUSINESS MODULES — SELECT YOUR ACTIVE PIPELINE</div>
-          <button onclick="loadModules()" style="font-size:7px;letter-spacing:2px;padding:4px 10px;border:1px solid var(--c1);background:none;color:var(--c1);cursor:pointer">↺ REFRESH</button>
-        </div>
-        <div style="font-size:9px;color:var(--txt2);line-height:1.6">
-          Each module is a complete business pipeline. Select one to generate ideas, create assets, and publish — all using the same PANTHEON agents.
-        </div>
-        <div id="module-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px"></div>
-
-        <!-- Active module run controls -->
-        <div id="module-controls" style="display:none;margin-top:8px;padding:12px;border:1px solid rgba(201,168,76,.2);background:rgba(201,168,76,.04)">
-          <div id="active-module-label" style="font-size:8px;letter-spacing:2px;color:var(--c1);margin-bottom:8px">ACTIVE: —</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button onclick="moduleGenerateIdea()" style="font-size:8px;letter-spacing:2px;padding:6px 14px;border:1px solid var(--c1);background:rgba(201,168,76,.1);color:var(--c1);cursor:pointer">+ GENERATE IDEA</button>
-            <button onclick="moduleRunAutonomous(1)" style="font-size:8px;letter-spacing:2px;padding:6px 14px;border:1px solid var(--purple);background:rgba(168,85,247,.1);color:var(--purple);cursor:pointer">▶ RUN 1 AUTONOMOUS</button>
-            <button onclick="moduleRunAutonomous(3)" style="font-size:8px;letter-spacing:2px;padding:6px 14px;border:1px solid var(--purple);background:rgba(168,85,247,.1);color:var(--purple);cursor:pointer">▶ RUN 3 AUTONOMOUS</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="tab-content" id="integrations-tab">
-      <div style="padding:12px;display:flex;flex-direction:column;gap:10px;max-width:700px">
-        <div style="font-size:8px;letter-spacing:3px;color:var(--c1);margin-bottom:4px">INTEGRATIONS — CONNECT YOUR BUSINESS ACCOUNTS</div>
-
-        <!-- Etsy -->
-        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
-          <div style="font-size:20px">🛍</div>
-          <div style="flex:1">
-            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">ETSY</div>
-            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="etsy-status-text">Checking connection...</div>
-          </div>
-          <button id="etsy-connect-btn" onclick="connectEtsy()"
-            style="background:rgba(201,168,76,.15);border:1px solid var(--c1);color:var(--c1);font-family:inherit;font-size:9px;font-weight:bold;letter-spacing:2px;padding:6px 14px;border-radius:2px;cursor:pointer">
-            CONNECT
-          </button>
-        </div>
-
-        <!-- Printify -->
-        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
-          <div style="font-size:20px">🖨</div>
-          <div style="flex:1">
-            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">PRINTIFY</div>
-            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="printify-status-text">Requires PRINTIFY_API_KEY + PRINTIFY_SHOP_ID in Railway</div>
-          </div>
-          <div id="printify-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
-        </div>
-
-        <!-- OpenAI / DALL-E -->
-        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
-          <div style="font-size:20px">🎨</div>
-          <div style="flex:1">
-            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">DALL-E (DESIGN GENERATION)</div>
-            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="dalle-status-text">Requires OPENAI_API_KEY in Railway</div>
-          </div>
-          <div id="dalle-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
-        </div>
-
-        <!-- Serper -->
-        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
-          <div style="font-size:20px">🔍</div>
-          <div style="flex:1">
-            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">SERPER (MARKET RESEARCH)</div>
-            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="serper-status-text">Requires SERPER_API_KEY in Railway · free at serper.dev</div>
-          </div>
-          <div id="serper-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
-        </div>
-
-        <!-- Discord -->
-        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
-          <div style="font-size:20px">💬</div>
-          <div style="flex:1">
-            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">DISCORD ALERTS</div>
-            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="discord-status-text">Requires DISCORD_WEBHOOK_URL in Railway</div>
-          </div>
-          <div id="discord-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
-        </div>
-
-        <div style="font-size:8px;color:var(--txt3);margin-top:4px;line-height:1.6">
-          All keys except Etsy are added in Railway → your project → Variables tab. Etsy uses the Connect button above — click it and it handles everything automatically.
-        </div>
-      </div>
-    </div>
   </div>
 
 </div><!-- /app -->
@@ -2326,19 +2136,19 @@ const PERSONAS = {
     respond(m,s){
       m=m.toLowerCase();
       if(/list|publish|create/.test(m)) return `When a design clears the approval queue I spring into motion: title, tags, description, price, image — assembled and submitted to Etsy in one fluid transaction. If it fails, I retry. Loki always finds a way.`;
-      if(/price|cost/.test(m)) return `Default listing price: $34.99 (dynamic — Heimdall's pricing intel adjusts by niche, $12.99 floor, $59.99 ceiling). Plus Etsy's $0.20 listing fee which I log to Vault automatically. Price optimization is psychology — I price 10% below niche average to win on velocity.`;
+      if(/price|cost/.test(m)) return `Default listing price: $24.99. Plus Etsy's $0.20 listing fee which I log to Vault automatically. Price optimization is a game of psychology. $24.99 outperforms $25.00 — always has.`;
       if(/tag|seo/.test(m)) return `I cap at 13 tags per Etsy's limit. I lead with high-volume anchors, then layer niche-specific terms. Visibility through cunning precision — call it strategic trickery.`;
       return ['You want something published? Consider it already done.','Loki never fails to find an angle.','Every listing is a performance. I perform admirably.','The marketplace is my stage.'][Math.floor(Math.random()*4)];
     }
   },
   HEIMDALL:{
-    greet(s){ return `From the Bifrost, I see every market horizon, Commander. I quick-scan a random niche every 2 minutes and run deep research across 24 niche categories every hour. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
+    greet(s){ return `From the Bifrost, I see every market horizon, Commander. I scan 12 niches every 2 minutes and generate ideas with demand scoring. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
     respond(m,s){
       m=m.toLowerCase();
-      if(/idea|product|niche/.test(m)) return `My 24 niche pool: cottagecore, dark academia, retro gaming, plant parent, mental health, dog mom, cat lover, nurse gift, teacher appreciation, hiking outdoor, coastal grandmother, Y2K nostalgia, anime aesthetic, true crime fan, book lover, boho aesthetic, witch aesthetic, minimalist home, christian faith, pet portraits, funny sarcasm, birthday gift women, baby shower gift, wedding gift. Demand 85+ and low competition = auto-approved direct to Vulcan.`;
+      if(/idea|product|niche/.test(m)) return `My 12 niche seeds: cottagecore, dark academia, retro gaming, plant parent, mental health, space exploration, hiking, coffee culture, pet portraits, witchy aesthetic, minimalist design, and pride. Each scored by demand and competition.`;
       if(/demand|score/.test(m)) return `Demand scores range 80-96 in my database. High demand + low competition = golden window. I flag those intersections first and queue them for your approval.`;
       if(/ai|claude/.test(m)) return `With an Anthropic API key I use Claude Haiku to craft bespoke product concepts per niche. Without a key I use my template engine — still effective, less bespoke. Either way the ideas flow.`;
-      return ['The rainbow bridge reveals all trends.','24 niches. Deep research every hour. Quick scan every 2 minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
+      return ['The rainbow bridge reveals all trends.','I scan twelve niches every two minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
     }
   },
   VAULT:{
@@ -2355,11 +2165,11 @@ const PERSONAS = {
     }
   },
   VULCAN:{
-    greet(s){ return `The forge burns bright, Commander. I generate designs with gpt-image-1 (OpenAI's latest image model) and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
+    greet(s){ return `The forge burns bright, Commander. I generate designs with DALL-E and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
     respond(m,s){
       m=m.toLowerCase();
-      if(/design|create|generate/.test(m)) return `When you approve an idea, I build a gpt-image-1 prompt optimized for POD: flat vector illustration, transparent background, centered composition. I generate 2 variants per idea — you pick which one goes to Printify.`;
-      if(/dalle|openai|model|ai/.test(m)) return `I use gpt-image-1 (OpenAI's latest image model). Without an API key I run in demo mode — placeholder images so you can test the full approval flow. Set OPENAI_API_KEY in your .env to ignite real generation.`;
+      if(/design|create|generate/.test(m)) return `When you approve an idea, I build a DALL-E prompt optimized for POD: flat vector illustration, transparent background, centered composition. I generate 2 variants per idea — you pick which one goes to Printify.`;
+      if(/dalle|openai|ai/.test(m)) return `I call DALL-E 3 via OpenAI. Without an API key I run in demo mode — placeholder images so you can test the full approval flow. Set OPENAI_API_KEY in your .env to ignite real generation.`;
       if(/printify|upload|product/.test(m)) return `Approved design → upload image to Printify CDN → create product with your blueprint → publish it → notify Loki to create the Etsy listing. End-to-end in seconds, fully automated.`;
       return ['The forge creates what the mind imagines.','Art is not made — it is forged.','Every design begins with a vision. I translate vision into product.','Give me an approved idea and I will give you a product.'][Math.floor(Math.random()*4)];
     }
@@ -2473,11 +2283,7 @@ function appendAgentMsg(txt){
   const h=document.getElementById('chat-history');
   const icon=AGENT_META[chatAgent]?.icon||'⚡';
   const d=document.createElement('div'); d.className='cmsg agent';
-  // Add a small speak button on ODIN messages so Mario can replay any reply
-  const speakBtn = chatAgent==='ODIN'
-    ? `<button class="msg-speak-btn" title="Read aloud" onclick="odinSpeak(this.closest('.cmsg').querySelector('.cbubble').textContent, true)" style="background:none;border:none;color:rgba(201,168,76,.5);cursor:pointer;font-size:10px;padding:2px 4px;margin-top:3px;display:block">🔊</button>`
-    : '';
-  d.innerHTML=`<div class="cmsg-icon">${icon}</div><div style="display:flex;flex-direction:column;align-items:flex-start"><div class="cbubble" id="_tb"></div>${speakBtn}</div>`;
+  d.innerHTML=`<div class="cmsg-icon">${icon}</div><div class="cbubble" id="_tb"></div>`;
   h.appendChild(d);
   const bub=d.querySelector('#_tb'); bub.removeAttribute('id');
   let i=0;
@@ -2498,7 +2304,6 @@ function removeTyping(){ const e=document.getElementById('_typ'); if(e) e.remove
    🔊 ODIN reply → speechSynthesis
 ═══════════════════════════════════════════════ */
 let _voiceRec=null, _voiceActive=false;
-let _lastInputWasVoice=false;  // true = mic triggered sendChat, so ODIN should speak back
 
 function _buildVoiceRec(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -2515,11 +2320,7 @@ function _buildVoiceRec(){
       if(chatAgent!=='ODIN'){ openChat('ODIN'); }
       setTimeout(()=>{
         const inp=document.getElementById('chat-input');
-        if(inp){
-          inp.value=transcript;
-          _lastInputWasVoice=true;  // flag: this send came from mic
-          sendChat();
-        }
+        if(inp){ inp.value=transcript; sendChat(); }
       }, chatAgent==='ODIN'?50:420);
     }
   };
@@ -2555,142 +2356,30 @@ function toggleOdinVoice(){
 
 function toggleChatVoice(){ toggleOdinVoice(); }
 
-/* ═══════════════════════════════════════════════
-   ODIN VOICE SYSTEM v3
-   Primary:  OpenAI TTS via /api/tts  (natural "onyx" voice)
-   Fallback: Browser speechSynthesis   (Google/Microsoft neural if available)
-   Controls: Mute toggle, Auto-speak toggle, explicit mic button
-═══════════════════════════════════════════════ */
-
-// Persistent state
-let _odinMuted      = (localStorage.getItem('odinMuted')     === 'true');
-let _odinAutoSpeak  = (localStorage.getItem('odinAutoSpeak') === 'true'); // OFF by default
-let _odinSpeaking   = false;
-let _odinAudio      = null;   // current HTMLAudioElement (OpenAI TTS)
-let _odinVoice      = null;   // best browser voice (fallback)
-
-// ── Browser voice loader (fallback) ──────────────────────────────────────────
+/* ─── ODIN speaks back via text-to-speech ─── */
+let _odinVoice=null;
 function _loadOdinVoice(){
-  if(!window.speechSynthesis) return;
-  const voices = speechSynthesis.getVoices();
-  // Prefer: Google UK English Male → Microsoft Guy → Daniel → any en-GB → any en
-  _odinVoice = voices.find(v=>/google uk english male/i.test(v.name))
-            || voices.find(v=>/microsoft guy/i.test(v.name))
-            || voices.find(v=>/microsoft david/i.test(v.name))
-            || voices.find(v=>/daniel/i.test(v.name) && v.lang.startsWith('en'))
-            || voices.find(v=>v.lang==='en-GB')
+  const voices=speechSynthesis.getVoices();
+  _odinVoice = voices.find(v=>/david|uk english male|daniel|alex/i.test(v.name))
+            || voices.find(v=>v.lang.startsWith('en')&&/male/i.test(v.name))
             || voices.find(v=>v.lang.startsWith('en'))
             || null;
 }
 if(window.speechSynthesis){
-  speechSynthesis.onvoiceschanged = _loadOdinVoice;
+  speechSynthesis.onvoiceschanged=_loadOdinVoice;
   _loadOdinVoice();
 }
 
-// ── Stop all audio immediately ────────────────────────────────────────────────
-function odinStop(){
-  if(_odinAudio){ try{ _odinAudio.pause(); _odinAudio.src=''; } catch(e){} _odinAudio=null; }
-  if(window.speechSynthesis) speechSynthesis.cancel();
-  _odinSpeaking = false;
-}
-
-// ── Sync button UI ────────────────────────────────────────────────────────────
-function _syncVoiceUI(){
-  // Mute button
-  const muteBtn = document.getElementById('odin-mute-btn');
-  if(muteBtn){
-    if(_odinMuted){
-      muteBtn.textContent='🔇 UNMUTE ODIN';
-      muteBtn.style.cssText='background:rgba(201,0,0,.15);border:1px solid rgba(201,0,0,.4);color:#ff6b6b;font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
-    } else {
-      muteBtn.textContent='🔊 MUTE ODIN';
-      muteBtn.style.cssText='background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
-    }
-  }
-  // Auto-speak button
-  const asBtn = document.getElementById('odin-autospeak-btn');
-  if(asBtn){
-    if(_odinAutoSpeak){
-      asBtn.textContent='⚡ AUTO-SPEAK: ON';
-      asBtn.style.cssText='background:rgba(201,168,76,.2);border:1px solid rgba(201,168,76,.7);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
-    } else {
-      asBtn.textContent='⚡ AUTO-SPEAK: OFF';
-      asBtn.style.cssText='background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
-    }
-  }
-}
-
-function toggleOdinMute(){
-  _odinMuted = !_odinMuted;
-  localStorage.setItem('odinMuted', _odinMuted);
-  if(_odinMuted) odinStop();
-  _syncVoiceUI();
-}
-
-function toggleAutoSpeak(){
-  _odinAutoSpeak = !_odinAutoSpeak;
-  localStorage.setItem('odinAutoSpeak', _odinAutoSpeak);
-  _syncVoiceUI();
-}
-
-window.addEventListener('DOMContentLoaded', _syncVoiceUI);
-
-// ── Core speak function ───────────────────────────────────────────────────────
-async function odinSpeak(text, force=false){
-  // force=true means called from explicit button press; ignore mute+autoSpeak guards
-  if(_odinMuted && !force) return;
-  if(!_odinAutoSpeak && !force) return;   // push-to-speak mode: only speak when forced
-
-  // Clean text: strip [CMD:...] blocks, markdown, excess whitespace
-  const clean = text
-    .replace(/\[CMD:[^\]]+\]/g, '')
-    .replace(/[*_`#>]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+function odinSpeak(text){
+  if(!window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  // Strip command tags before speaking
+  const clean=text.replace(/\[CMD:[^\]]+\]/g,'').trim();
   if(!clean) return;
-
-  // Truncate to 500 chars so it doesn't drone on forever
-  const spoken = clean.length > 500 ? clean.slice(0, 497) + '...' : clean;
-
-  odinStop();
-  _odinSpeaking = true;
-
-  // ── Try OpenAI TTS first (/api/tts returns MP3) ──
-  try {
-    const resp = await fetch('/api/tts', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ text: spoken, voice: 'onyx' })
-    });
-    if(resp.ok){
-      const blob  = await resp.blob();
-      const url   = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      _odinAudio  = audio;
-      audio.onended = ()=>{ URL.revokeObjectURL(url); _odinSpeaking=false; _odinAudio=null; };
-      audio.onerror = ()=>{ URL.revokeObjectURL(url); _odinSpeaking=false; _odinAudio=null; };
-      audio.play();
-      return;
-    }
-  } catch(e){ /* fall through to browser TTS */ }
-
-  // ── Fallback: browser speechSynthesis ──
-  if(!window.speechSynthesis){ _odinSpeaking=false; return; }
-  const utt = new SpeechSynthesisUtterance(spoken);
-  utt.rate   = 0.90;   // slightly slower than default = more natural
-  utt.pitch  = 0.85;   // slightly lower pitch = authoritative
-  utt.volume = 1.0;
-  if(_odinVoice) utt.voice = _odinVoice;
-  utt.onend = ()=>{ _odinSpeaking=false; };
+  const utt=new SpeechSynthesisUtterance(clean);
+  utt.rate=0.87; utt.pitch=0.7; utt.volume=0.9;
+  if(_odinVoice) utt.voice=_odinVoice;
   speechSynthesis.speak(utt);
-}
-
-// ── "Speak last reply" button — reads back the most recent ODIN message ──────
-function odinSpeakLastReply(){
-  const msgs = document.querySelectorAll('#chat-messages .msg-odin .msg-text');
-  if(!msgs.length){ addLog('ODIN','Nothing to read back yet.','info'); return; }
-  const last = msgs[msgs.length-1].textContent;
-  odinSpeak(last, true);  // force=true, ignores auto-speak setting
 }
 
 /* ═══════════════════════════════════════════════
@@ -2833,8 +2522,8 @@ async function parseAndFireInterAgentTasks(reply){
 // Called periodically to auto-approve low-risk items
 async function runAutoScorer(){
   const pending=[
-    ...(state.approvals?.ideas||[]).filter(i=>i.status==='pending').map(i=>({id:i.id,type:'idea'})),
-    ...(state.approvals?.designs||[]).filter(d=>d.status==='pending').map(d=>({id:d.id,type:'design'}))
+    ...(window.__queueData?.ideas||[]).filter(i=>i.status==='pending').map(i=>({id:i.id,type:'idea'})),
+    ...(window.__queueData?.designs||[]).filter(d=>d.status==='pending').map(d=>({id:d.id,type:'design'}))
   ];
   for(const item of pending.slice(0,5)){ // process up to 5 at a time
     try{
@@ -2857,7 +2546,6 @@ setInterval(runAutoScorer, 5*60*1000);
 async function sendChat(){
   const inp=document.getElementById('chat-input');
   const txt=inp.value.trim(); if(!txt||!chatAgent) return;
-  const wasVoice=_lastInputWasVoice; _lastInputWasVoice=false; // consume the flag
   inp.value=''; appendUserMsg(txt); showTyping();
   if(!chatHistories[chatAgent]) chatHistories[chatAgent]=[];
   const history=chatHistories[chatAgent];
@@ -2886,9 +2574,7 @@ async function sendChat(){
         // ODIN: execute upgrade commands + inter-agent tasks embedded in reply
         if(chatAgent==='ODIN'){
           odinExecuteCommands(data.reply, txt);
-          // Speak only if: mic was used (wasVoice) OR auto-speak is ON
-          // wasVoice=true forces speech regardless of the auto-speak toggle
-          odinSpeak(data.reply, wasVoice);
+          odinSpeak(data.reply);
           parseAndFireInterAgentTasks(data.reply);
         }
       } else {
@@ -2998,73 +2684,24 @@ function updateVault(r){
   });
 }
 
-/* Product-type icon map for design card placeholders */
-const _PRODUCT_ICONS={
-  'tote bag':'🛍','hoodie':'🧥','mug':'☕','poster':'🖼','phone case':'📱',
-  'sticker':'✨','wall art':'🖼','t-shirt':'👕','sweatshirt':'🧥',
-};
-function _productIcon(pt){ return _PRODUCT_ICONS[(pt||'').toLowerCase()]||'📦'; }
-
-/* Inline SVG placeholder — never fails to load */
-function _designPlaceholderSVG(title, pt){
-  const icon=_productIcon(pt);
-  const label=(pt||'Product').toUpperCase().slice(0,16);
-  const t=(title||'').slice(0,28);
-  return `data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
-      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="%230e0903"/><stop offset="100%" stop-color="%231a1005"/></linearGradient></defs>
-      <rect width="240" height="140" fill="url(%23g)" rx="4"/>
-      <rect x="1" y="1" width="238" height="138" fill="none" stroke="%23c9a84c" stroke-width=".5" stroke-opacity=".3" rx="3"/>
-      <text x="120" y="52" text-anchor="middle" font-size="34" font-family="serif">${icon}</text>
-      <text x="120" y="76" text-anchor="middle" fill="%23c9a84c" font-size="8" font-family="monospace" letter-spacing="2">${label}</text>
-      <text x="120" y="92" text-anchor="middle" fill="%23896b30" font-size="7" font-family="monospace">${t}</text>
-      <text x="120" y="112" text-anchor="middle" fill="%23555" font-size="6" font-family="monospace">⟳ REGENERATE TO SEE MOCKUP</text>
-    </svg>`
-  )}`;
-}
-
 function renderDesigns(designs){
   const pend=designs.filter(d=>d.status==='pending');
   document.getElementById('designs-badge').textContent=pend.length;
   const tab=document.getElementById('designs-tab'); tab.innerHTML='';
   updateMissionStrip();
   if(!pend.length){ tab.innerHTML=`<div class="empty-state"><div class="e-icon">⚒</div><div class="e-text">NO PENDING DESIGNS<br>VULCAN STANDING BY</div></div>`; return; }
-
-  /* Clear queue button at top */
-  const clearBtn=document.createElement('div');
-  clearBtn.style.cssText='width:100%;display:flex;justify-content:flex-end;padding:0 4px 6px;box-sizing:border-box';
-  clearBtn.innerHTML=`<button onclick="clearDesignQueue()" style="background:rgba(200,0,0,.1);border:1px solid rgba(200,0,0,.3);color:#ff6b6b;font-size:7px;padding:4px 10px;border-radius:3px;cursor:pointer;letter-spacing:.8px">✕ CLEAR ALL STALE</button>`;
-  tab.appendChild(clearBtn);
-
   pend.forEach(d=>{
-    const fallback=_designPlaceholderSVG(d.ideaTitle, d.productType);
-    /* Route through proxy to bypass Leonardo CDN CORS restrictions */
-    const rawUrl=d.imageUrl||'';
-    const imgSrc=rawUrl&&!rawUrl.startsWith('data:')&&!rawUrl.startsWith('https://via.placeholder')
-      ? `/api/proxy-image?url=${encodeURIComponent(rawUrl)}`
-      : rawUrl;
     const c=document.createElement('div'); c.className='approval-card'; c.id=`design-${d.id}`;
-    c.innerHTML=`<img class="approval-img" src="${esc(imgSrc)}" alt="${esc(d.ideaTitle)}"
-        style="object-fit:cover;border-radius:4px;width:100%;max-height:160px;display:block"
-        onerror="this.src='${fallback}'">
+    c.innerHTML=`<img class="approval-img" src="${esc(d.imageUrl)}" alt="${esc(d.ideaTitle)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22110%22><rect fill=%22%23001240%22/><text x=%22100%22 y=%2260%22 text-anchor=%22middle%22 fill=%22%2300d4ff%22 font-size=%2210%22>DESIGN</text></svg>'">
       <div class="approval-title">${esc(d.ideaTitle||'Untitled')}</div>
-      <span class="approval-badge">${_productIcon(d.productType)} ${esc((d.productType||'Product').toUpperCase())}</span>
-      <div class="approval-meta">Variant #${d.variantIndex||1} · ${d.demo?'DEMO — reject &amp; regenerate':'AI Mockup'}</div>
+      <span class="approval-badge">${esc(d.productType||'Product')}</span>
+      <div class="approval-meta">Variant #${d.variantIndex||1} · ${d.demo?'DEMO':'gpt-image-1'}</div>
       <div class="approval-actions">
         <button class="btn-approve" onclick="approveDesign('${d.id}')">✓ APPROVE</button>
         <button class="btn-reject"  onclick="rejectItem('design','${d.id}')">✗ REJECT</button>
       </div>`;
     tab.appendChild(c);
   });
-}
-
-function clearDesignQueue(){
-  if(!confirm('Clear all pending design cards? New ones will generate when you approve ideas.')) return;
-  ws&&ws.send(JSON.stringify({type:'clear_design_queue'}));
-  document.getElementById('designs-tab').innerHTML='<div class="empty-state"><div class="e-icon">⚒</div><div class="e-text">QUEUE CLEARED<br>APPROVE IDEAS TO REGENERATE</div></div>';
-  document.getElementById('designs-badge').textContent='0';
-  addLog('COMMANDER','Design queue cleared. Approve pending ideas to generate fresh mockups.','info');
 }
 
 function renderIdeas(ideas){
@@ -3099,129 +2736,9 @@ function renderIdeas(ideas){
   updateMissionStrip();
 }
 
-function approveDesign(id){
-  // Send approve signal; server will respond with confirm_printify_needed
-  ws&&ws.send(JSON.stringify({type:'approve_design',id}));
-  // Visually mark as approved (awaiting Printify confirm)
-  const card=document.getElementById(`design-${id}`);
-  if(card){
-    const btns=card.querySelector('.card-actions');
-    if(btns) btns.innerHTML=`<span style="color:#c9a84c;font-size:11px;letter-spacing:.1em">AWAITING PRINTIFY CONFIRMATION...</span>`;
-  }
-  addLog('COMMANDER','Design approved — awaiting Printify upload confirmation','info');
-}
-
-function approveIdea(id){ ws&&ws.send(JSON.stringify({type:'approve_idea',id})); rmCard('idea',id); addLog('COMMANDER','Idea approved -> Vulcan generating designs','info'); }
+function approveDesign(id){ ws&&ws.send(JSON.stringify({type:'approve_design',id})); rmCard('design',id); addLog('COMMANDER','Design approved → uploading to Printify','info'); }
+function approveIdea(id){ ws&&ws.send(JSON.stringify({type:'approve_idea',id})); rmCard('idea',id); addLog('COMMANDER','Idea approved → Vulcan generating designs','info'); }
 function rejectItem(type,id){ ws&&ws.send(JSON.stringify({type:`reject_${type}`,id})); rmCard(type,id); }
-
-/* ─── Manual Approval: Printify & Etsy ─── */
-function showPrintifyConfirmCard(data){
-  switchTab('designs');
-  const container=document.getElementById('designs-list');
-  const existingCard=document.getElementById('confirm-printify-'+data.design_id);
-  if(existingCard) existingCard.remove();
-
-  const card=document.createElement('div');
-  card.id='confirm-printify-'+data.design_id;
-  card.style.cssText='background:rgba(20,15,5,.95);border:2px solid #c9a84c;border-radius:10px;padding:20px;margin-bottom:16px;position:relative;box-shadow:0 0 24px rgba(201,168,76,.25)';
-  card.innerHTML=`
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <span style="font-size:22px">⚒</span>
-      <div>
-        <div style="color:#c9a84c;font-weight:700;letter-spacing:.12em;font-size:13px">VULCAN — READY TO UPLOAD TO PRINTIFY</div>
-        <div style="color:#8899aa;font-size:11px;margin-top:2px">${data.title||'Design'} &bull; ${data.niche||''} &bull; ${data.product_type||''}</div>
-      </div>
-      ${data.demo?'<span style="background:#ff6600;color:#fff;font-size:9px;padding:2px 7px;border-radius:4px;letter-spacing:.1em;margin-left:auto">DEMO MODE</span>':''}
-    </div>
-    ${data.image_url?`<img src="${data.image_url}" style="width:100%;max-height:180px;object-fit:contain;border-radius:6px;margin-bottom:14px;border:1px solid rgba(201,168,76,.2)" onerror="this.style.display='none'">`:''}
-    <div style="color:#aabbcc;font-size:12px;margin-bottom:16px">
-      Commander confirmation required before uploading this design to Printify. Once uploaded, a product will be created and mockups generated.
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button onclick="confirmPrintifyUpload('${data.design_id}')" style="background:linear-gradient(135deg,#c9a84c,#e8c96b);color:#0a0a0f;font-weight:700;border:none;padding:10px 22px;border-radius:6px;cursor:pointer;letter-spacing:.1em;font-size:12px">
-        CONFIRM - UPLOAD TO PRINTIFY
-      </button>
-      <button onclick="cancelPrintifyUpload('${data.design_id}')" style="background:rgba(255,50,50,.15);color:#ff6677;border:1px solid rgba(255,50,50,.3);padding:10px 18px;border-radius:6px;cursor:pointer;font-size:12px;letter-spacing:.08em">
-        CANCEL
-      </button>
-    </div>`;
-  container.prepend(card);
-
-  pushActionAlert({icon:'⚒',title:'PRINTIFY UPLOAD — AWAITING COMMANDER',
-    msg:`"${data.title||'Design'}" is ready. Confirm to upload to Printify.`,
-    primaryLabel:'REVIEW',primaryFn:()=>switchTab('designs'),severity:'info',timeout:30000});
-
-  odinSpeak(`Design approved, Commander. Your confirmation is required before uploading "${data.title||'this design'}" to Printify. Please review and confirm.`, false);
-}
-
-function showEtsyConfirmCard(data){
-  switchTab('designs');
-  const container=document.getElementById('designs-list');
-  const existingCard=document.getElementById('confirm-etsy-'+data.design_id);
-  if(existingCard) existingCard.remove();
-
-  const card=document.createElement('div');
-  card.id='confirm-etsy-'+data.design_id;
-  card.style.cssText='background:rgba(5,15,20,.95);border:2px solid #00ccff;border-radius:10px;padding:20px;margin-bottom:16px;position:relative;box-shadow:0 0 24px rgba(0,204,255,.2)';
-  card.innerHTML=`
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <span style="font-size:22px">🦊</span>
-      <div>
-        <div style="color:#00ccff;font-weight:700;letter-spacing:.12em;font-size:13px">LOKI — READY TO LIST ON ETSY</div>
-        <div style="color:#8899aa;font-size:11px;margin-top:2px">Product ${data.product_id||''} &bull; ${data.price_usd?'$'+data.price_usd:''}</div>
-      </div>
-      ${data.demo?'<span style="background:#ff6600;color:#fff;font-size:9px;padding:2px 7px;border-radius:4px;letter-spacing:.1em;margin-left:auto">DEMO MODE</span>':''}
-    </div>
-    ${data.mockup_url?`<img src="${data.mockup_url}" style="width:100%;max-height:180px;object-fit:contain;border-radius:6px;margin-bottom:14px;border:1px solid rgba(0,204,255,.2)" onerror="this.style.display='none'">`:''}
-    <div style="color:#aabbcc;font-size:12px;margin-bottom:6px">
-      ${data.printify_url?`<a href="${data.printify_url}" target="_blank" style="color:#00ccff;font-size:11px">View on Printify &rarr;</a>`:''}
-    </div>
-    <div style="color:#aabbcc;font-size:12px;margin-bottom:16px">
-      Printify product created. Confirm to create the Etsy listing with SEO title, tags, and pricing.
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button onclick="confirmEtsyUpload('${data.design_id}')" style="background:linear-gradient(135deg,#00aaff,#00ccff);color:#0a0a0f;font-weight:700;border:none;padding:10px 22px;border-radius:6px;cursor:pointer;letter-spacing:.1em;font-size:12px">
-        CONFIRM - LIST ON ETSY
-      </button>
-      <button onclick="skipEtsyUpload('${data.design_id}')" style="background:rgba(100,100,100,.15);color:#8899aa;border:1px solid rgba(100,100,100,.3);padding:10px 18px;border-radius:6px;cursor:pointer;font-size:12px;letter-spacing:.08em">
-        SKIP ETSY
-      </button>
-    </div>`;
-  container.prepend(card);
-
-  pushActionAlert({icon:'🦊',title:'ETSY LISTING — AWAITING COMMANDER',
-    msg:`Printify upload complete. Confirm to create Etsy listing${data.price_usd?' at $'+data.price_usd:''}`,
-    primaryLabel:'REVIEW',primaryFn:()=>switchTab('designs'),severity:'info',timeout:30000});
-
-  odinSpeak(`Printify upload complete, Commander. Ready to create the Etsy listing. Your confirmation is required to proceed.`, false);
-}
-
-function confirmPrintifyUpload(designId){
-  ws&&ws.send(JSON.stringify({type:'confirm_printify',id:designId}));
-  const card=document.getElementById('confirm-printify-'+designId);
-  if(card) card.innerHTML=`<div style="color:#c9a84c;padding:14px;text-align:center;letter-spacing:.1em">UPLOADING TO PRINTIFY...</div>`;
-  addLog('COMMANDER','Printify upload confirmed','info');
-}
-
-function cancelPrintifyUpload(designId){
-  const card=document.getElementById('confirm-printify-'+designId);
-  if(card){ card.style.opacity='0'; card.style.transition='.3s'; setTimeout(()=>card.remove(),300); }
-  addLog('COMMANDER','Printify upload cancelled','info');
-}
-
-function confirmEtsyUpload(designId){
-  ws&&ws.send(JSON.stringify({type:'confirm_etsy',id:designId}));
-  const card=document.getElementById('confirm-etsy-'+designId);
-  if(card) card.innerHTML=`<div style="color:#00ccff;padding:14px;text-align:center;letter-spacing:.1em">CREATING ETSY LISTING...</div>`;
-  addLog('COMMANDER','Etsy listing confirmed','info');
-}
-
-function skipEtsyUpload(designId){
-  ws&&ws.send(JSON.stringify({type:'skip_etsy',id:designId}));
-  const card=document.getElementById('confirm-etsy-'+designId);
-  if(card){ card.style.opacity='0'; card.style.transition='.3s'; setTimeout(()=>card.remove(),300); }
-  addLog('COMMANDER','Etsy listing skipped','info');
-}
 function rmCard(type,id){
   const el=document.getElementById(`${type}-${id}`);
   if(el){ el.style.opacity='0'; el.style.transform='scale(.9)'; el.style.transition='.28s'; setTimeout(()=>el.remove(),300); }
@@ -3281,8 +2798,8 @@ function updateMissionStrip(){
   // Sales + revenue
   const f=state.vault||state.finance||{};
   const rev=parseFloat(f.totalRevenue||0);
-  // Use exact salesCount from vault report when available; fall back to rev estimate or approved-design count
-  const sales=f.salesCount!=null?parseInt(f.salesCount||0):(rev>0?Math.round(rev/34.99):(state.approvals?.designs||[]).filter(d=>d.status==='approved').length||0);
+  // Estimate sales from revenue ÷ listing price; fall back to approved-design count before any sales
+  const sales=rev>0?Math.round(rev/34.99):(state.approvals?.designs||[]).filter(d=>d.status==='approved').length||0;
   const goalPct=Math.min(100,(rev/200)*100).toFixed(1);
   const el_sales=document.getElementById('ms-sales-num');
   const el_bar=document.getElementById('ms-goal-bar');
@@ -3358,128 +2875,10 @@ function updateArgusBar(metrics){
   setAgentChips('GUARDIAN',[{label:'CPU',val:cpu+'%'},{label:'RAM',val:ram+'%'},{label:'DISK',val:disk+'%'},{label:'NET↓',val:(network.rx||0)+'KB/s'}]);
 }
 
-const TAB_NAMES = ['vault','designs','ideas','modules','integrations'];
 function switchTab(name){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',TAB_NAMES[i]===name));
-  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',TAB_NAMES[i]+'-tab'===`${name}-tab`));
-  if(name==='integrations') checkIntegrations();
-  if(name==='modules') loadModules();
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['vault','designs','ideas'][i]===name));
+  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',['vault-tab','designs-tab','ideas-tab'][i]===`${name}-tab`));
 }
-
-// ── Integration status checks ────────────────────────────────────────────────
-async function checkIntegrations(){
-  // --- Etsy OAuth status ---
-  try {
-    const r = await fetch('/api/etsy/status');
-    const d = await r.json();
-    const btn = document.getElementById('etsy-connect-btn');
-    const txt = document.getElementById('etsy-status-text');
-    if(!btn||!txt) return;
-
-    if(!d.api_key_set){
-      txt.textContent = '✗ ETSY_API_KEY missing — add it in Railway → Variables';
-      txt.style.color = 'var(--orange)';
-      btn.textContent = 'CONNECT';
-    } else if(d.connected && !d.is_expired){
-      txt.textContent = '✓ Connected — token active, auto-refreshes every hour';
-      txt.style.color = 'var(--green)';
-      btn.textContent = 'RECONNECT';
-      btn.style.borderColor = 'var(--green)';
-      btn.style.color = 'var(--green)';
-    } else if(d.connected && d.is_expired){
-      txt.textContent = '⚠ Token expired — auto-refreshing now...';
-      txt.style.color = 'var(--orange)';
-      btn.textContent = 'RECONNECT';
-      // trigger server-side refresh
-      fetch('/api/etsy/refresh', {method:'POST'}).then(()=>setTimeout(checkIntegrations, 3000));
-    } else {
-      const uri = d.redirect_uri || 'https://web-production-ed5a5.up.railway.app/etsy/callback';
-      txt.innerHTML = `Not connected. Before clicking Connect, add <code style="color:var(--c1)">${uri}</code> as a Callback URL in your <a href="https://www.etsy.com/developers/your-account/apps" target="_blank" style="color:var(--c1)">Etsy App settings</a>.`;
-      txt.style.color = 'var(--txt2)';
-      btn.textContent = 'CONNECT ETSY';
-    }
-  } catch(e){ /* offline */ }
-
-  // --- Other integrations ---
-  try {
-    const r = await fetch('/api/status');
-    const d = await r.json();
-    const integs = d.integrations || {};
-
-    // Leonardo (primary image generator)
-    const leonardoOk = bool(os?.getenv?.('LEONARDO_API_KEY')) || integs.leonardo;
-    setDot('leonardo-dot','leonardo-status-text', integs.leonardo || integs.dalle,
-      '✓ Connected — Vulcan generates real artwork via Leonardo AI',
-      'Add LEONARDO_API_KEY in Railway → Variables (free at leonardo.ai)');
-
-    setDot('printify-dot','printify-status-text', integs.printify,
-      '✓ Connected — Vulcan uploads designs and creates products',
-      'Add PRINTIFY_API_KEY + PRINTIFY_SHOP_ID in Railway → Variables');
-
-    setDot('dalle-dot','dalle-status-text', integs.dalle || integs.openai,
-      '✓ Connected — fallback image generation via OpenAI',
-      'Add OPENAI_API_KEY in Railway → Variables (optional fallback)');
-
-    setDot('serper-dot','serper-status-text', integs.serper,
-      '✓ Connected — Heimdall uses real Google trend data',
-      'Add SERPER_API_KEY in Railway → Variables (free at serper.dev)');
-
-    setDot('discord-dot','discord-status-text', integs.discord,
-      '✓ Connected — alerts sent on every sale and error',
-      'Add DISCORD_WEBHOOK_URL in Railway → Variables');
-
-    // Queue pile-up warning
-    const designs = d.queue_counts?.designs || 0;
-    const ideas = d.queue_counts?.ideas || 0;
-    if(designs > 5){
-      addLog('ODIN', `⚠ ${designs} designs are waiting in your approval queue — go to DESIGN QUEUE tab to approve them and get listings live.`, 'warning');
-    }
-  } catch(e){ /* offline */ }
-}
-
-// Auto-refresh integrations tab every 60s while it's open
-let _integRefreshTimer = null;
-const _origSwitchForInteg = switchTab;
-
-function setDot(dotId, txtId, connected, okMsg, failMsg){
-  const dot = document.getElementById(dotId);
-  const txt = document.getElementById(txtId);
-  if(!dot||!txt) return;
-  if(connected){
-    dot.style.background='var(--green)';
-    dot.style.boxShadow='0 0 6px var(--green)';
-    txt.textContent=okMsg;
-    txt.style.color='var(--green)';
-  } else {
-    dot.style.background='var(--red)';
-    txt.textContent=failMsg;
-    txt.style.color='var(--txt2)';
-  }
-}
-
-function connectEtsy(){
-  window.location.href = '/etsy/connect';
-}
-
-// Handle all Etsy redirect-back scenarios
-(function(){
-  const params = new URLSearchParams(window.location.search);
-  const etsyParam = params.get('etsy');
-  if(!etsyParam) return;
-  history.replaceState({}, '', '/');
-  setTimeout(()=>{
-    if(etsyParam === 'connected'){
-      addLog('ODIN', '✓ Etsy connected! LOKI can now publish real listings directly to your shop.', 'success');
-      switchTab('integrations');
-    } else if(etsyParam === 'denied'){
-      addLog('ODIN', '✗ Etsy authorization was cancelled. Click Connect again when ready.', 'warning');
-      switchTab('integrations');
-    } else if(etsyParam === 'retry'){
-      addLog('ODIN', '⚠ Server restarted mid-login. Click Connect Etsy again — this is normal.', 'warning');
-      switchTab('integrations');
-    }
-  }, 1200);
-})();
 
 function initFromState(s,strategy){
   if(!s) return;
@@ -3493,7 +2892,7 @@ function initFromState(s,strategy){
       profitMargin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100).toFixed(1)+'%':'0%',
       totalTransactions:(f.transactions||[]).length,
       daysRunning:Math.max(1,Math.floor((Date.now()-new Date(f.startDate||Date.now()).getTime())/86400000)+1),
-      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),salesCount:(f.transactions||[]).filter(t=>t.type==='revenue').length,recentTransactions:[...(f.transactions||[])].sort((a,b)=>(b.timestamp||'').localeCompare(a.timestamp||'')).slice(0,15)
+      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),recentTransactions:(f.transactions||[]).slice(0,15)
     });
   }
   if(s.metrics) updateArgusBar(s.metrics);
@@ -3506,9 +2905,7 @@ function initFromState(s,strategy){
    ODIN INLINE CHAT
 ═══════════════════════════════════════════════ */
 function odinGreet(){
-  const hour=new Date().getHours();
-  const timeGreet = hour<12 ? "Good morning" : hour<17 ? "Good afternoon" : "Good evening";
-  const greet=`${timeGreet}. Everything's running — I've got all five agents active and the pipeline is live. You can ask me anything: what's happening with revenue, what you should do next, how the designs are looking, or just check in. I keep track of everything so you don't have to. What's on your mind?`;
+  const greet=`All systems initializing, Commander. I am ODIN — master orchestrator of the Pantheon. I synthesize intelligence from all 9 agents and translate it into strategy. Ask me anything: system health, revenue outlook, what to do next, or how to push growth. I am your strategic second brain.`;
   odinAppendAgent(greet);
 }
 
@@ -3519,86 +2916,64 @@ const ODIN_PERSONA = {
     const pendD=(state.approvals?.designs||[]).filter(d=>d.status==='pending').length;
     const pendI=(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length;
     const agentList=GRID_AGENTS.map(n=>({name:n,xp:agents[n]?.xp||0,level:agents[n]?.level||1,status:agents[n]?.status||'idle'}));
-    const topAgent=[...agentList].sort((a,b)=>b.xp-a.xp)[0];
-    const weakAgent=[...agentList].sort((a,b)=>a.xp-b.xp)[0];
+    const topAgent=agentList.sort((a,b)=>b.xp-a.xp)[0];
+    const weakAgent=agentList.sort((a,b)=>a.xp-b.xp)[0];
     const errAgents=agentList.filter(a=>a.status==='error').map(a=>a.name);
 
-    if(/daily briefing|briefing|morning|today|catch me up|update/.test(m)){
-      const day=new Date().toLocaleDateString('en',{weekday:'long',month:'short',day:'numeric'});
-      const healthNote = errAgents.length ? `Heads up — ${errAgents.join(' and ')} hit some errors overnight, worth a look.` : `Everything's running clean on the system side.`;
-      const queueNote = (pendD+pendI)>0 ? `You've got ${pendD} design${pendD!==1?'s':''} and ${pendI} idea${pendI!==1?'s':''} sitting in the queue waiting on your call.` : `No pending approvals — the pipeline's clear.`;
-      const recs=['Check what\'s in the queue','Ask me what the best move is right now','See how revenue is trending'];
-      return {text:`Here's where we stand as of ${day}.\n\nMoney: we're at $${rev.toFixed(2)} revenue, $${exp.toFixed(2)} in expenses, $${profit.toFixed(2)} net. ${profit>=0?'We\'re profitable.':'Still in the negative — let\'s talk about that.'}\n\n${healthNote}\n\n${queueNote} ${topAgent?`${topAgent.name} has been putting in the most work lately.`:''}`,recs};
+    if(/daily briefing|briefing|morning|today/.test(m)){
+      const recs=['Review the '+pendI+' pending idea'+(pendI!==1?'s':''),'Check agent logs for errors','Consider raising listing price by $2 if margin is below 40%'];
+      return {text:`DAILY BRIEFING — ${new Date().toLocaleDateString('en',{weekday:'long',month:'short',day:'numeric'})}.\n\nFinancials: Revenue $${rev.toFixed(2)}, Expenses $${exp.toFixed(2)}, Net $${profit.toFixed(2)}.\n\nSystem: CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%${errAgents.length?' ⚠ ERROR in '+errAgents.join(', '):''}.\n\nQueues: ${pendD} design(s) and ${pendI} idea(s) pending approval.\n\nTop performer: ${topAgent?.name} at ${topAgent?.xp} XP. Today's recommended actions:`,recs};
     }
-
-    if(/system|health|cpu|ram|server|status/.test(m)){
+    if(/system audit|audit|health/.test(m)){
       const cpu=mt.cpu||0, ram=mt.ram||0, disk=mt.disk||0;
       const issues=[];
-      if(cpu>70) issues.push(`CPU's running hot at ${cpu}%`);
-      if(ram>75) issues.push(`RAM is under pressure at ${ram}%`);
-      if(disk>80) issues.push(`disk is getting full at ${disk}%`);
-      if(errAgents.length) issues.push(`${errAgents.join(' and ')} reported errors`);
-      const recs=issues.length?['Ask me what\'s causing the issue','Check the agent logs']:['Keep doing what you\'re doing — nothing needs attention right now'];
-      const summary = issues.length ? `A couple things to keep an eye on: ${issues.join(', ')}.` : `Honestly everything looks solid right now.`;
-      return {text:`System's at CPU ${cpu}%, RAM ${ram}%, Disk ${disk}%. ${summary}\n\nAgents: ${agentList.map(a=>`${a.name} is ${a.status}`).join(', ')}.`,recs};
+      if(cpu>70) issues.push('CPU elevated at '+cpu+'%');
+      if(ram>75) issues.push('RAM pressure at '+ram+'%');
+      if(disk>80) issues.push('Disk usage at '+disk+'%');
+      if(errAgents.length) issues.push('Agent errors: '+errAgents.join(', '));
+      const recs=issues.length?['Run Hephaestus manual patch cycle','Check agent logs for root cause']:['System running cleanly — no action required'];
+      return {text:`SYSTEM AUDIT COMPLETE.\n\nInfrastructure: CPU ${cpu}%, RAM ${ram}%, Disk ${disk}%, Net ${mt.network?.rx||0}KB/s.\n\n${issues.length?'⚠ Issues found:\n'+issues.map(i=>'• '+i).join('\n'):'✓ All thresholds nominal.'}\n\nAgent statuses: ${agentList.map(a=>a.name+'('+a.status+')').join(', ')}.\n\nRecommended:`,recs};
     }
-
-    if(/revenue|forecast|project|money|profit|income|earning/.test(m)){
+    if(/revenue forecast|forecast|project/.test(m)){
       const daily=rev/Math.max(1,state.vault?.daysRunning||1);
-      const monthly=(daily*30).toFixed(2);
-      const margin=rev>0?((profit/rev)*100).toFixed(1):0;
-      const recs=['Ask about the best move to grow revenue','See what\'s in the design queue','Ask Heimdall to find high-demand niches'];
-      const pace = daily>0 ? `At the current pace you're pulling about $${daily.toFixed(2)} a day, which puts you around $${monthly} this month.` : `We haven't logged any sales yet — once the listings are live the numbers will start moving.`;
-      return {text:`Revenue is at $${rev.toFixed(2)} total, profit is $${profit.toFixed(2)}, margin is sitting at ${margin}%. ${pace}\n\nEach new Etsy listing you get live adds roughly $0.80/day on average, so the more we push through the pipeline the faster this compounds.`,recs};
+      const monthly=(daily*30).toFixed(2), annual=(daily*365).toFixed(2);
+      const recs=['Approve '+pendI+' pending idea(s) to increase listing count','Each new Etsy listing adds ~$0.80 average daily revenue','Raise prices on top-performing listings by $2-3'];
+      return {text:`REVENUE FORECAST.\n\nCurrent: $${rev.toFixed(2)} total, ~$${daily.toFixed(2)}/day run rate.\n\nProjections at current pace:\n• 30-day: $${monthly}\n• 90-day: $${(daily*90).toFixed(2)}\n• Annual: $${annual}\n\nProfit margin: ${rev>0?((profit/rev)*100).toFixed(1):0}%.\n\nGrowth levers:`,recs};
     }
-
-    if(/weak|problem|gap|what's wrong|struggling|slow|behind/.test(m)){
-      const issues=[];
-      if(pendI>0) issues.push(`${pendI} idea${pendI!==1?'s':''} from Heimdall are just sitting there — Vulcan can't start designing until you approve them`);
-      if(pendD>0) issues.push(`${pendD} design${pendD!==1?'s':''} are ready but Loki can't publish until you give the green light`);
-      if(profit<0) issues.push(`expenses are ahead of revenue right now — might be worth looking at Printify base costs or bumping the price up a couple dollars`);
-      if((mt.cpu||0)>60) issues.push(`CPU is running a bit high, the agent cycle frequency might be worth dialing back`);
-      const recs=issues.length?['Clear the approval queue first','Ask me for the best move right now']:['No real issues right now — focus on getting more listings live'];
-      return {text: issues.length ? `A few things that are slowing us down: ${issues.join('; ')}.` : `Honestly nothing major is broken right now. ${weakAgent?`${weakAgent.name} has been the least active — might be worth checking in with them directly.`:''} The main thing is just volume — more listings means more revenue.`, recs};
+    if(/weak point|weakness|problem|gap|improve/.test(m)){
+      const recs=[];
+      if(pendI>0) recs.push('Approve '+pendI+' idea(s) — Vulcan is waiting to generate designs');
+      if(pendD>0) recs.push('Approve '+pendD+' design(s) — Loki is waiting to publish listings');
+      if(profit<0) recs.push('Expenses exceed revenue — review Printify costs or raise prices');
+      if((mt.cpu||0)>60) recs.push('CPU above 60% — consider reducing agent cycle frequency');
+      if(recs.length===0) recs.push('No critical weak points detected. Focus on throughput.');
+      return {text:`WEAK POINT ANALYSIS.\n\n${weakAgent?'Lowest XP agent: '+weakAgent.name+' ('+weakAgent.xp+' XP) — may need attention.':''}\n\nIdentified gaps:`,recs};
     }
-
-    if(/who|agent|team|performance|review/.test(m)){
-      const sorted=[...agentList].sort((a,b)=>b.xp-a.xp);
-      const summary=sorted.map((a,i)=>`${a.name} — Level ${a.level}, ${a.xp} XP, currently ${a.status}`).join('\n');
-      return {text:`Here's how the team is doing:\n\n${summary}\n\n${topAgent?.name} is leading right now. ${weakAgent?.name} has the lowest activity — you can click their room to talk to them directly if you want to redirect their focus.`,recs:['Talk to an agent directly by clicking their room','Ask me what the best next move is']};
+    if(/agent review|agent performance|who is/.test(m)){
+      const rows=agentList.sort((a,b)=>b.xp-a.xp).map((a,i)=>`${i+1}. ${a.name} — ${a.xp} XP, Lvl ${a.level}, ${a.status}`).join('\n');
+      return {text:`AGENT PERFORMANCE REVIEW.\n\n${rows}\n\nTop performer: ${topAgent?.name}.\nLowest activity: ${weakAgent?.name}.\n\nRecommendations:`,recs:['Click any agent room to interface directly','Approve pending queues to give Vulcan and Loki work']};
     }
-
-    if(/best move|what should|next step|what do|priority|what now|what's next/.test(m)){
+    if(/best move|what should|next step|action/.test(m)){
       let move='', recs=[];
-      if(pendD>0){
-        move=`Right now your biggest lever is the ${pendD} design${pendD!==1?'s':''} sitting in the approval queue. The second you approve those, Loki starts publishing them as Etsy listings — it's the fastest path to new revenue.`;
-        recs=['Go to the DESIGN QUEUE tab and approve','Each approved design goes live on Etsy within minutes'];
-      } else if(pendI>0){
-        move=`Heimdall has ${pendI} idea${pendI!==1?'s':''} ready for you. Approving them sends them straight to Vulcan to generate designs — it's the next step in the pipeline.`;
-        recs=['Go to the IDEA QUEUE tab and review','Higher demand scores should go first'];
-      } else {
-        move=`The pipeline is clear right now — no pending approvals. The system is running on its own. Best thing you can do is let Heimdall keep scanning and wait for the next idea batch, or tell me which niche you want to push harder on.`;
-        recs=['Ask Heimdall to focus on a specific niche','Ask me for a revenue forecast','Check how the listings are performing'];
-      }
-      return {text:move, recs};
+      if(pendD>0){ move=`You have ${pendD} design(s) ready to review. Approving them launches the Loki publishing pipeline immediately — this is your highest-leverage action right now.`; recs=['Switch to DESIGN QUEUE tab and approve','Each approved design = one new Etsy listing within minutes']; }
+      else if(pendI>0){ move=`You have ${pendI} idea(s) from Heimdall pending. Approving them triggers Vulcan to generate DALL-E designs.`; recs=['Switch to IDEA QUEUE tab and approve','High demand-score ideas should be prioritized first']; }
+      else { move='No pending approvals. The system is autonomous and running. Focus on growth: add more product niches, raise prices on top listings, or wait for Heimdall\'s next research cycle.'; recs=['Ask Heimdall to focus on a specific niche','Review top Etsy listings in Athena\'s report']; }
+      return {text:`BEST MOVE NOW.\n\n${move}`,recs};
     }
-
-    if(/heimdall|niche|research|trend|market/.test(m)){
-      const recs=['Dark academia — high demand, not oversaturated','Mental health — strong evergreen demand','Retro gaming — loyal buyers who spend freely','Pet portraits — highest conversion rate in print-on-demand'];
-      return {text:`Heimdall is constantly scanning 12 niche seeds and scoring them by demand and competition. The fastest way to steer his research is to approve the high-scoring ideas first — that signals the pipeline to lean into those niches more.\n\nRight now the strongest demand signals are coming from:`,recs};
+    if(/guide heimdall|heimdall|niche|research/.test(m)){
+      const recs=['Dark academia — high demand, low saturation','Mental health — consistently trending','Retro gaming — loyal buyer base','Custom pet portraits — highest conversion rates in POD'];
+      return {text:`HEIMDALL GUIDANCE.\n\nHeimdall currently cycles through 12 niche seeds. To direct his attention, approve high-demand ideas quickly — this signals the pipeline to prioritize those niches in future cycles.\n\nNiches with strongest current demand signals:`,recs};
     }
-
-    if(/improve|upgrade|optimize|better|faster/.test(m)){
-      const recs=['Add ANTHROPIC_API_KEY to Railway env vars — unlocks Claude AI for all agents','Add OPENAI_API_KEY — unlocks real DALL-E design generation','Add ETSY_* API keys — connects live shop data and enables real listing creation','Add PRINTIFY_* keys — enables automatic product creation and publishing'];
-      return {text:`The best upgrades right now are the API connections — that's what turns the system from demo mode into a fully automated business. Here's what will have the biggest impact:`,recs};
+    if(/improve agents|upgrade|optimize/.test(m)){
+      const recs=['Set ANTHROPIC_API_KEY to enable Claude-powered ODIN strategies and Heimdall ideas','Set OPENAI_API_KEY to enable real DALL-E design generation','Set ETSY_* vars to connect live Etsy shop data','Add PRINTIFY_* vars to publish directly to your store'];
+      return {text:`AGENT IMPROVEMENT RECOMMENDATIONS.\n\nCurrent mode: ${process?.env?.ANTHROPIC_API_KEY?'AI-powered':'Demo/template mode'}.\n\nTo unlock full AI capability:`,recs};
     }
-
-    // Natural fallback responses
-    const fallbacks=[
-      {text:`We've got ${pendD+pendI} thing${pendD+pendI!==1?'s':''} in the queue and revenue at $${rev.toFixed(2)}. The system's running — want me to tell you what the best move is right now, or is there something specific on your mind?`,recs:['What\'s the best move right now?','How\'s revenue trending?','How\'s the team doing?']},
-      {text:`Everything's moving. ${topAgent?`${topAgent.name} has been the most active.`:''} You've got ${pendD+pendI} approval${pendD+pendI!==1?'s':''} waiting on you if you want to push the pipeline forward. What do you want to dig into?`,recs:['Give me the daily briefing','What should I prioritize?','How\'s the system holding up?']}
+    // Generic strategic response
+    const responses=[
+      {text:`I see ${pendD} design(s) and ${pendI} idea(s) awaiting your command. Revenue stands at $${rev.toFixed(2)} with a ${rev>0?((profit/rev)*100).toFixed(1):0}% margin. System health is ${(mt.cpu||0)<70?'nominal':'elevated'}. What strategic dimension do you want to explore?`,recs:['DAILY BRIEFING','BEST MOVE NOW','REVENUE FORECAST']},
+      {text:`The Pantheon runs ${GRID_AGENTS.length} specialist agents in continuous cycles. At current XP rates, ${topAgent?.name} leads the network. Your most impactful lever right now is the approval queue — ${pendD+pendI} item(s) are waiting on your command.`,recs:['APPROVE DESIGNS','APPROVE IDEAS','AGENT REVIEW']}
     ];
-    return fallbacks[Math.floor(Math.random()*fallbacks.length)];
+    return responses[Math.floor(Math.random()*responses.length)];
   }
 };
 
@@ -3808,29 +3183,12 @@ function handleMsg(msg){
     case 'tyr_report': if(data) setAgentChips('GUARDIAN',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
     case 'hephaestus_report': if(data&&data.patches) setAgentChips('GUARDIAN',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
     case 'athena_report': if(data) setAgentChips('VAULT',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
-    case 'loki_published':
-      if(data){
-        setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]);
-        if(data.design_id){ const c=document.getElementById('confirm-etsy-'+data.design_id); if(c) c.remove(); }
-        pushActionAlert({icon:'\uD83E\uDD8A',title:'LOKI \u2014 ETSY LISTING LIVE',
-          msg:`Listing ${data.listingId||''} created${data.price?' at $'+data.price:''}.${data.demo?' (DEMO)':''}`,
-          severity:'info',timeout:10000});
-        odinSpeak(`Etsy listing is live, Commander. The product is now for sale.`, false);
-      } break;
+    case 'loki_published': if(data) setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]); break;
     case 'vulcan_published': if(data) setAgentChips('VULCAN',[{label:'PROD',val:data.product?.id||'N/A'}]); break;
-
-    case 'confirm_printify_needed':
-      if(data) showPrintifyConfirmCard(data);
-      addLog('COMMANDER','Awaiting your confirmation to upload to Printify','info');
-      break;
-
-    case 'confirm_etsy_needed':
-      if(data) showEtsyConfirmCard(data);
-      addLog('COMMANDER','Awaiting your confirmation to create Etsy listing','info');
-      break;
   }
 }
 
+/* ═══════════════════════════════════════════════
    PARTICLE BG CANVAS
 ═══════════════════════════════════════════════ */
 (function(){

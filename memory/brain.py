@@ -162,7 +162,7 @@ def get_odin_briefing() -> str:
 
 def write_agent_improvement(agent_name: str, improvements: list, odin_note: str) -> None:
     """
-    Odin writes improvement instructions for an agent after daily review.
+    Odin writes improvement instructions for an agent after weekly review.
     These are appended to the agent's lessons so they get injected into prompts.
     """
     try:

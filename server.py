@@ -2,8 +2,6 @@
 AsgardMade Pantheon — FastAPI server
 WebSocket + REST API + background agent loops
 """
-from __future__ import annotations
-
 
 import asyncio
 import json
@@ -17,18 +15,13 @@ import traceback
 import anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 load_dotenv()
 
 import memory.obsidian as mem
 import memory.brain as brain
-import memory.sales_intel as sales_intel
-import memory.ab_tests as ab_tests
-import memory.pricing_intel as pricing_intel
-import memory.review_tracker as review_tracker
 
 _anthropic_client: anthropic.AsyncAnthropic | None = None
 
@@ -43,22 +36,7 @@ def get_anthropic_client() -> anthropic.AsyncAnthropic:
 
 from crew.agents import get_system_prompt, ALL_AGENTS, GRID_AGENTS
 from crew.tools import get_system_metrics, scan_logs, generate_niche_idea
-from crew.pipeline import run_idea_pipeline, run_design_pipeline, run_printify_only, run_etsy_only, _build_vault_report, run_autonomous_daily_pipeline
-from integrations import discord as _discord
-
-# ── Module registry + pipeline runner (new multi-business framework) ──────────
-from core.registry import registry as _module_registry
-from core.pipeline_runner import PipelineRunner
-
-def _get_runner() -> PipelineRunner:
-    """Return a PipelineRunner bound to the live manager + state."""
-    return PipelineRunner(manager, state)
-
-def _should_use_module_runner(item: dict) -> bool:
-    """Use the new PipelineRunner when the item has an explicit module_id."""
-    mid = item.get("module_id", "")
-    return bool(mid) and mid != "etsy_printify"
-from integrations.twilio_sms import send_sms, build_briefing_sms
+from crew.pipeline import run_idea_pipeline, run_design_pipeline, _build_vault_report
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -96,7 +74,7 @@ class ConnectionManager:
 class AppState:
     def __init__(self):
         self.agents: dict[str, dict] = {a: {"status": "idle", "lastAction": "Initializing", "xp": 0, "level": 1} for a in ALL_AGENTS}
-        self.queue: dict[str, list] = {"ideas": [], "designs": [], "pending_etsy": []}
+        self.queue: dict[str, list] = {"ideas": [], "designs": []}
         self.vault: dict = {
             "startDate": datetime.now().isoformat(),
             "totalRevenue": 0.0,
@@ -148,19 +126,6 @@ class AppState:
 
     def save_vault(self):
         try:
-            # Prune old transactions to prevent unbounded vault.json growth.
-            # Keep all revenue transactions (every sale matters) + last 500 expenses.
-            # Accumulate dropped expense amounts in prunedExpenseTotal so
-            # recalculate_vault() never understates totalExpenses after a prune.
-            txns = self.vault.get("transactions", [])
-            if len(txns) > 600:
-                revenue = [t for t in txns if t.get("type") == "revenue"]
-                expenses = [t for t in txns if t.get("type") != "revenue"]
-                dropped = expenses[:-500]
-                self.vault["prunedExpenseTotal"] = round(
-                    self.vault.get("prunedExpenseTotal", 0.0) + sum(t.get("amount", 0) for t in dropped), 2
-                )
-                self.vault["transactions"] = revenue + expenses[-500:]
             (DATA_DIR / "vault.json").write_text(json.dumps(self.vault, indent=2, default=str))
         except Exception as e:
             print(f"[STATE] save_vault error: {type(e).__name__}: {e}")
@@ -175,9 +140,6 @@ class AppState:
         txns = self.vault.get("transactions", [])
         revenue = sum(t["amount"] for t in txns if t.get("type") == "revenue")
         expenses = sum(t["amount"] for t in txns if t.get("type") == "expense")
-        # Add any expenses pruned from the transaction list (see save_vault pruning logic).
-        # Without this, totalExpenses drifts downward after the first prune (>600 txns).
-        expenses += self.vault.get("prunedExpenseTotal", 0.0)
         net = revenue - expenses
         self.vault["totalRevenue"] = round(revenue, 2)
         self.vault["totalExpenses"] = round(expenses, 2)
@@ -200,12 +162,6 @@ app = FastAPI(title="AsgardMade Pantheon", version="1.0.0")
 
 # Serve public files
 PUBLIC_DIR = Path("public")
-
-# Serve AI-generated images as static files
-# IMPORTANT: use data/generated/ (Railway volume — persists across redeploys)
-# public/generated/ is ephemeral and gets wiped on every Railway redeploy
-os.makedirs("data/generated", exist_ok=True)
-app.mount("/generated", StaticFiles(directory="data/generated"), name="generated")
 
 
 @app.get("/")
@@ -249,15 +205,11 @@ async def _send_init(ws: WebSocket):
         "finance": state.vault,
         "metrics": state.metrics,
     }
-    _net = state.vault.get('netProfit', 0)
-    _pending = (
-        len([i for i in state.queue['ideas'] if i.get('status') == 'pending']) +
-        len([d for d in state.queue['designs'] if d.get('status') == 'pending'])
-    )
     strategy = (
-        f"Pantheon online. Net ${_net:.2f}. "
-        f"{len(state.queue['ideas'])} ideas, {len(state.queue['designs'])} designs in queue"
-        f"{f' — {_pending} need your approval' if _pending else ' — running autonomously'}."
+        f"Pantheon online. {len(state.queue['ideas'])} ideas and "
+        f"{len(state.queue['designs'])} designs in queue. "
+        f"Financial state: ${state.vault.get('netProfit', 0):.2f} net. "
+        f"Awaiting your command."
     )
     await ws.send_text(json.dumps({
         "type": "init",
@@ -289,10 +241,7 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
             except Exception:
                 pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "ideas", "id": item_id, "status": "approved"}})
-            if _should_use_module_runner(idea):
-                asyncio.create_task(_get_runner().run_idea_pipeline(idea, module_id=idea.get("module_id")))
-            else:
-                asyncio.create_task(run_idea_pipeline(idea, manager, state))
+            asyncio.create_task(run_idea_pipeline(idea, manager, state))
 
     elif msg_type == "approve_design":
         item_id = msg.get("id")
@@ -304,43 +253,17 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
                 mem.vulcan_write_approved(design)
             except Exception:
                 pass
+            try:
+                brain.record_outcome(
+                    "VULCAN",
+                    f"Generated design for '{design.get('ideaTitle')}' ({design.get('niche')}) — variant {design.get('variantIndex')}",
+                    "Commander approved — uploading to Printify",
+                    9,
+                )
+            except Exception:
+                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "approved"}})
-            # Broadcast confirmation request — commander must confirm before Printify upload
-            await manager.broadcast({
-                "type": "confirm_printify_needed",
-                "data": {
-                    "design_id": design["id"],
-                    "title": design.get("ideaTitle", ""),
-                    "niche": design.get("niche", ""),
-                    "product_type": design.get("productType", "t-shirt"),
-                    "image_url": design.get("imageUrl", ""),
-                    "demo": design.get("demo", False),
-                },
-            })
-            await manager.broadcast({"type": "agent_log", "agent": "ODIN",
-                "message": f"Design approved. Awaiting your confirmation to upload '{design.get('ideaTitle')}' to Printify.",
-                "level": "info", "timestamp": __import__("datetime").datetime.now().isoformat()})
-
-    elif msg_type == "confirm_printify":
-        # Commander confirmed upload to Printify
-        item_id = msg.get("id")
-        design = next((d for d in state.queue["designs"] if d["id"] == item_id), None)
-        if design:
-            asyncio.create_task(run_printify_only(design, manager, state))
-
-    elif msg_type == "confirm_etsy":
-        # Commander confirmed creating the Etsy listing
-        design_id = msg.get("id")
-        asyncio.create_task(run_etsy_only(design_id, manager, state))
-
-    elif msg_type == "skip_etsy":
-        # Commander chose to skip Etsy listing for this product
-        design_id = msg.get("id")
-        pending_list = state.queue.get("pending_etsy", [])
-        state.queue["pending_etsy"] = [p for p in pending_list if p["design_id"] != design_id]
-        await manager.broadcast({"type": "agent_log", "agent": "ODIN",
-            "message": "Etsy listing skipped for this product. Product remains on Printify only.",
-            "level": "info", "timestamp": __import__("datetime").datetime.now().isoformat()})
+            asyncio.create_task(run_design_pipeline(design, manager, state))
 
     elif msg_type == "reject_idea":
         item_id = msg.get("id")
@@ -383,13 +306,6 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
             except Exception:
                 pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "rejected"}})
-
-    elif msg_type == "clear_design_queue":
-        count = len([d for d in state.queue["designs"] if d.get("status") == "pending"])
-        state.queue["designs"] = [d for d in state.queue["designs"] if d.get("status") != "pending"]
-        state.save_queue()
-        await manager.broadcast({"type": "log", "agent": "ODIN", "level": "info",
-                                  "message": f"Design queue cleared — {count} stale card(s) removed. Approve ideas to regenerate fresh mockups."})
 
 
 # ─── REST Endpoints ──────────────────────────────────────────────────────────
@@ -459,54 +375,6 @@ async def chat(req: ChatRequest):
             directive = brain.get_odin_briefing()
             if directive:
                 ctx["odinDirective"] = directive[:300]
-        except Exception:
-            pass
-
-    # Inject sales traction data for HEIMDALL so it prioritizes proven niches
-    if agent_name == "HEIMDALL":
-        try:
-            si_text = sales_intel.format_top_niches_for_prompt()
-            if si_text:
-                ctx["sales_intel"] = si_text
-        except Exception:
-            pass
-
-    # Inject seasonal intelligence for HEIMDALL so it targets upcoming demand spikes
-    if agent_name == "HEIMDALL":
-        try:
-            from memory import seasonal_calendar as _sc
-            seasonal_text = _sc.get_seasonal_niches_for_prompt()
-            if seasonal_text:
-                ctx["seasonal_intel"] = seasonal_text
-        except Exception:
-            pass
-
-    # Inject pricing intel for LOKI so it sets competitive listing prices
-    if agent_name == "LOKI":
-        try:
-            _niche_hint = ctx.get("niche", req.ctx.get("niche", ""))
-            if _niche_hint:
-                _pi_text = pricing_intel.format_pricing_for_prompt(_niche_hint)
-            else:
-                # No specific niche — pull all available intel (first 400 chars)
-                import json as _json
-                from pathlib import Path as _P
-                _pi_file = _P("data/pricing_intel.json")
-                if _pi_file.exists():
-                    _pi_data = _json.loads(_pi_file.read_text())
-                    _pi_lines = []
-                    for _entry in list(_pi_data.values())[:6]:
-                        _prices = _entry.get("prices", [])
-                        if _prices:
-                            _avg = sum(_prices) / len(_prices)
-                            _pi_lines.append(
-                                f"{_entry.get('niche','')} {_entry.get('product_type','')} avg ${_avg:.2f}"
-                            )
-                    _pi_text = "\n".join(_pi_lines)
-                else:
-                    _pi_text = ""
-            if _pi_text:
-                ctx["pricing_intel"] = _pi_text
         except Exception:
             pass
 
@@ -595,36 +463,8 @@ async def chat_named(agent_name: str, req: ChatRequest):
     return await chat(req)
 
 
-@app.get("/api/proxy-image")
-async def proxy_image(url: str):
-    """
-    Proxy external images (Leonardo CDN, etc.) to avoid browser CORS blocks.
-    The HUD uses /api/proxy-image?url=<encoded_url> instead of the raw CDN URL.
-    """
-    import httpx
-    from fastapi.responses import Response as _Resp
-    try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-            content_type = r.headers.get("content-type", "image/jpeg")
-            return _Resp(
-                content=r.content,
-                media_type=content_type,
-                headers={
-                    "Cache-Control": "public, max-age=86400",
-                    "Access-Control-Allow-Origin": "*",
-                },
-            )
-    except Exception as e:
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"error": str(e)}, status_code=502)
-
-
 @app.get("/api/status")
 async def get_status():
-    from integrations.etsy import _has_credentials, _can_write
-    from integrations.printify import printify_available
-    etsy_tokens = _load_etsy_tokens()
     return {
         "agents": state.agents,
         "metrics": state.metrics,
@@ -634,16 +474,6 @@ async def get_status():
         },
         "connected_clients": len(manager.active),
         "strategy_count": state.strategy_count,
-        "integrations": {
-            "etsy": _can_write(),
-            "etsy_read": _has_credentials(),
-            "etsy_oauth": bool(etsy_tokens),
-            "printify": bool(os.getenv("PRINTIFY_API_KEY") and os.getenv("PRINTIFY_SHOP_ID")),
-            "dalle": bool(os.getenv("OPENAI_API_KEY")),
-            "serper": bool(os.getenv("SERPER_API_KEY")),
-            "discord": bool(os.getenv("DISCORD_WEBHOOK_URL")),
-            "anthropic": bool(os.getenv("ANTHROPIC_API_KEY")),
-        }
     }
 
 
@@ -709,35 +539,6 @@ async def reject_item(item_id: str):
         if item:
             item["status"] = "rejected"
             state.save_queue()
-            # Record rejection in brain — mirrors WebSocket reject_idea/reject_design handlers
-            if category == "ideas":
-                try:
-                    mem.heimdall_write_rejected(item)
-                except Exception:
-                    pass
-                try:
-                    brain.record_outcome(
-                        "HEIMDALL",
-                        f"Queued idea: '{item.get('title')}' ({item.get('niche')}, {item.get('productType')})",
-                        "REST API rejected — avoid similar ideas",
-                        2,
-                    )
-                except Exception:
-                    pass
-            elif category == "designs":
-                try:
-                    mem.vulcan_write_rejected(item)
-                except Exception:
-                    pass
-                try:
-                    brain.record_outcome(
-                        "VULCAN",
-                        f"Generated design for '{item.get('ideaTitle')}' ({item.get('niche')}) — variant {item.get('variantIndex')}",
-                        "REST API rejected — avoid this visual approach",
-                        2,
-                    )
-                except Exception:
-                    pass
             await manager.broadcast({"type": "queue_update", "data": {"category": category, "id": item_id, "status": "rejected"}})
             return {"ok": True, "type": category, "id": item_id}
     raise HTTPException(404, detail="Item not found")
@@ -926,50 +727,9 @@ async def auto_score(req: AutoScoreRequest):
 
         # Trigger pipeline
         if req.item_type == "idea":
-            try:
-                brain.record_outcome(
-                    "HEIMDALL",
-                    f"Auto-scored idea: '{item.get('title')}' ({item.get('niche')}, {item.get('productType')})",
-                    f"AUTO-APPROVED via /api/auto-score — Risk:{risk} Confidence:{confidence} — pipeline triggered",
-                    8,
-                )
-            except Exception:
-                pass
             asyncio.create_task(run_idea_pipeline(item, manager, state))
         else:
-            try:
-                brain.record_outcome(
-                    "VULCAN",
-                    f"Auto-scored design for '{item.get('ideaTitle')}' ({item.get('niche')}) — variant {item.get('variantIndex')}",
-                    f"AUTO-APPROVED via /api/auto-score — Risk:{risk} Confidence:{confidence} — uploading to Printify",
-                    8,
-                )
-            except Exception:
-                pass
             asyncio.create_task(run_design_pipeline(item, manager, state))
-
-        # Discord notification for auto-approval
-        try:
-            _item_label = item.get("title") or item.get("ideaTitle", req.item_id)
-            asyncio.create_task(_discord.notify_approval(_item_label, confidence))
-        except Exception:
-            pass
-
-    # Record scoring outcome for HOLD/FLAG decisions so brain learns threshold calibration.
-    # The auto-approved branch already records outcomes (added in auto-12).
-    # Without this, the brain is blind to items that were scored but not approved —
-    # it can't learn which patterns consistently land in the "not yet ready" zone.
-    if not auto_approved:
-        try:
-            _agent_key = "HEIMDALL" if req.item_type == "idea" else "VULCAN"
-            brain.record_outcome(
-                _agent_key,
-                f"Scored {req.item_type}: '{item.get('title', item.get('ideaTitle', req.item_id))}' ({item.get('niche', '?')})",
-                f"{decision} via auto-score — Risk:{risk} Confidence:{confidence} — awaiting threshold",
-                4 if decision == "HOLD" else 6,
-            )
-        except Exception:
-            pass
 
     return {
         "ok": True,
@@ -1047,13 +807,12 @@ async def get_brain_status():
 
 # ─── Vault / Obsidian export ──────────────────────────────────────────────────
 
-@app.get("/api/vault/notes")
+@app.get("/api/vault")
 async def get_vault_contents():
     """
     Return all vault notes as a browsable JSON structure.
     Since Railway can't write to the local Obsidian vault, this endpoint
     lets the HUD or external tools read what the agents have written.
-    Previously shadowed by the /api/vault P&L endpoint (FastAPI uses first match).
     """
     vault_path = mem.VAULT
     if not vault_path.exists():
@@ -1169,45 +928,8 @@ async def add_transaction(body: dict):
     state.vault["transactions"].append(txn)
     state.recalculate_vault()
     state.save_vault()
-
-    # Record per-niche sales intel so HEIMDALL learns from real conversions
-    if txn["type"] == "revenue":
-        try:
-            sales_intel.record_sale(
-                niche=str(body.get("niche", "general")),
-                product_type=str(body.get("product_type", "unknown")),
-                revenue=txn["amount"],
-                units=int(body.get("units", 1)),
-            )
-        except Exception:
-            pass
-
     vault_report = _build_vault_report(state)
     await manager.broadcast({"type": "vault_report", "data": vault_report})
-
-    # Brain outcome for revenue transactions so VAULT can learn from real sales
-    if txn["type"] == "revenue":
-        try:
-            brain.record_outcome(
-                "VAULT",
-                f"Revenue transaction: ${txn['amount']:.2f} — '{txn.get('description', 'sale')}'",
-                f"Sale recorded via REST — niche: {body.get('niche', 'general')}, source: {txn.get('source', 'manual')}",
-                9,
-            )
-        except Exception:
-            pass
-
-    # Discord sale notification for revenue transactions
-    if txn["type"] == "revenue":
-        try:
-            await _discord.notify_sale(
-                niche=str(body.get("niche", body.get("source", "unknown"))),
-                product=txn["description"],
-                revenue=txn["amount"],
-            )
-        except Exception:
-            pass
-
     return txn
 
 
@@ -1251,33 +973,6 @@ async def memory_browse():
                     pass
             folders.append({"folder": folder.name, "count": len(list(folder.rglob("*.md"))), "recent": files[:5]})
     return {"available": True, "vault": str(vault.resolve()), "folders": folders}
-
-
-# ─── TTS ─────────────────────────────────────────────────────────────────────
-
-class TTSRequest(BaseModel):
-    text: str
-    voice: str = "onyx"
-
-@app.post("/api/tts")
-async def text_to_speech(req: TTSRequest):
-    """Convert text to speech using OpenAI TTS and return MP3 audio."""
-    from fastapi.responses import Response as _Resp
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        raise HTTPException(503, detail="OPENAI_API_KEY not set")
-    try:
-        from openai import AsyncOpenAI as _OAI
-        oai = _OAI(api_key=openai_key)
-        response = await oai.audio.speech.create(
-            model="tts-1",
-            voice=req.voice,
-            input=req.text[:4096],
-            response_format="mp3",
-        )
-        return _Resp(content=response.content, media_type="audio/mpeg")
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
 
 
 # ─── XP Helper ───────────────────────────────────────────────────────────────
@@ -1421,10 +1116,6 @@ async def _heimdall_loop():
                     )
                 except Exception:
                     pass
-                try:
-                    mem.heimdall_write_approved(idea)
-                except Exception:
-                    pass
                 asyncio.create_task(run_idea_pipeline(idea, manager, state))
             else:
                 await manager.broadcast({
@@ -1457,7 +1148,6 @@ async def _heimdall_loop():
 async def _athena_loop():
     from integrations.etsy import get_shop_stats
     scan_id = 0
-    _last_orders = 0  # track order count across scans to detect new sales
     await asyncio.sleep(20)
     while True:
         try:
@@ -1467,39 +1157,6 @@ async def _athena_loop():
             active = stats.get("active_listings", 0)
             orders = stats.get("total_orders", 0)
             today_rev = stats.get("today_revenue", 0.0)
-
-            # Detect new orders since last scan and record per-niche sales intel
-            if orders > _last_orders and not stats.get("demo"):
-                new_order_count = orders - _last_orders
-                # Infer niche from the most recently approved idea in the queue
-                _niche_guess = "general"
-                _pt_guess = "unknown"
-                try:
-                    recent_approved = [
-                        i for i in state.queue.get("ideas", [])
-                        if i.get("status") == "approved" and i.get("niche")
-                    ]
-                    if recent_approved:
-                        _latest = sorted(
-                            recent_approved,
-                            key=lambda x: x.get("createdAt", ""),
-                            reverse=True,
-                        )[0]
-                        _niche_guess = _latest.get("niche", "general")
-                        _pt_guess = _latest.get("productType", "unknown")
-                except Exception:
-                    pass
-                revenue_per_order = (today_rev / new_order_count) if new_order_count > 0 else 34.99
-                try:
-                    sales_intel.record_sale(
-                        niche=_niche_guess,
-                        product_type=_pt_guess,
-                        revenue=round(revenue_per_order * new_order_count, 2),
-                        units=new_order_count,
-                    )
-                except Exception:
-                    pass
-            _last_orders = orders
 
             msg = f"Shop pulse: {active} active listings, {orders} total orders, ${today_rev:.2f} today."
             if not stats.get("demo"):
@@ -1542,20 +1199,11 @@ async def _odin_morning_briefing_loop():
             pending_i = len([i for i in state.queue["ideas"] if i["status"] == "pending"])
             pending_d = len([d for d in state.queue["designs"] if d["status"] == "pending"])
 
-            # Goal math: net $200/month. Compute average realized sale price from actual
-            # revenue transactions so the estimate adapts to dynamic pricing intel.
-            # Falls back to $34.99 default before any sales occur.
+            # Goal math: net $200/month, ~9 sales needed at $34.99
             goal = 200.0
-            _rev_txns = [t for t in state.vault.get("transactions", []) if t.get("type") == "revenue"]
-            avg_price = (sum(t.get("amount", 0) for t in _rev_txns) / len(_rev_txns)) if _rev_txns else 34.99
-            net_per_sale = avg_price - 8.50 - (avg_price * 0.065) - 0.20
-            net_per_sale = max(net_per_sale, 1.0)  # guard against division by zero
+            net_per_sale = 34.99 - 8.50 - (34.99 * 0.065) - 0.20  # ~$24.02
             sales_needed = round(goal / net_per_sale)
-            # Count actual revenue transactions rather than dividing by a hardcoded price.
-            # With dynamic pricing intel, listing prices vary by niche, so rev / 34.99
-            # would overstate or understate the real number of sales made.
-            # Revenue transactions are never pruned by save_vault, so this is always accurate.
-            sales_done = len([t for t in state.vault.get("transactions", []) if t.get("type") == "revenue"])
+            sales_done = round(rev / 34.99) if rev > 0 else 0
             sales_left = max(0, sales_needed - sales_done)
             pct = round((net / goal * 100), 1)
 
@@ -1584,33 +1232,6 @@ async def _odin_morning_briefing_loop():
                 brain.write_odin_briefing(briefing)
             except Exception:
                 pass
-
-            # Discord morning briefing notification
-            try:
-                await _discord.notify_briefing(briefing)
-            except Exception:
-                pass
-
-            # Twilio SMS — condensed daily briefing to phone
-            try:
-                from datetime import date as _date, timedelta as _td
-                _yesterday = (_date.today() - _td(days=1)).isoformat()
-                _txns = state.vault.get("transactions", [])
-                _sales_yesterday = sum(
-                    1 for t in _txns
-                    if t.get("type") == "revenue" and t.get("timestamp", "")[:10] == _yesterday
-                )
-                _approved_ideas = [i for i in state.queue["ideas"] if i.get("status") == "approved"]
-                _top_niche = _approved_ideas[-1].get("niche", "—") if _approved_ideas else "—"
-                _sms_text = build_briefing_sms(
-                    sales_yesterday=_sales_yesterday,
-                    revenue=rev,
-                    pending_approvals=pending_i + pending_d,
-                    top_niche=_top_niche,
-                )
-                await send_sms(_sms_text)
-            except Exception as _sms_err:
-                print(f"[SMS BRIEFING] {type(_sms_err).__name__}: {_sms_err}")
 
             await manager.broadcast({
                 "type": "odin_strategy",
@@ -1686,12 +1307,7 @@ Return ONLY a JSON object: {{"improvements": ["instruction 1", "instruction 2"],
                         raw = raw.split("```")[1]
                         if raw.startswith("json"):
                             raw = raw[4:]
-                    raw = raw.strip()
-                    try:
-                        data = json.loads(raw)
-                    except json.JSONDecodeError as json_err:
-                        print(f"[ODIN IMPROVEMENT] JSON error for {agent_name}: {json_err} — raw[:120]: {raw[:120]!r}")
-                        continue
+                    data = json.loads(raw.strip())
                     improvements = data.get("improvements", [])
                     note = data.get("odin_note", "")
 
@@ -1713,90 +1329,6 @@ Return ONLY a JSON object: {{"improvements": ["instruction 1", "instruction 2"],
         except Exception as e:
             print(f"[ODIN IMPROVEMENT LOOP] error: {type(e).__name__}: {e}")
         await asyncio.sleep(86400)  # 24 hours
-
-
-async def _bestseller_requeue_loop():
-    """
-    Every 6 hours: find niches with 3+ units sold (bestsellers).
-    For each, if fewer than 2 pending/approved ideas exist in that niche,
-    auto-queue a new idea tagged 'AUTO: bestseller niche requeue'.
-    """
-    await asyncio.sleep(90)  # Let startup settle before first run
-    while True:
-        try:
-            bestsellers = sales_intel.get_bestsellers(min_units=3)
-            requeued = []
-            for entry in bestsellers:
-                niche = entry.get("niche", "")
-                if not niche:
-                    continue
-                # Count pending/approved ideas already in this niche
-                niche_items = [
-                    i for i in state.queue.get("ideas", [])
-                    if i.get("niche", "").lower() == niche.lower()
-                    and i.get("status") in ("pending", "approved")
-                ]
-                if len(niche_items) < 2:
-                    new_idea = generate_niche_idea(niche)
-                    new_idea["source"] = "AUTO: bestseller niche requeue"
-                    new_idea["note"] = (
-                        f"Auto-requeued: '{niche}' has {entry.get('total_units', 0)} units sold "
-                        f"(${entry.get('total_revenue', 0):.2f} revenue)"
-                    )
-                    state.queue["ideas"].append(new_idea)
-                    requeued.append(new_idea)
-
-            if requeued:
-                state.save_queue()
-                # Auto-approve high-confidence bestseller requeues — same criteria as _heimdall_loop.
-                # Bestseller niches have proven conversion data, so high-demand/low-competition
-                # ideas in these niches should flow to the pipeline without waiting 30+ min for
-                # ODIN's autonomous approval loop.
-                _needs_review = []
-                for _idea in requeued:
-                    _demand = _idea.get("demandScore", 0)
-                    _comp = _idea.get("competition", "medium")
-                    if _demand >= 85 and _comp == "low":
-                        _idea["status"] = "approved"
-                        asyncio.create_task(run_idea_pipeline(_idea, manager, state))
-                        try:
-                            mem.heimdall_write_approved(_idea)
-                        except Exception:
-                            pass
-                    else:
-                        _needs_review.append(_idea)
-                if any(_i.get("status") == "approved" for _i in requeued):
-                    state.save_queue()  # persist auto-approval status
-                for idea in _needs_review:
-                    await manager.broadcast({
-                        "type": "approval_queue",
-                        "agent": "HEIMDALL",
-                        "data": {"category": "ideas", "items": [idea]},
-                    })
-                niche_names = ", ".join(i["niche"] for i in requeued)
-                await manager.broadcast({
-                    "type": "agent_log",
-                    "agent": "HEIMDALL",
-                    "message": (
-                        f"Bestseller requeue: {len(requeued)} idea(s) auto-queued for "
-                        f"proven niches — {niche_names}."
-                    ),
-                    "level": "info",
-                    "timestamp": datetime.now().isoformat(),
-                })
-                try:
-                    brain.record_outcome(
-                        "HEIMDALL",
-                        f"Bestseller requeue: {len(requeued)} niche(s) refilled",
-                        f"Auto-queued ideas for: {niche_names}",
-                        8,
-                    )
-                except Exception:
-                    pass
-
-        except Exception as e:
-            print(f"[BESTSELLER REQUEUE] error: {type(e).__name__}: {e}")
-        await asyncio.sleep(21600)  # 6 hours
 
 
 async def _vault_loop():
@@ -1858,21 +1390,6 @@ async def _heimdall_deep_research_loop():
             except Exception:
                 pass
 
-            # Read proven sales traction so Claude weights ideas toward what converts
-            sales_intel_text = ""
-            try:
-                sales_intel_text = sales_intel.format_top_niches_for_prompt()
-            except Exception:
-                pass
-
-            # Read seasonal calendar so Claude favors niches with upcoming demand spikes
-            seasonal_intel_text = ""
-            try:
-                from memory import seasonal_calendar as _sc
-                seasonal_intel_text = _sc.get_seasonal_niches_for_prompt()
-            except Exception:
-                pass
-
             # Use Serper (Google) if API key configured, otherwise DuckDuckGo (free)
             lines = []
             if _serper_key:
@@ -1895,11 +1412,9 @@ async def _heimdall_deep_research_loop():
                     "true crime fan", "book lover", "cat mom mug", "funny sarcasm",
                     "birthday gift women", "baby shower gift", "wedding gift",
                 ]
-                # Rotate through a window of 6 per cycle so every niche gets coverage over time.
-                # Use wall-clock timestamp (not event-loop time) so the window is consistent
-                # across server restarts — asyncio.get_event_loop().time() resets to 0 on boot.
+                # Rotate through a window of 6 per cycle so every niche gets coverage over time
                 import math
-                cycle_idx = int(datetime.now().timestamp() / 3600) % math.ceil(len(niches) / 6)
+                cycle_idx = int(asyncio.get_event_loop().time() / 3600) % math.ceil(len(niches) / 6)
                 niches = niches[cycle_idx * 6 : cycle_idx * 6 + 6]
                 for niche in niches:
                     ddg_results = await search_etsy_trends(niche)
@@ -1920,13 +1435,6 @@ async def _heimdall_deep_research_loop():
 
 Previously researched context (avoid exact duplicates of these concepts):
 {past_context[:800] if past_context else "No prior research — first cycle."}
-
-AsgardMade proven sales traction (prioritize variants and adjacent ideas for these niches):
-{sales_intel_text if sales_intel_text else "No sales data yet — focus on trend signals."}
-
-SEASONAL CALENDAR — upcoming demand spikes (shoppers already searching for these):
-{seasonal_intel_text if seasonal_intel_text else "No seasonal events in the next 8 weeks."}
-SEASONAL INSTRUCTION: Niches matching the calendar above have built-in buyer urgency. A niche that scores 70 AND aligns with an event <4 weeks away is more valuable than a niche scoring 78 with no seasonal hook. Include at least one seasonal niche per cycle when events are within 6 weeks.
 
 Extract 5-8 distinct, specific product ideas that have real commercial signal in these results.
 For each idea return these exact fields:
@@ -1963,39 +1471,9 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                     raw = raw[4:]
             raw = raw.strip()
 
-            try:
-                ideas_raw = json.loads(raw)
-            except json.JSONDecodeError as json_err:
-                print(f"[HEIMDALL DEEP RESEARCH] JSON parse error cycle={cycle}: {json_err} — raw[:120]: {raw[:120]!r}")
-                await asyncio.sleep(3600)
-                continue
+            ideas_raw = json.loads(raw)
             if not isinstance(ideas_raw, list):
                 raise ValueError(f"Expected JSON array, got {type(ideas_raw)}")
-
-            # Apply seasonal priority boost before filtering — seasonal niches get 1.2–2.0x
-            try:
-                from memory import seasonal_calendar as _sc
-                for _idea in ideas_raw:
-                    if not isinstance(_idea, dict):
-                        continue
-                    _niche = _idea.get("niche", "")
-                    _boost, _event_name = _sc.get_boost_details(_niche)
-                    if _boost > 1.0:
-                        _raw_score = _idea.get("score", 0)
-                        _boosted = min(100, round(_raw_score * _boost))
-                        _idea["score"] = _boosted
-                        if "demandScore" in _idea:
-                            _idea["demandScore"] = min(99, round(_idea["demandScore"] * _boost))
-                        print(f"[SEASONAL] {_niche} boosted by {_boost}x (event: {_event_name}) — score {_raw_score} → {_boosted}")
-                        await manager.broadcast({
-                            "type": "agent_log",
-                            "agent": "HEIMDALL",
-                            "message": f"[SEASONAL] '{_niche}' boosted {_boost}x for {_event_name} — score {_raw_score} → {_boosted}",
-                            "level": "info",
-                            "timestamp": datetime.now().isoformat(),
-                        })
-            except Exception as _se:
-                print(f"[SEASONAL BOOST] error: {type(_se).__name__}: {_se}")
 
             high_signal = [i for i in ideas_raw if isinstance(i, dict) and i.get("score", 0) >= 75]
 
@@ -2048,17 +1526,6 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                         "agent": "HEIMDALL",
                         "data": {"category": "ideas", "items": needs_review},
                     })
-
-                # Write approved ideas to Obsidian memory — mirrors the gap fixed in auto-15
-                # for _heimdall_loop and _odin_autonomous_action_loop. Without this, the deep
-                # research auto-approve path (the highest-volume approval path) left Obsidian
-                # blind to every idea it approved autonomously.
-                for _ai in added:
-                    if _ai.get("status") == "approved":
-                        try:
-                            mem.heimdall_write_approved(_ai)
-                        except Exception:
-                            pass
                 top = added[0]
                 await manager.broadcast({
                     "type": "agent_log",
@@ -2148,7 +1615,7 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
             await manager.broadcast({
                 "type": "agent_log",
                 "agent": "HEIMDALL",
-                "message": f"Deep research #{cycle} error: {type(e).__name__}: {str(e)[:120]}. Retrying in 1 hour.",
+                "message": f"Deep research #{cycle} error: {type(e).__name__}: {str(e)[:120]}. Retrying in 6 hours.",
                 "level": "warning",
                 "timestamp": datetime.now().isoformat(),
             })
@@ -2196,12 +1663,7 @@ async def _brain_synthesis_loop():
                         if raw.startswith("json"):
                             raw = raw[4:]
                     raw = raw.strip()
-                    try:
-                        data = json.loads(raw)
-                    except json.JSONDecodeError as json_err:
-                        print(f"[BRAIN] synthesis JSON error for {agent_name}: {json_err} — raw[:120]: {raw[:120]!r}")
-
-                        continue
+                    data = json.loads(raw)
                     lessons = data.get("lessons", [])
                     summary = data.get("summary", "")
                     brain.write_agent_lessons(agent_name, lessons, summary)
@@ -2293,7 +1755,7 @@ async def _odin_autonomous_action_loop():
 
             actions_taken = []
 
-            # Auto-approve ideas that have been waiting >30 min and score >= 70
+            # Auto-approve ideas that have been waiting >30 min and score ≥ 70
             for idea in pending_ideas:
                 queued_at = idea.get("createdAt", "")
                 if queued_at:
@@ -2313,10 +1775,6 @@ async def _odin_autonomous_action_loop():
                                 f"ODIN autonomous approved (score {score}, {age_min:.0f}min queued) — pipeline triggered",
                                 7,
                             )
-                        except Exception:
-                            pass
-                        try:
-                            mem.heimdall_write_approved(idea)
                         except Exception:
                             pass
 
@@ -2339,10 +1797,6 @@ async def _odin_autonomous_action_loop():
                                 f"ODIN autonomous approved ({age_min:.0f}min queued) — uploading to Printify",
                                 7,
                             )
-                        except Exception:
-                            pass
-                        try:
-                            mem.vulcan_write_approved(design)
                         except Exception:
                             pass
 
@@ -2381,795 +1835,47 @@ async def _odin_autonomous_action_loop():
 
         except Exception as e:
             print(f"[ODIN AUTONOMOUS] error: {type(e).__name__}: {e}")
-        await asyncio.sleep(600)  # every 10 minutes
+        await asyncio.sleep(600)  # every 10 minutes — tighter loop means auto-approvals fire closer to the 30/60-min thresholds
 
 
+# ─── Static file catch-all (must be LAST route so API routes match first) ────
 
-async def _ab_test_resolver_loop():
-    """
-    Runs every 24 hours. Checks A/B tests that are 7+ days old, fetches Etsy stats,
-    picks the winner, updates the listing title if B wins, and sends a Discord notification.
-    """
-    import httpx
-
-    await asyncio.sleep(3600)  # first check 1 hour after startup
-    while True:
-        try:
-            from integrations.etsy import BASE_URL, _headers, _shop_id, _has_credentials
-            ready_tests = ab_tests.get_tests_ready_for_check(days=7)
-            if not ready_tests:
-                await manager.broadcast({
-                    "type": "agent_log",
-                    "agent": "GUARDIAN",
-                    "message": "[A/B] Resolver check: no tests ready for evaluation yet.",
-                    "level": "info",
-                    "timestamp": datetime.now().isoformat(),
-                })
-            else:
-                await manager.broadcast({
-                    "type": "agent_log",
-                    "agent": "GUARDIAN",
-                    "message": f"[A/B] Resolver: evaluating {len(ready_tests)} test(s) past 7-day mark.",
-                    "level": "info",
-                    "timestamp": datetime.now().isoformat(),
-                })
-
-                for test in ready_tests:
-                    test_id = test["test_id"]
-                    listing_id = test["listing_id"]
-                    title_a = test["title_a"]
-                    title_b = test["title_b"]
-                    niche = test.get("niche", "unknown")
-
-                    views_a, clicks_a, views_b, clicks_b = 0, 0, 0, 0
-
-                    if _has_credentials():
-                        try:
-                            async with httpx.AsyncClient(timeout=30) as client:
-                                resp = await client.get(
-                                    f"{BASE_URL}/application/listings/{listing_id}/stats",
-                                    headers=_headers(),
-                                    params={"unit": "total"},
-                                )
-                                if resp.status_code == 200:
-                                    stats_data = resp.json()
-                                    views_a = stats_data.get("views", 0)
-                                    clicks_a = stats_data.get("visits", 0)
-                                    # Title B is tested in the second half of the window
-                                    views_b = int(views_a * 0.5)
-                                    clicks_b = int(clicks_a * 0.5)
-                        except Exception as _stat_err:
-                            print(f"[A/B] Stats fetch failed for listing {listing_id}: {_stat_err}")
-
-                    # B wins if it simulates more clicks or views; demo defaults to A
-                    if _has_credentials() and (clicks_b > clicks_a or views_b > views_a):
-                        winner = "b"
-                        winner_title = title_b
-                        loser_views = views_a
-                        winner_views = views_b
-                    else:
-                        winner = "a"
-                        winner_title = title_a
-                        loser_views = views_b
-                        winner_views = views_a
-
-                    # Update Etsy listing title if B wins
-                    if winner == "b" and _has_credentials():
-                        try:
-                            async with httpx.AsyncClient(timeout=30) as client:
-                                patch_resp = await client.patch(
-                                    f"{BASE_URL}/application/listings/{listing_id}",
-                                    headers=_headers(),
-                                    json={"title": title_b},
-                                )
-                                lvl = "info" if patch_resp.status_code in (200, 204) else "warning"
-                                await manager.broadcast({
-                                    "type": "agent_log",
-                                    "agent": "GUARDIAN",
-                                    "message": f"[A/B] Title updated listing {listing_id} → B: {title_b!r}",
-                                    "level": lvl,
-                                    "timestamp": datetime.now().isoformat(),
-                                })
-                        except Exception as _pe:
-                            print(f"[A/B] Etsy patch error: {type(_pe).__name__}: {_pe}")
-
-                    # Mark test complete and broadcast result
-                    ab_tests.complete_test(test_id, winner)
-                    msg_ab = (
-                        f"[A/B] Test complete [{niche}] Winner: title_{winner.upper()} "
-                        f"('{winner_title}'). {winner_views} views vs {loser_views}."
-                    )
-                    await manager.broadcast({
-                        "type": "agent_log", "agent": "GUARDIAN",
-                        "message": msg_ab, "level": "info",
-                        "timestamp": datetime.now().isoformat(),
-                    })
-                    try:
-                        await _discord.notify_general(f"A/B Result [{niche}]: {msg_ab}")
-                    except Exception:
-                        pass
-                    # Brain outcome so LOKI learns which title styles win A/B tests
-                    try:
-                        brain.record_outcome(
-                            "LOKI",
-                            f"A/B title test [{niche}] listing {listing_id}: '{title_a}' vs '{title_b}'",
-                            f"Winner: title_{winner.upper()} ('{winner_title}') — {winner_views} views vs {loser_views}",
-                            8 if winner == "b" else 6,
-                        )
-                    except Exception:
-                        pass
-
-        except Exception as e:
-            print(f"[A/B RESOLVER] error: {type(e).__name__}: {e}")
-        await asyncio.sleep(86400)
+@app.get("/{path:path}")
+async def serve_static(path: str):
+    """Serve any file from the public/ directory (JS, CSS, images, etc.)"""
+    file_path = PUBLIC_DIR / path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(str(file_path))
+    return FileResponse(str(PUBLIC_DIR / "index.html"))
 
 
-async def _review_monitor_loop():
-    """Runs every hour. Records Etsy reviews, alerts ODIN and Discord on negatives."""
-    await asyncio.sleep(120)
-    while True:
-        try:
-            from integrations.etsy import get_recent_reviews, _has_credentials
-            if _has_credentials():
-                reviews = await get_recent_reviews()
-                for rev in (reviews or []):
-                    is_new = review_tracker.record_review(
-                        listing_id=str(rev.get("listing_id", "")),
-                        listing_title=rev.get("listing_title", "Unknown"),
-                        rating=int(rev.get("rating", 5)),
-                        review_text=rev.get("review", ""),
-                        reviewer=rev.get("buyer", ""),
-                        review_id=str(rev.get("review_id", "")),
-                        product_type=rev.get("product_type", "unknown"),
-                    )
-                    rating = int(rev.get("rating", 5))
-                    if is_new and rating <= 2:
-                        alert = (
-                            f"Negative review ({rev.get('rating')} star) on "
-                            f"'{rev.get('listing_title','?')}': "
-                            f"\"{rev.get('review','')[:80]}\""
-                        )
-                        await manager.broadcast({
-                            "type": "agent_log", "agent": "GUARDIAN",
-                            "message": alert, "level": "warning",
-                            "timestamp": datetime.now().isoformat(),
-                        })
-                        try:
-                            await _discord.notify_general(f"REVIEW ALERT: {alert}")
-                        except Exception:
-                            pass
-                        # Brain feedback so GUARDIAN + LOKI learn from negative reviews
-                        try:
-                            brain.record_outcome(
-                                "GUARDIAN",
-                                f"Negative review on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
-                                f"{rev.get('rating')} star: {rev.get('review','')[:100]}",
-                                1,
-                            )
-                        except Exception:
-                            pass
-                        # LOKI learns from each individual negative review immediately —
-                        # previously LOKI only got brain feedback from flagged product-type
-                        # patterns (requiring multiple bad reviews). This immediate signal
-                        # lets the brain synthesis loop adjust listing style much faster.
-                        try:
-                            brain.record_outcome(
-                                "LOKI",
-                                f"Negative review on listing '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
-                                f"{rev.get('rating')} star — reconsider title/description approach: {rev.get('review','')[:80]}",
-                                1,
-                            )
-                        except Exception:
-                            pass
-                    elif is_new and rating == 3:
-                        # 3-star = mediocre. Not bad enough to alert, but signals a gap
-                        # between buyer expectation and reality. LOKI should learn from these
-                        # to adjust title/description accuracy and set clearer expectations.
-                        try:
-                            brain.record_outcome(
-                                "LOKI",
-                                f"Mediocre review (3 star) on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
-                                f"3 star: {rev.get('review','')[:100]} — consider improving title clarity or description expectations",
-                                4,
-                            )
-                        except Exception:
-                            pass
-                    elif is_new and rating >= 4:
-                        # Brain feedback for positive reviews so LOKI learns which listing
-                        # styles, niches, and product types generate happy customers.
-                        # Previously only negative reviews recorded brain outcomes — the brain
-                        # was completely blind to what was WORKING.
-                        try:
-                            brain.record_outcome(
-                                "LOKI",
-                                f"Positive review on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
-                                f"{rating} star: {rev.get('review','')[:100]}",
-                                9 if rating == 5 else 7,
-                            )
-                        except Exception:
-                            pass
-                        # GUARDIAN learns which product types generate satisfied customers —
-                        # helps calibrate what to protect vs. flag in future scans.
-                        try:
-                            brain.record_outcome(
-                                "GUARDIAN",
-                                f"Positive review on product type '{rev.get('product_type','?')}' listing '{rev.get('listing_title','?')}'",
-                                f"{rating} star — this product type is working well for customers",
-                                9 if rating == 5 else 7,
-                            )
-                        except Exception:
-                            pass
-                flagged = review_tracker.get_flagged_listings()
-                for fl in flagged:
-                    pattern = review_tracker.get_review_pattern(fl["product_type"])
-                    if pattern:
-                        await manager.broadcast({
-                            "type": "agent_log", "agent": "GUARDIAN",
-                            "message": f"[REVIEW PATTERN] {pattern} — consider pausing {fl['product_type']}",
-                            "level": "warning",
-                            "timestamp": datetime.now().isoformat(),
-                        })
-                        # LOKI should learn which product types accumulate bad reviews
-                        try:
-                            brain.record_outcome(
-                                "LOKI",
-                                f"Product type flagged by reviews: {fl['product_type']}",
-                                f"Pattern: {pattern} — may need listing changes or product pause",
-                                2,
-                            )
-                        except Exception:
-                            pass
-        except Exception as e:
-            print(f"[REVIEW MONITOR] error: {type(e).__name__}: {e}")
-        await asyncio.sleep(3600)
+# ─── Startup ─────────────────────────────────────────────────────────────────
 
-
-
-async def _autonomous_listing_loop():
-    """
-    Fully autonomous daily listing pipeline.
-    Runs every day at 9am — no human approval needed.
-    """
-    from datetime import timedelta as _td
-    await asyncio.sleep(60)
-    while True:
-        try:
-            now = datetime.now()
-            next_run = now.replace(hour=9, minute=0, second=0, microsecond=0)
-            if now >= next_run:
-                next_run += _td(days=1)
-            wait_secs = (next_run - now).total_seconds()
-            print(f"[AUTO PIPELINE] Next run at {next_run.strftime('%Y-%m-%d %H:%M')} ({wait_secs/3600:.1f}h)")
-            await asyncio.sleep(wait_secs)
-            print("[AUTO PIPELINE] Starting autonomous daily listing pipeline...")
-            result = await run_autonomous_daily_pipeline(manager, state, listings_per_run=3)
-            print(f"[AUTO PIPELINE] Complete — {result.get('published', 0)} listings published")
-        except Exception as e:
-            print(f"[AUTO PIPELINE] Error: {type(e).__name__}: {e}")
-            await asyncio.sleep(3600)
-
-
-async def _weekly_email_report_loop():
-    """Fires every Sunday at 8am. Sends a branded P&L email via Gmail SMTP."""
-    from datetime import timedelta as _td
-    await asyncio.sleep(30)
-    while True:
-        now = datetime.now()
-        days_ahead = (6 - now.weekday()) % 7
-        next_sunday = now.replace(hour=8, minute=0, second=0, microsecond=0) + _td(days=days_ahead)
-        if next_sunday <= now:
-            next_sunday += _td(weeks=1)
-        await asyncio.sleep((next_sunday - now).total_seconds())
-        try:
-            from integrations.gmail_report import send_weekly_report
-            from memory.seasonal_calendar import get_seasonal_niches_for_prompt
-            from datetime import timedelta as _td2
-            txns = state.vault.get("transactions", [])
-            cutoff = (datetime.now() - _td2(days=7)).isoformat()
-            week_txns = [t for t in txns if t.get("timestamp", "") >= cutoff]
-            week_rev = sum(t["amount"] for t in week_txns if t.get("type") == "revenue")
-            week_exp = sum(t["amount"] for t in week_txns if t.get("type") == "expense")
-            week_sales = len([t for t in week_txns if t.get("type") == "revenue"])
-            pending_i = len([i for i in state.queue.get("ideas", []) if i.get("status") == "pending"])
-            top_niches_data = []
-            try:
-                top_niches_data = sales_intel.get_top_niches(n=5)
-            except Exception:
-                pass
-            stats = {
-                "week_revenue": week_rev,
-                "week_profit": week_rev - week_exp,
-                "week_sales": week_sales,
-                "new_designs": len([t for t in week_txns if t.get("type") == "expense"
-                                    and "listing" in t.get("description", "").lower()]),
-                "top_niches": top_niches_data,
-                "top_listings": [],
-                "total_listings": len(state.queue.get("designs", [])),
-                "pending_approvals": pending_i,
-                "ideas_researched": len(state.queue.get("ideas", [])),
-                "designs_created": len(state.queue.get("designs", [])),
-                "listings_published": len([d for d in state.queue.get("designs", [])
-                                           if d.get("status") == "approved"]),
-                "upcoming_events": get_seasonal_niches_for_prompt().split("\n")[:4],
-            }
-            success = await send_weekly_report(stats)
-            await manager.broadcast({
-                "type": "agent_log", "agent": "ODIN",
-                "message": f"Weekly email report {'sent' if success else 'failed — check GMAIL_USER and GMAIL_APP_PASSWORD in Railway'}.",
-                "level": "info" if success else "warning",
-                "timestamp": datetime.now().isoformat(),
-            })
-        except Exception as e:
-            print(f"[WEEKLY EMAIL] error: {type(e).__name__}: {e}")
-
-
-
-# ─── Google Suite API ────────────────────────────────────────────────────────
-
-@app.get("/api/google/status")
-async def google_status_endpoint():
+@app.on_event("startup")
+async def startup():
+    brain.initialize()  # ensure brain directory exists immediately
+    # Ensure obsidian vault directory exists so agents can write notes immediately
     try:
-        from integrations.google import google_status as _gs
-        from integrations.google.gmail import gmail_available, get_unread_count
-        status = _gs()
-        status["unread_count"] = get_unread_count() if gmail_available() else -1
-        return status
-    except Exception as e:
-        return {"error": str(e), "any_credentials": False}
-
-
-@app.get("/api/google/gmail/inbox")
-async def gmail_inbox(limit: int = 10):
-    try:
-        from integrations.google.gmail import get_inbox
-        return {"emails": get_inbox(limit=limit)}
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
-
-
-@app.get("/api/google/gmail/search")
-async def gmail_search(q: str, limit: int = 5):
-    try:
-        from integrations.google.gmail import search_emails
-        return {"emails": search_emails(q, limit=limit)}
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
-
-
-class EmailRequest(BaseModel):
-    to: str
-    subject: str
-    body: str
-    html: bool = False
-
-@app.post("/api/google/gmail/send")
-async def gmail_send(req: EmailRequest):
-    try:
-        from integrations.google.gmail import send_email
-        ok = await send_email(req.to, req.subject, req.body, req.html)
-        return {"success": ok}
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
-
-
-@app.get("/api/google/calendar")
-async def calendar_events(days: int = 7):
-    try:
-        from integrations.google.calendar import get_upcoming_events
-        return {"events": get_upcoming_events(days=days)}
-    except Exception as e:
-        return {"events": [], "error": str(e)}
-
-
-class EventRequest(BaseModel):
-    title: str
-    start: str
-    end: str = ""
-    description: str = ""
-
-@app.post("/api/google/calendar/create")
-async def calendar_create(req: EventRequest):
-    try:
-        from integrations.google.calendar import create_event
+        from pathlib import Path as _P
         from datetime import datetime as _dt
-        start = _dt.fromisoformat(req.start)
-        end = _dt.fromisoformat(req.end) if req.end else None
-        event = create_event(req.title, start, end, req.description)
-        return {"event": event, "success": bool(event)}
+        _vault = _P(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
+        _vault.mkdir(parents=True, exist_ok=True)
+        mem.write("System/startup.md",
+            f"# Pantheon Online\nTimestamp: {_dt.now().isoformat()}\n"
+            f"Vault: {_vault.resolve()}\nAll agents initialized.\n")
+        print(f"[MEMORY] Obsidian vault active at {_vault.resolve()}")
     except Exception as e:
-        raise HTTPException(500, detail=str(e))
+        print(f"[MEMORY] Vault init warning: {e}")
+    asyncio.create_task(_guardian_loop())           # ops: logs + metrics + security
+    asyncio.create_task(_heimdall_loop())           # rapid niche scan every 2 min
+    asyncio.create_task(_heimdall_deep_research_loop())  # deep web research every 1h
+    asyncio.create_task(_athena_loop())             # shop stats every 5 min
+    asyncio.create_task(_vault_loop())              # P&L updates every 5 min
+    asyncio.create_task(_odin_loop())               # strategy updates every 5 min
+    asyncio.create_task(_odin_morning_briefing_loop())   # daily briefing
+    asyncio.create_task(_odin_agent_improvement_loop())  # daily agent improvement
+    asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval check every 10 min
+    asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 1h
 
-
-@app.get("/api/google/drive")
-async def drive_files(limit: int = 20, query: str = ""):
-    try:
-        from integrations.google.drive import list_files
-        return {"files": list_files(limit=limit, query=query)}
-    except Exception as e:
-        return {"files": [], "error": str(e)}
-
-
-@app.get("/api/google/sheets")
-async def sheets_read(range_: str = "Sheet1!A1:Z100"):
-    try:
-        from integrations.google.sheets import read_range
-        return {"data": read_range(range_)}
-    except Exception as e:
-        return {"data": [], "error": str(e)}
-
-
-# --- Etsy OAuth Flow ---------------------------------------------------------
-# PKCE-based OAuth2 (no client secret needed).
-# Tokens saved to data/etsy_tokens.json (Railway volume — survives redeploys).
-# PKCE state also saved to file so Railway restarts mid-flow don't break it.
-# Required env var: ETSY_API_KEY (just the keystring from etsy.com/developers)
-# Redirect URI to register in Etsy app: https://web-production-ed5a5.up.railway.app/etsy/callback
-
-import hashlib, base64, secrets, time
-
-def _etsy_app_url() -> str:
-    domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
-    if domain:
-        return f"https://{domain}"
-    return os.getenv("APP_URL", "https://web-production-ed5a5.up.railway.app")
-
-def _etsy_tokens_path() -> Path:
-    return DATA_DIR / "etsy_tokens.json"
-
-def _etsy_pkce_path() -> Path:
-    return DATA_DIR / "etsy_pkce.json"
-
-def _load_etsy_tokens() -> dict:
-    p = _etsy_tokens_path()
-    if p.exists():
-        try:
-            return json.loads(p.read_text())
-        except Exception:
-            pass
-    return {}
-
-def _save_etsy_tokens(data: dict) -> None:
-    _etsy_tokens_path().write_text(json.dumps(data, indent=2))
-
-def _load_pkce_store() -> dict:
-    """Load PKCE verifiers from file so restarts don't invalidate in-flight flows."""
-    p = _etsy_pkce_path()
-    if p.exists():
-        try:
-            store = json.loads(p.read_text())
-            # Prune entries older than 10 minutes
-            cutoff = time.time() - 600
-            return {k: v for k, v in store.items() if v.get("ts", 0) > cutoff}
-        except Exception:
-            pass
-    return {}
-
-def _save_pkce_store(store: dict) -> None:
-    _etsy_pkce_path().write_text(json.dumps(store))
-
-def _pkce_pop(state: str) -> str | None:
-    store = _load_pkce_store()
-    entry = store.pop(state, None)
-    _save_pkce_store(store)
-    return entry["verifier"] if entry else None
-
-def _pkce_put(state: str, verifier: str) -> None:
-    store = _load_pkce_store()
-    store[state] = {"verifier": verifier, "ts": time.time()}
-    _save_pkce_store(store)
-
-async def _refresh_etsy_token(refresh_token: str) -> dict | None:
-    import httpx
-    client_id = os.getenv("ETSY_API_KEY", "").strip()
-    async with httpx.AsyncClient(timeout=15) as client:
-        try:
-            resp = await client.post(
-                "https://api.etsy.com/v3/public/oauth/token",
-                data={"grant_type": "refresh_token", "client_id": client_id,
-                      "refresh_token": refresh_token},
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                data["expires_at"] = time.time() + data.get("expires_in", 3600)
-                existing = _load_etsy_tokens()
-                existing.update(data)
-                _save_etsy_tokens(existing)
-                os.environ["ETSY_OAUTH_TOKEN"] = data["access_token"]
-                print(f"[ETSY] Token refreshed. Expires in {data.get('expires_in', 3600)}s.")
-                return data
-            else:
-                print(f"[ETSY] Refresh failed {resp.status_code}: {resp.text[:200]}")
-        except Exception as e:
-            print(f"[ETSY] Token refresh error: {e}")
-    return None
-
-@app.get("/etsy/connect")
-async def etsy_connect():
-    """Start Etsy OAuth PKCE flow. Redirects user to Etsy consent screen."""
-    client_id = os.getenv("ETSY_API_KEY", "").strip()
-    if not client_id:
-        return JSONResponse({
-            "error": "ETSY_API_KEY not set",
-            "fix": "Go to Railway → your project → Variables → add ETSY_API_KEY with your Etsy app keystring"
-        }, status_code=400)
-
-    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-    digest = hashlib.sha256(code_verifier.encode()).digest()
-    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
-    state = secrets.token_urlsafe(16)
-
-    # Persist verifier to file — survives Railway restarts mid-flow
-    _pkce_put(state, code_verifier)
-
-    redirect_uri = f"{_etsy_app_url()}/etsy/callback"
-    scopes = "listings_r%20listings_w%20transactions_r%20shops_r%20email_r"
-
-    auth_url = (
-        f"https://www.etsy.com/oauth/connect"
-        f"?response_type=code"
-        f"&client_id={client_id}"
-        f"&redirect_uri={redirect_uri}"
-        f"&scope={scopes}"
-        f"&state={state}"
-        f"&code_challenge={code_challenge}"
-        f"&code_challenge_method=S256"
-    )
-    print(f"[ETSY] OAuth flow started. redirect_uri={redirect_uri}")
-    return RedirectResponse(auth_url)
-
-@app.get("/etsy/callback")
-async def etsy_callback(code: str = "", state: str = "", error: str = ""):
-    """Etsy redirects here after user grants permission. Exchange code for tokens."""
-    import httpx
-
-    if error:
-        print(f"[ETSY] OAuth denied by user: {error}")
-        return RedirectResponse("/?etsy=denied")
-
-    if not code or not state:
-        print(f"[ETSY] Callback missing code or state. code={bool(code)} state={bool(state)}")
-        return JSONResponse({"error": "Missing code or state parameter from Etsy."}, status_code=400)
-
-    code_verifier = _pkce_pop(state)
-    if not code_verifier:
-        print(f"[ETSY] Unknown state '{state}' — likely a Railway restart mid-flow. Ask user to retry.")
-        return RedirectResponse("/?etsy=retry")
-
-    client_id = os.getenv("ETSY_API_KEY", "").strip()
-    redirect_uri = f"{_etsy_app_url()}/etsy/callback"
-
-    print(f"[ETSY] Exchanging code for token. client_id={client_id[:8]}... redirect_uri={redirect_uri}")
-
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.post(
-            "https://api.etsy.com/v3/public/oauth/token",
-            data={
-                "grant_type": "authorization_code",
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "code": code,
-                "code_verifier": code_verifier,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-
-    if resp.status_code != 200:
-        print(f"[ETSY] Token exchange failed {resp.status_code}: {resp.text[:500]}")
-        return JSONResponse({
-            "error": f"Etsy token exchange failed ({resp.status_code})",
-            "detail": resp.text[:300],
-            "fix": (
-                f"Ensure '{redirect_uri}' is in your Etsy app's Callback URLs at "
-                "https://www.etsy.com/developers/your-account/apps"
-            ),
-        }, status_code=400)
-
-    data = resp.json()
-    data["expires_at"] = time.time() + data.get("expires_in", 3600)
-    data["connected_at"] = datetime.utcnow().isoformat()
-    _save_etsy_tokens(data)
-    os.environ["ETSY_OAUTH_TOKEN"] = data["access_token"]
-    print(f"[ETSY] OAuth connected successfully. Token valid for {data.get('expires_in', 3600)}s.")
-    return RedirectResponse("/?etsy=connected")
-
-@app.get("/api/etsy/status")
-async def etsy_status():
-    """Return Etsy connection status and whether the token needs refreshing."""
-    client_id_set = bool(os.getenv("ETSY_API_KEY", "").strip())
-    tokens = _load_etsy_tokens()
-
-    if not client_id_set:
-        return {
-            "connected": False,
-            "api_key_set": False,
-            "message": "ETSY_API_KEY not set. Add it in Railway → Variables.",
-            "connect_url": "/etsy/connect",
-        }
-
-    if not tokens:
-        return {
-            "connected": False,
-            "api_key_set": True,
-            "message": "API key set but not authorized yet. Click Connect Etsy.",
-            "connect_url": "/etsy/connect",
-            "redirect_uri": f"{_etsy_app_url()}/etsy/callback",
-        }
-
-    is_expired = time.time() > tokens.get("expires_at", 0) - 60
-    if is_expired and tokens.get("refresh_token"):
-        # Auto-refresh in background
-        asyncio.create_task(_refresh_etsy_token(tokens["refresh_token"]))
-
-    return {
-        "connected": True,
-        "api_key_set": True,
-        "is_expired": is_expired,
-        "connected_at": tokens.get("connected_at", "unknown"),
-        "expires_at": tokens.get("expires_at", 0),
-        "message": "Connected and active." if not is_expired else "Token expired — auto-refreshing.",
-    }
-
-@app.post("/api/etsy/refresh")
-async def etsy_force_refresh():
-    """Force a token refresh. Used by the HUD Reconnect button."""
-    tokens = _load_etsy_tokens()
-    if not tokens or not tokens.get("refresh_token"):
-        return {"success": False, "error": "Not connected to Etsy. Use /etsy/connect first."}
-    result = await _refresh_etsy_token(tokens["refresh_token"])
-    if result:
-        return {"success": True, "expires_in": result.get("expires_in", 3600)}
-    return {"success": False, "error": "Refresh failed — check Railway logs for details."}
-
-@app.get("/api/etsy/debug")
-async def etsy_debug():
-    """Diagnostic endpoint — shows exactly what's configured and what's missing."""
-    client_id = os.getenv("ETSY_API_KEY", "").strip()
-    tokens = _load_etsy_tokens()
-    redirect_uri = f"{_etsy_app_url()}/etsy/callback"
-    return {
-        "api_key_set": bool(client_id),
-        "api_key_prefix": client_id[:8] + "..." if client_id else None,
-        "token_file_exists": _etsy_tokens_path().exists(),
-        "token_valid": bool(tokens) and time.time() < tokens.get("expires_at", 0),
-        "token_expires_at": tokens.get("expires_at"),
-        "redirect_uri": redirect_uri,
-        "etsy_app_settings_url": "https://www.etsy.com/developers/your-account/apps",
-        "required_callback_url": redirect_uri,
-        "scopes_requested": "listings_r listings_w transactions_r shops_r email_r",
-    }
-
-
-
-# ─── Autonomous Pipeline API ─────────────────────────────────────────────────
-
-@app.post("/api/pipeline/run-now")
-async def trigger_pipeline_now(listings: int = 3):
-    """Manually trigger the autonomous daily pipeline from the HUD."""
-    asyncio.create_task(run_autonomous_daily_pipeline(manager, state, listings_per_run=listings))
-    return {"status": "started", "listings_target": listings, "message": f"Pipeline started — generating {listings} listings autonomously"}
-
-
-@app.get("/api/pipeline/status")
-async def pipeline_status():
-    from integrations.leonardo import leonardo_available
-    from integrations.etsy import _can_write as etsy_write, _has_credentials as etsy_read
-    from integrations.printify import printify_available
-    return {
-        "leonardo": leonardo_available(),
-        "dalle": bool(os.getenv("OPENAI_API_KEY")),
-        "printify": printify_available(),
-        "etsy_read": etsy_read(),
-        "etsy_publish": etsy_write(),
-        "serper": bool(os.getenv("SERPER_API_KEY")),
-        "ready": printify_available(),
-        "fully_autonomous": printify_available() and etsy_write(),
-    }
-
-
-
-@app.get("/api/debug/printify/providers")
-async def debug_printify_providers():
-    """Fetch Printify print providers (shipping carriers) for a given blueprint."""
-    from integrations.printify import _headers, PRINTIFY_BASE
-    import httpx
-    blueprint_id = 12  # t-shirt as test
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.get(
-                f"{PRINTIFY_BASE}/catalog/blueprints/{blueprint_id}/print_providers.json",
-                headers=_headers(),
-            )
-            r.raise_for_status()
-            providers = r.json()
-            return {"blueprint_id": blueprint_id, "providers": providers}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@app.get("/api/debug/printify/catalog")
-async def debug_printify_catalog():
-    """
-    Fetch Printify catalog blueprints filtered to product types we use.
-    Returns verified IDs for mugs, totes, posters, t-shirts, hoodies.
-    Call this once to get real blueprint IDs then update BLUEPRINTS dict.
-    """
-    from integrations.printify import _headers, PRINTIFY_BASE
-    import httpx
-    keywords = ["mug", "tote", "poster", "t-shirt", "hoodie", "phone", "pillow", "canvas"]
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.get(
-                f"{PRINTIFY_BASE}/catalog/blueprints.json",
-                headers=_headers(),
-            )
-            r.raise_for_status()
-            all_bp = r.json()
-        matched = []
-        for bp in all_bp:
-            title_lower = bp.get("title", "").lower()
-            for kw in keywords:
-                if kw in title_lower:
-                    matched.append({
-                        "id": bp["id"],
-                        "title": bp["title"],
-                        "matched_keyword": kw,
-                        "description": bp.get("description", "")[:80],
-                    })
-                    break
-        matched.sort(key=lambda x: x["matched_keyword"])
-        return {"total_in_catalog": len(all_bp), "matched": matched, "keywords_used": keywords}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Business Module routes
-# ---------------------------------------------------------------------------
-
-@app.get("/api/modules")
-async def list_modules():
-    """List all registered business modules and their credential status."""
-    try:
-        modules = _module_registry.list()
-        enriched = []
-        for m in modules:
-            mod = _module_registry.get(m["id"])
-            creds = {}
-            if mod:
-                try:
-                    creds = await mod.validate_credentials()
-                except Exception:
-                    creds = {}
-            enriched.append({**m, "credentials": creds})
-        return {"modules": enriched}
-    except Exception as e:
-        return {"modules": [], "error": str(e)}
-
-
-@app.post("/api/modules/{module_id}/idea")
-async def module_generate_idea(module_id: str):
-    """Generate a single idea using a specific business module."""
-    mod = _module_registry.get(module_id)
-    if not mod:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Module '{module_id}' not found")
-    try:
-        idea = await mod.generate_idea(context={"state": state})
-        import dataclasses
-        return {"success": True, "idea": dataclasses.asdict(idea)}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@app.post("/api/modules/{module_id}/run")
-async def module_run_autonomous(module_id: str, count: int = 1):
-    """Run autonomous pipeline for a specific module (non-blocking)."""
-    mod = _module_registry.get(module_id)
-    if not mod:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Module '{module_id}' not found")
-    runner = _get_runner()
-    asyncio.create_task(runner.run_autonomous(module_id=module_id, count=count))
-    return {"status": "started", "module_id": module_id, "count": count,
-            "message": f"{mod.NAME} pipeline started — generating {count} item(s)"}
+    log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"
+    log_file.write_text(f"[{datetime.now().isoformat()}] AsgardMade Pantheon started\n")
