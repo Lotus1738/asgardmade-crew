@@ -190,3 +190,8 @@ async def publish_product(product_id: str) -> bool:
             json=payload,
         )
         return resp.status_code in (200, 204)
+
+
+def printify_available() -> bool:
+    """Returns True if Printify API key and shop ID are configured."""
+    return _has_credentials()

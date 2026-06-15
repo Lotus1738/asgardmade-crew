@@ -7,6 +7,8 @@ A skill is an async callable with this signature:
 Skills are registered with metadata: name, description, pack, args schema.
 The OS dashboard can list, invoke, and chain skills.
 """
+from __future__ import annotations
+
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine
