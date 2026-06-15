@@ -7,6 +7,7 @@ import asyncio
 import uuid
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from integrations.leonardo import generate_design as _leonardo_generate, leonardo_available
@@ -18,12 +19,49 @@ except ImportError:
 
 _GENERATOR = "Leonardo" if leonardo_available() else ("DALL-E" if _DALLE_AVAILABLE else "Demo")
 
+async def _cache_image_locally(url: str, design_id: str) -> str:
+    """
+    Download an image from an external URL and cache it in public/generated/.
+    Returns a local server path like /generated/<design_id>.jpg that never expires.
+    Falls back to the original URL if download fails.
+    """
+    if not url or url.startswith("/generated/"):
+        return url
+    try:
+        import httpx as _httpx
+        cache_dir = Path("public/generated")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        ext = "jpg"
+        if ".png" in url.lower():
+            ext = "png"
+        local_filename = f"{design_id}.{ext}"
+        local_path = cache_dir / local_filename
+        if local_path.exists():
+            return f"/generated/{local_filename}"
+        async with _httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code == 200:
+                local_path.write_bytes(resp.content)
+                return f"/generated/{local_filename}"
+    except Exception as e:
+        print(f"[PIPELINE] Image cache failed for {url}: {e}")
+    return url
+
+
 async def generate_variants(prompt: str, n: int = 2, product_type: str = "t-shirt") -> list:
-    """Generate product mockup image URLs — Leonardo primary, DALL-E fallback."""
+    """Generate product mockup image URLs — Leonardo primary, DALL-E fallback.
+    Images are cached locally immediately to avoid CDN expiry issues."""
+    import uuid as _uuid
     if leonardo_available():
         result = await _leonardo_generate(prompt, prompt, product_type=product_type, num_images=n)
         if result.get("success") and result.get("images"):
-            return [img["url"] for img in result["images"]]
+            urls = []
+            for img in result["images"]:
+                raw_url = img["url"]
+                design_id = img.get("id") or _uuid.uuid4().hex[:12]
+                cached = await _cache_image_locally(raw_url, design_id)
+                urls.append(cached)
+            return urls
     if _DALLE_AVAILABLE:
         try:
             return await _dalle_generate(prompt, n)
