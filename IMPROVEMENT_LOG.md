@@ -409,3 +409,27 @@
 - `_odin_agent_improvement_loop` including ODIN in the self-review loop — circular reasoning risk (ODIN reviewing its own strategy with the strategy it already wrote). Deferred.
 
 **Git push:** PENDING — Windows `.git/index.lock` blocks sandbox git (recurring issue). Run `git add -A && git commit -m "auto-17: A/B brain, review brain, vault REST brain, bestseller auto-approve, auto-score HOLD brain" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-18) UTC
+
+**Areas reviewed:** Visual/UX (index.html — runAutoScorer regression, updateMissionStrip accuracy), Pipeline robustness (pipeline.py — vault report missing salesCount), Backend reliability (server.py — briefing goal math, review monitor blind spot)
+
+**Changes made:**
+
+- `public/index.html:runAutoScorer` — **BUG FIX (regression)**: Re-applied the auto-10 fix that was lost in the auto-8 file restore. `window.__queueData?.ideas` and `window.__queueData?.designs` → `state.approvals?.ideas` and `state.approvals?.designs`. `window.__queueData` is never defined anywhere; the auto-scorer ran every 5 minutes but always found 0 items and sent zero requests to `/api/auto-score`. Now it correctly reads from `state.approvals`.
+
+- `crew/pipeline.py:_build_vault_report` — Added `"salesCount": len([t for t in txns if t.get("type") == "revenue"])` to the vault report dict. Previously the report had `totalTransactions` (all transactions including expenses) but no way for the frontend to know the exact number of sales. The frontend was forced to estimate `Math.round(rev / 34.99)` which is inaccurate with dynamic pricing (range: $12.99–$59.99).
+
+- `public/index.html:updateMissionStrip` — Updated sales counter to use `f.salesCount` from vault report when available. Falls back to the old estimate chain for backwards compatibility before the first `vault_report` WebSocket message arrives. Now shows an exact sale count rather than a revenue-divided estimate.
+
+- `server.py:_odin_morning_briefing_loop` — **ACCURACY FIX**: Replaced hardcoded `avg_price = 34.99` in goal math with actual average realized price computed from revenue transactions. With dynamic pricing intel, listing prices vary ($12.99–$59.99). At $25 avg, net_per_sale is ~$14.43 → 14 sales needed; at $34.99 the old estimate said ~8. The briefing now gives the commander an accurate target that adapts as the shop's pricing profile evolves.
+
+- `server.py:_review_monitor_loop` — **BRAIN GAP FIX**: Added `brain.record_outcome("LOKI", ...)` for new positive reviews (≥4 stars, score 9 for 5-star / 7 for 4-star). Previously only negative reviews (score=1) and flagged product types (score=2) recorded brain outcomes. LOKI's synthesis loop was completely blind to what customers *liked* — it could only learn from failures, never from success. Now LOKI learns which listing titles, product types, and niches generate happy customers.
+
+**Skipped (risky):**
+
+- `memory/brain.py:_outcomes.jsonl` pruning — The outcomes files grow unboundedly; only the last N lines are read but the file is never trimmed. Could add append-and-trim logic, but requires reading and rewriting the whole file on every `record_outcome` call — too slow for a hot path. Deferred.
+
+**Git push:** Run `git add -A && git commit -m "auto-18: runAutoScorer fix, salesCount vault, updateMissionStrip, briefing goal math, positive review brain" && git push` manually to deploy.

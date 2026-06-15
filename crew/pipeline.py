@@ -462,6 +462,7 @@ def _build_vault_report(state: "AppState") -> dict:
         "netProfit": f"{net:.2f}",
         "profitMargin": f"{margin:.1f}%",
         "totalTransactions": len(txns),
+        "salesCount": len([t for t in txns if t.get("type") == "revenue"]),
         "daysRunning": days,
         "dailyBreakdown": _build_daily_breakdown(txns),
         "recentTransactions": [

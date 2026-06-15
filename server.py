@@ -1459,9 +1459,14 @@ async def _odin_morning_briefing_loop():
             pending_i = len([i for i in state.queue["ideas"] if i["status"] == "pending"])
             pending_d = len([d for d in state.queue["designs"] if d["status"] == "pending"])
 
-            # Goal math: net $200/month, ~9 sales needed at $34.99
+            # Goal math: net $200/month. Compute average realized sale price from actual
+            # revenue transactions so the estimate adapts to dynamic pricing intel.
+            # Falls back to $34.99 default before any sales occur.
             goal = 200.0
-            net_per_sale = 34.99 - 8.50 - (34.99 * 0.065) - 0.20  # ~$24.02
+            _rev_txns = [t for t in state.vault.get("transactions", []) if t.get("type") == "revenue"]
+            avg_price = (sum(t.get("amount", 0) for t in _rev_txns) / len(_rev_txns)) if _rev_txns else 34.99
+            net_per_sale = avg_price - 8.50 - (avg_price * 0.065) - 0.20
+            net_per_sale = max(net_per_sale, 1.0)  # guard against division by zero
             sales_needed = round(goal / net_per_sale)
             # Count actual revenue transactions rather than dividing by a hardcoded price.
             # With dynamic pricing intel, listing prices vary by niche, so rev / 34.99
@@ -2434,7 +2439,8 @@ async def _review_monitor_loop():
                         review_id=str(rev.get("review_id", "")),
                         product_type=rev.get("product_type", "unknown"),
                     )
-                    if is_new and int(rev.get("rating", 5)) <= 2:
+                    rating = int(rev.get("rating", 5))
+                    if is_new and rating <= 2:
                         alert = (
                             f"Negative review ({rev.get('rating')} star) on "
                             f"'{rev.get('listing_title','?')}': "
@@ -2456,6 +2462,20 @@ async def _review_monitor_loop():
                                 f"Negative review on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
                                 f"{rev.get('rating')} star: {rev.get('review','')[:100]}",
                                 1,
+                            )
+                        except Exception:
+                            pass
+                    elif is_new and rating >= 4:
+                        # Brain feedback for positive reviews so LOKI learns which listing
+                        # styles, niches, and product types generate happy customers.
+                        # Previously only negative reviews recorded brain outcomes — the brain
+                        # was completely blind to what was WORKING.
+                        try:
+                            brain.record_outcome(
+                                "LOKI",
+                                f"Positive review on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
+                                f"{rating} star: {rev.get('review','')[:100]}",
+                                9 if rating == 5 else 7,
                             )
                         except Exception:
                             pass

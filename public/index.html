@@ -2585,8 +2585,8 @@ async function parseAndFireInterAgentTasks(reply){
 // Called periodically to auto-approve low-risk items
 async function runAutoScorer(){
   const pending=[
-    ...(window.__queueData?.ideas||[]).filter(i=>i.status==='pending').map(i=>({id:i.id,type:'idea'})),
-    ...(window.__queueData?.designs||[]).filter(d=>d.status==='pending').map(d=>({id:d.id,type:'design'}))
+    ...(state.approvals?.ideas||[]).filter(i=>i.status==='pending').map(i=>({id:i.id,type:'idea'})),
+    ...(state.approvals?.designs||[]).filter(d=>d.status==='pending').map(d=>({id:d.id,type:'design'}))
   ];
   for(const item of pending.slice(0,5)){ // process up to 5 at a time
     try{
@@ -2861,8 +2861,8 @@ function updateMissionStrip(){
   // Sales + revenue
   const f=state.vault||state.finance||{};
   const rev=parseFloat(f.totalRevenue||0);
-  // Estimate sales from revenue ÷ listing price; fall back to approved-design count before any sales
-  const sales=rev>0?Math.round(rev/34.99):(state.approvals?.designs||[]).filter(d=>d.status==='approved').length||0;
+  // Use exact salesCount from vault report when available; fall back to rev estimate or approved-design count
+  const sales=f.salesCount!=null?parseInt(f.salesCount||0):(rev>0?Math.round(rev/34.99):(state.approvals?.designs||[]).filter(d=>d.status==='approved').length||0);
   const goalPct=Math.min(100,(rev/200)*100).toFixed(1);
   const el_sales=document.getElementById('ms-sales-num');
   const el_bar=document.getElementById('ms-goal-bar');
