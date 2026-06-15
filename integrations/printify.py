@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import base64
 from pathlib import Path
 import httpx
 
@@ -47,30 +46,32 @@ def _has_credentials() -> bool:
     return bool(os.getenv("PRINTIFY_API_KEY", "").strip()) and bool(os.getenv("PRINTIFY_SHOP_ID", "").strip())
 
 
+# Public base URL for this Railway deployment.
+# Printify fetches images via URL — more reliable than base64 (which fails with error 10300).
+_RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+_PUBLIC_BASE = (
+    f"https://{_RAILWAY_PUBLIC_DOMAIN}"
+    if _RAILWAY_PUBLIC_DOMAIN
+    else "https://web-production-ed5a5.up.railway.app"
+)
+
+
 async def upload_image(image_url: str, filename: str = "design.png") -> dict:
     """Upload an image to Printify CDN.
 
     Handles both:
     - External URLs (http/https) → send URL directly to Printify
-    - Local paths (/generated/...) → read from disk, send as base64
-      (gpt-image-1 saves to public/generated/ and returns a local path)
+    - Local paths (/generated/...) → convert to public Railway URL so Printify fetches it.
+      Using URL-based upload instead of base64 — base64 upload fails with Printify error 10300.
     """
     if not _has_credentials():
         return {"id": "demo_image_id", "preview_url": image_url, "demo": True}
 
-    # Detect local file path (gpt-image-1 returns /generated/filename.jpg)
-    # Check data/generated/ first (Railway volume — persists across redeploys)
-    # Fall back to public/generated/ for legacy compatibility
     if image_url.startswith("/generated/"):
-        local_path = Path("data") / image_url.lstrip("/")
-        if not local_path.exists():
-            local_path = Path("public") / image_url.lstrip("/")
-        if local_path.exists():
-            img_bytes = local_path.read_bytes()
-            b64_contents = base64.b64encode(img_bytes).decode("utf-8")
-            payload = {"file_name": filename, "contents": b64_contents}
-        else:
-            raise FileNotFoundError(f"Generated image not found: {local_path} (checked data/ and public/)")
+        # Build the public Railway URL so Printify can download the image directly.
+        # This avoids the base64 "contents" field which Printify consistently rejects (error 10300).
+        public_url = f"{_PUBLIC_BASE}{image_url}"
+        payload = {"file_name": filename, "url": public_url}
     else:
         payload = {"file_name": filename, "url": image_url}
 
