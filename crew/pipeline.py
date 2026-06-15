@@ -782,3 +782,197 @@ async def run_autonomous_daily_pipeline(
                f"Autonomous pipeline done: {len(published)} published, {len(errors)} errors.")
     await manager.broadcast({"type": "autonomous_pipeline_complete", "data": summary})
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Manual-approval split pipeline
+# run_printify_only  → uploads design to Printify, stops, waits for Etsy confirm
+# run_etsy_only      → creates Etsy listing from stored pending state
+# ---------------------------------------------------------------------------
+
+async def run_printify_only(design: dict, manager, state) -> None:
+    """
+    Step 1 of the manual approval flow.
+    Uploads design to Printify and creates the product, then pauses.
+    Broadcasts 'confirm_etsy_needed' so the HUD can prompt the commander.
+    Does NOT create an Etsy listing - waits for explicit confirmation.
+    """
+    design_id  = design["id"]
+    title      = design["ideaTitle"]
+    niche      = design.get("niche", "general")
+    product_type = design.get("productType", "t-shirt")
+    image_url  = design["imageUrl"]
+    keywords   = design.get("keywords", [])
+
+    _pricing = pricing_intel.get_suggested_price(niche, product_type, floor=12.99)
+    price_usd = round(min(max((_pricing if _pricing > 12.99 else 34.99) * 0.90, 12.99), 59.99), 2)
+
+    await _log(manager, "VULCAN", f"Confirmed: uploading '{title}' to Printify...")
+    await _update_status(manager, state, "VULCAN", "working", f"Uploading '{title}' to Printify")
+
+    # --- Image upload ---
+    try:
+        image_result = await upload_image(image_url, filename=f"{design_id}.png")
+        image_id  = image_result["id"]
+        demo_mode = image_result.get("demo", False)
+    except Exception as e:
+        await _log(manager, "VULCAN", f"Printify image upload failed: {e}", "error")
+        image_id  = "demo_img"
+        demo_mode = True
+
+    # --- Product creation ---
+    try:
+        description = build_description(title, niche, keywords, product_type=product_type)
+        product_result = await create_product(
+            title=title, description=description,
+            image_id=image_id, product_type=product_type,
+            price_cents=int(price_usd * 100),
+        )
+        product_id   = product_result["id"]
+        demo_product = product_result.get("demo", True)
+    except Exception as e:
+        await _log(manager, "VULCAN", f"Printify product creation failed: {e}", "warning")
+        product_id   = f"demo_{uuid.uuid4().hex[:8]}"
+        demo_product = True
+
+    # --- Mockups ---
+    mockup_urls: list[str] = []
+    try:
+        mockup_urls = await generate_mockups(product_id, image_url=image_url)
+    except Exception:
+        mockup_urls = [image_url]
+
+    if not demo_product:
+        try:
+            await publish_product(product_id)
+        except Exception as e:
+            await _log(manager, "VULCAN", f"Printify publish step: {e}", "warning")
+
+    await _award_xp(manager, state, "VULCAN", 60, "product_created")
+    await _update_status(manager, state, "VULCAN", "active", f"Product {product_id[:12]} ready for Etsy")
+
+    # Store pending Etsy state so run_etsy_only can retrieve it
+    pending = {
+        "design_id": design_id,
+        "product_id": product_id,
+        "image_url": image_url,
+        "mockup_url": mockup_urls[0] if mockup_urls else image_url,
+        "title": title,
+        "niche": niche,
+        "product_type": product_type,
+        "keywords": keywords,
+        "price_usd": price_usd,
+        "demo_product": demo_product,
+    }
+    if "pending_etsy" not in state.queue:
+        state.queue["pending_etsy"] = []
+    state.queue["pending_etsy"].append(pending)
+
+    printify_url = (
+        f"https://printify.com/app/store/products/{product_id}"
+        if not demo_product else None
+    )
+
+    await _log(manager, "VULCAN",
+               f"Printify product {'created' if not demo_product else 'demo'}: {product_id[:12]}. "
+               f"Awaiting your Etsy confirmation.")
+    await manager.broadcast({
+        "type": "confirm_etsy_needed",
+        "data": {
+            "design_id": design_id,
+            "product_id": product_id,
+            "title": title,
+            "niche": niche,
+            "price_usd": price_usd,
+            "mockup_url": mockup_urls[0] if mockup_urls else image_url,
+            "printify_url": printify_url,
+            "demo": demo_product,
+        },
+    })
+
+
+async def run_etsy_only(design_id: str, manager, state) -> None:
+    """
+    Step 2 of the manual approval flow.
+    Creates the Etsy listing for a product already on Printify.
+    Called after the commander explicitly confirms.
+    """
+    pending_list = state.queue.get("pending_etsy", [])
+    pending = next((p for p in pending_list if p["design_id"] == design_id), None)
+    if not pending:
+        await _log(manager, "LOKI", f"No pending Etsy item found for design {design_id}", "warning")
+        return
+
+    # Remove from pending
+    state.queue["pending_etsy"] = [p for p in pending_list if p["design_id"] != design_id]
+
+    title        = pending["title"]
+    niche        = pending["niche"]
+    product_type = pending["product_type"]
+    keywords     = pending["keywords"]
+    price_usd    = pending["price_usd"]
+    product_id   = pending["product_id"]
+    image_url    = pending["image_url"]
+    demo_product = pending.get("demo_product", True)
+
+    await _log(manager, "LOKI", f"Etsy listing confirmed. Creating listing for '{title}'...")
+    await _update_status(manager, state, "LOKI", "working", f"Creating Etsy listing for '{title}'")
+
+    try:
+        etsy_title = build_title(title, niche, product_type=product_type, keywords=keywords)
+        etsy_tags  = build_tags(niche, keywords, product_type=product_type)
+        etsy_desc  = build_description(title, niche, keywords, product_type=product_type, price_usd=price_usd)
+        listing_result = await create_listing(
+            title=etsy_title, description=etsy_desc,
+            tags=etsy_tags, price_usd=price_usd,
+        )
+        listing_id   = listing_result.get("listing_id", "N/A")
+        listing_demo = listing_result.get("demo", False)
+    except Exception as e:
+        await _log(manager, "LOKI", f"Etsy listing failed: {e}", "warning")
+        listing_id   = f"demo_{uuid.uuid4().hex[:6]}"
+        listing_demo = True
+        etsy_tags    = build_tags(niche, keywords, product_type=product_type)
+
+    await _log(manager, "LOKI",
+               f"Listing {'created' if not listing_demo else 'demo'}: {listing_id}. "
+               f"Price: ${price_usd:.2f}. Tags: {len(etsy_tags)} applied.")
+
+    # A/B title test
+    try:
+        title_b = _make_title_b_fallback(etsy_title)
+        ab_tests.create_test(listing_id=str(listing_id), title_a=etsy_title, title_b=title_b, niche=niche)
+    except Exception:
+        pass
+
+    # Vault expense
+    is_demo_run = demo_product or listing_demo
+    if not is_demo_run:
+        printify_cost = 8.50
+        etsy_txn_fee  = round(price_usd * 0.065, 2)
+        total_expense = round(printify_cost + LISTING_FEE + etsy_txn_fee, 2)
+        txn = {
+            "id": str(uuid.uuid4()),
+            "type": "expense",
+            "amount": total_expense,
+            "description": f"Production cost: {title}",
+            "source": "printify+etsy",
+            "timestamp": datetime.now().isoformat(),
+        }
+        state.vault["transactions"].append(txn)
+        state.recalculate_vault()
+        state.save_vault()
+
+    await _award_xp(manager, state, "LOKI", 50, "listing_created")
+    await _update_status(manager, state, "LOKI", "active", f"Listing {listing_id} live for '{title}'")
+
+    vault_report = _build_vault_report(state)
+    await manager.broadcast({"type": "vault_report", "data": vault_report})
+    await manager.broadcast({
+        "type": "loki_published",
+        "agent": "LOKI",
+        "data": {"listingId": listing_id, "price": price_usd, "title": etsy_title},
+    })
+    await _log(manager, "ODIN",
+               f"Pipeline complete: '{title}' — Printify {product_id[:12]} -> Etsy listing {listing_id}. "
+               f"Net P&L: ${state.vault.get('netProfit', 0):.2f}.")

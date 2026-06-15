@@ -3099,9 +3099,129 @@ function renderIdeas(ideas){
   updateMissionStrip();
 }
 
-function approveDesign(id){ ws&&ws.send(JSON.stringify({type:'approve_design',id})); rmCard('design',id); addLog('COMMANDER','Design approved → uploading to Printify','info'); }
-function approveIdea(id){ ws&&ws.send(JSON.stringify({type:'approve_idea',id})); rmCard('idea',id); addLog('COMMANDER','Idea approved → Vulcan generating designs','info'); }
+function approveDesign(id){
+  // Send approve signal; server will respond with confirm_printify_needed
+  ws&&ws.send(JSON.stringify({type:'approve_design',id}));
+  // Visually mark as approved (awaiting Printify confirm)
+  const card=document.getElementById(`design-${id}`);
+  if(card){
+    const btns=card.querySelector('.card-actions');
+    if(btns) btns.innerHTML=`<span style="color:#c9a84c;font-size:11px;letter-spacing:.1em">AWAITING PRINTIFY CONFIRMATION...</span>`;
+  }
+  addLog('COMMANDER','Design approved — awaiting Printify upload confirmation','info');
+}
+
+function approveIdea(id){ ws&&ws.send(JSON.stringify({type:'approve_idea',id})); rmCard('idea',id); addLog('COMMANDER','Idea approved -> Vulcan generating designs','info'); }
 function rejectItem(type,id){ ws&&ws.send(JSON.stringify({type:`reject_${type}`,id})); rmCard(type,id); }
+
+/* ─── Manual Approval: Printify & Etsy ─── */
+function showPrintifyConfirmCard(data){
+  switchTab('designs');
+  const container=document.getElementById('designs-list');
+  const existingCard=document.getElementById('confirm-printify-'+data.design_id);
+  if(existingCard) existingCard.remove();
+
+  const card=document.createElement('div');
+  card.id='confirm-printify-'+data.design_id;
+  card.style.cssText='background:rgba(20,15,5,.95);border:2px solid #c9a84c;border-radius:10px;padding:20px;margin-bottom:16px;position:relative;box-shadow:0 0 24px rgba(201,168,76,.25)';
+  card.innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="font-size:22px">⚒</span>
+      <div>
+        <div style="color:#c9a84c;font-weight:700;letter-spacing:.12em;font-size:13px">VULCAN — READY TO UPLOAD TO PRINTIFY</div>
+        <div style="color:#8899aa;font-size:11px;margin-top:2px">${data.title||'Design'} &bull; ${data.niche||''} &bull; ${data.product_type||''}</div>
+      </div>
+      ${data.demo?'<span style="background:#ff6600;color:#fff;font-size:9px;padding:2px 7px;border-radius:4px;letter-spacing:.1em;margin-left:auto">DEMO MODE</span>':''}
+    </div>
+    ${data.image_url?`<img src="${data.image_url}" style="width:100%;max-height:180px;object-fit:contain;border-radius:6px;margin-bottom:14px;border:1px solid rgba(201,168,76,.2)" onerror="this.style.display='none'">`:''}
+    <div style="color:#aabbcc;font-size:12px;margin-bottom:16px">
+      Commander confirmation required before uploading this design to Printify. Once uploaded, a product will be created and mockups generated.
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button onclick="confirmPrintifyUpload('${data.design_id}')" style="background:linear-gradient(135deg,#c9a84c,#e8c96b);color:#0a0a0f;font-weight:700;border:none;padding:10px 22px;border-radius:6px;cursor:pointer;letter-spacing:.1em;font-size:12px">
+        CONFIRM - UPLOAD TO PRINTIFY
+      </button>
+      <button onclick="cancelPrintifyUpload('${data.design_id}')" style="background:rgba(255,50,50,.15);color:#ff6677;border:1px solid rgba(255,50,50,.3);padding:10px 18px;border-radius:6px;cursor:pointer;font-size:12px;letter-spacing:.08em">
+        CANCEL
+      </button>
+    </div>`;
+  container.prepend(card);
+
+  pushActionAlert({icon:'⚒',title:'PRINTIFY UPLOAD — AWAITING COMMANDER',
+    msg:`"${data.title||'Design'}" is ready. Confirm to upload to Printify.`,
+    primaryLabel:'REVIEW',primaryFn:()=>switchTab('designs'),severity:'info',timeout:30000});
+
+  odinSpeak(`Design approved, Commander. Your confirmation is required before uploading "${data.title||'this design'}" to Printify. Please review and confirm.`, false);
+}
+
+function showEtsyConfirmCard(data){
+  switchTab('designs');
+  const container=document.getElementById('designs-list');
+  const existingCard=document.getElementById('confirm-etsy-'+data.design_id);
+  if(existingCard) existingCard.remove();
+
+  const card=document.createElement('div');
+  card.id='confirm-etsy-'+data.design_id;
+  card.style.cssText='background:rgba(5,15,20,.95);border:2px solid #00ccff;border-radius:10px;padding:20px;margin-bottom:16px;position:relative;box-shadow:0 0 24px rgba(0,204,255,.2)';
+  card.innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="font-size:22px">🦊</span>
+      <div>
+        <div style="color:#00ccff;font-weight:700;letter-spacing:.12em;font-size:13px">LOKI — READY TO LIST ON ETSY</div>
+        <div style="color:#8899aa;font-size:11px;margin-top:2px">Product ${data.product_id||''} &bull; ${data.price_usd?'$'+data.price_usd:''}</div>
+      </div>
+      ${data.demo?'<span style="background:#ff6600;color:#fff;font-size:9px;padding:2px 7px;border-radius:4px;letter-spacing:.1em;margin-left:auto">DEMO MODE</span>':''}
+    </div>
+    ${data.mockup_url?`<img src="${data.mockup_url}" style="width:100%;max-height:180px;object-fit:contain;border-radius:6px;margin-bottom:14px;border:1px solid rgba(0,204,255,.2)" onerror="this.style.display='none'">`:''}
+    <div style="color:#aabbcc;font-size:12px;margin-bottom:6px">
+      ${data.printify_url?`<a href="${data.printify_url}" target="_blank" style="color:#00ccff;font-size:11px">View on Printify &rarr;</a>`:''}
+    </div>
+    <div style="color:#aabbcc;font-size:12px;margin-bottom:16px">
+      Printify product created. Confirm to create the Etsy listing with SEO title, tags, and pricing.
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button onclick="confirmEtsyUpload('${data.design_id}')" style="background:linear-gradient(135deg,#00aaff,#00ccff);color:#0a0a0f;font-weight:700;border:none;padding:10px 22px;border-radius:6px;cursor:pointer;letter-spacing:.1em;font-size:12px">
+        CONFIRM - LIST ON ETSY
+      </button>
+      <button onclick="skipEtsyUpload('${data.design_id}')" style="background:rgba(100,100,100,.15);color:#8899aa;border:1px solid rgba(100,100,100,.3);padding:10px 18px;border-radius:6px;cursor:pointer;font-size:12px;letter-spacing:.08em">
+        SKIP ETSY
+      </button>
+    </div>`;
+  container.prepend(card);
+
+  pushActionAlert({icon:'🦊',title:'ETSY LISTING — AWAITING COMMANDER',
+    msg:`Printify upload complete. Confirm to create Etsy listing${data.price_usd?' at $'+data.price_usd:''}`,
+    primaryLabel:'REVIEW',primaryFn:()=>switchTab('designs'),severity:'info',timeout:30000});
+
+  odinSpeak(`Printify upload complete, Commander. Ready to create the Etsy listing. Your confirmation is required to proceed.`, false);
+}
+
+function confirmPrintifyUpload(designId){
+  ws&&ws.send(JSON.stringify({type:'confirm_printify',id:designId}));
+  const card=document.getElementById('confirm-printify-'+designId);
+  if(card) card.innerHTML=`<div style="color:#c9a84c;padding:14px;text-align:center;letter-spacing:.1em">UPLOADING TO PRINTIFY...</div>`;
+  addLog('COMMANDER','Printify upload confirmed','info');
+}
+
+function cancelPrintifyUpload(designId){
+  const card=document.getElementById('confirm-printify-'+designId);
+  if(card){ card.style.opacity='0'; card.style.transition='.3s'; setTimeout(()=>card.remove(),300); }
+  addLog('COMMANDER','Printify upload cancelled','info');
+}
+
+function confirmEtsyUpload(designId){
+  ws&&ws.send(JSON.stringify({type:'confirm_etsy',id:designId}));
+  const card=document.getElementById('confirm-etsy-'+designId);
+  if(card) card.innerHTML=`<div style="color:#00ccff;padding:14px;text-align:center;letter-spacing:.1em">CREATING ETSY LISTING...</div>`;
+  addLog('COMMANDER','Etsy listing confirmed','info');
+}
+
+function skipEtsyUpload(designId){
+  ws&&ws.send(JSON.stringify({type:'skip_etsy',id:designId}));
+  const card=document.getElementById('confirm-etsy-'+designId);
+  if(card){ card.style.opacity='0'; card.style.transition='.3s'; setTimeout(()=>card.remove(),300); }
+  addLog('COMMANDER','Etsy listing skipped','info');
+}
 function rmCard(type,id){
   const el=document.getElementById(`${type}-${id}`);
   if(el){ el.style.opacity='0'; el.style.transform='scale(.9)'; el.style.transition='.28s'; setTimeout(()=>el.remove(),300); }
@@ -3688,12 +3808,29 @@ function handleMsg(msg){
     case 'tyr_report': if(data) setAgentChips('GUARDIAN',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
     case 'hephaestus_report': if(data&&data.patches) setAgentChips('GUARDIAN',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
     case 'athena_report': if(data) setAgentChips('VAULT',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
-    case 'loki_published': if(data) setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]); break;
+    case 'loki_published':
+      if(data){
+        setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]);
+        if(data.design_id){ const c=document.getElementById('confirm-etsy-'+data.design_id); if(c) c.remove(); }
+        pushActionAlert({icon:'\uD83E\uDD8A',title:'LOKI \u2014 ETSY LISTING LIVE',
+          msg:`Listing ${data.listingId||''} created${data.price?' at $'+data.price:''}.${data.demo?' (DEMO)':''}`,
+          severity:'info',timeout:10000});
+        odinSpeak(`Etsy listing is live, Commander. The product is now for sale.`, false);
+      } break;
     case 'vulcan_published': if(data) setAgentChips('VULCAN',[{label:'PROD',val:data.product?.id||'N/A'}]); break;
+
+    case 'confirm_printify_needed':
+      if(data) showPrintifyConfirmCard(data);
+      addLog('COMMANDER','Awaiting your confirmation to upload to Printify','info');
+      break;
+
+    case 'confirm_etsy_needed':
+      if(data) showEtsyConfirmCard(data);
+      addLog('COMMANDER','Awaiting your confirmation to create Etsy listing','info');
+      break;
   }
 }
 
-/* ═══════════════════════════════════════════════
    PARTICLE BG CANVAS
 ═══════════════════════════════════════════════ */
 (function(){

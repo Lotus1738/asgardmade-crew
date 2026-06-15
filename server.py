@@ -43,7 +43,7 @@ def get_anthropic_client() -> anthropic.AsyncAnthropic:
 
 from crew.agents import get_system_prompt, ALL_AGENTS, GRID_AGENTS
 from crew.tools import get_system_metrics, scan_logs, generate_niche_idea
-from crew.pipeline import run_idea_pipeline, run_design_pipeline, _build_vault_report, run_autonomous_daily_pipeline
+from crew.pipeline import run_idea_pipeline, run_design_pipeline, run_printify_only, run_etsy_only, _build_vault_report, run_autonomous_daily_pipeline
 from integrations import discord as _discord
 
 # ── Module registry + pipeline runner (new multi-business framework) ──────────
@@ -96,7 +96,7 @@ class ConnectionManager:
 class AppState:
     def __init__(self):
         self.agents: dict[str, dict] = {a: {"status": "idle", "lastAction": "Initializing", "xp": 0, "level": 1} for a in ALL_AGENTS}
-        self.queue: dict[str, list] = {"ideas": [], "designs": []}
+        self.queue: dict[str, list] = {"ideas": [], "designs": [], "pending_etsy": []}
         self.vault: dict = {
             "startDate": datetime.now().isoformat(),
             "totalRevenue": 0.0,
@@ -304,20 +304,43 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
                 mem.vulcan_write_approved(design)
             except Exception:
                 pass
-            try:
-                brain.record_outcome(
-                    "VULCAN",
-                    f"Generated design for '{design.get('ideaTitle')}' ({design.get('niche')}) — variant {design.get('variantIndex')}",
-                    "Commander approved — uploading to Printify",
-                    9,
-                )
-            except Exception:
-                pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "approved"}})
-            if _should_use_module_runner(design):
-                asyncio.create_task(_get_runner().run_asset_pipeline(design, module_id=design.get("module_id")))
-            else:
-                asyncio.create_task(run_design_pipeline(design, manager, state))
+            # Broadcast confirmation request — commander must confirm before Printify upload
+            await manager.broadcast({
+                "type": "confirm_printify_needed",
+                "data": {
+                    "design_id": design["id"],
+                    "title": design.get("ideaTitle", ""),
+                    "niche": design.get("niche", ""),
+                    "product_type": design.get("productType", "t-shirt"),
+                    "image_url": design.get("imageUrl", ""),
+                    "demo": design.get("demo", False),
+                },
+            })
+            await manager.broadcast({"type": "agent_log", "agent": "ODIN",
+                "message": f"Design approved. Awaiting your confirmation to upload '{design.get('ideaTitle')}' to Printify.",
+                "level": "info", "timestamp": __import__("datetime").datetime.now().isoformat()})
+
+    elif msg_type == "confirm_printify":
+        # Commander confirmed upload to Printify
+        item_id = msg.get("id")
+        design = next((d for d in state.queue["designs"] if d["id"] == item_id), None)
+        if design:
+            asyncio.create_task(run_printify_only(design, manager, state))
+
+    elif msg_type == "confirm_etsy":
+        # Commander confirmed creating the Etsy listing
+        design_id = msg.get("id")
+        asyncio.create_task(run_etsy_only(design_id, manager, state))
+
+    elif msg_type == "skip_etsy":
+        # Commander chose to skip Etsy listing for this product
+        design_id = msg.get("id")
+        pending_list = state.queue.get("pending_etsy", [])
+        state.queue["pending_etsy"] = [p for p in pending_list if p["design_id"] != design_id]
+        await manager.broadcast({"type": "agent_log", "agent": "ODIN",
+            "message": "Etsy listing skipped for this product. Product remains on Printify only.",
+            "level": "info", "timestamp": __import__("datetime").datetime.now().isoformat()})
 
     elif msg_type == "reject_idea":
         item_id = msg.get("id")
