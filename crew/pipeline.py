@@ -634,11 +634,17 @@ async def run_autonomous_daily_pipeline(
             etsy_listing = None
             if etsy_can_write():
                 await _update_status(manager, state, "LOKI", "working", "Publishing to Etsy")
+                # Use pricing intel for dynamic price (same logic as run_design_pipeline).
+                # Previously hardcoded at $24.99 — ~$10 below the $34.99 default and
+                # never updated when pricing intel data was available. Every autonomous
+                # listing was systematically underpriced vs. the approval-gated pipeline.
+                _auto_suggested = pricing_intel.get_suggested_price(niche, "t-shirt", floor=12.99)
+                _auto_price = round(min(_auto_suggested * 0.90, 59.99), 2) if _auto_suggested > 12.99 else 34.99
                 etsy_listing = await create_listing(
                     title=build_title(title, niche),
                     description=build_description(title, niche, keywords),
                     tags=build_tags(niche, keywords),
-                    price_usd=24.99,
+                    price_usd=_auto_price,
                 )
                 if etsy_listing and not etsy_listing.get("demo"):
                     await _log(manager, "LOKI", f"Etsy listing live: {title}", "success")
@@ -659,16 +665,4 @@ async def run_autonomous_daily_pipeline(
         except Exception as e:
             err_msg = f"{type(e).__name__}: {e}"
             errors.append({"title": niche, "error": err_msg})
-            await _log(manager, "ODIN", f"Pipeline error on listing {i+1}: {err_msg}", "error")
-
-    summary = {
-        "published": len(published),
-        "errors": len(errors),
-        "listings": published,
-        "timestamp": datetime.now().isoformat(),
-    }
-    await manager.broadcast({"type": "pipeline_daily_complete", "data": summary})
-    await _update_status(manager, state, "ODIN", "idle", f"Daily pipeline done — {len(published)} listings published")
-    await _log(manager, "ODIN", f"Daily pipeline complete: {len(published)} published, {len(errors)} errors",
-               "success" if not errors else "warning")
-    return summary
+            await _log(manager, "ODIN", f"Pipeline error on listing {i+1}: {err_
