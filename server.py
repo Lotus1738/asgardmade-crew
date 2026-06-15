@@ -42,7 +42,7 @@ def get_anthropic_client() -> anthropic.AsyncAnthropic:
 
 from crew.agents import get_system_prompt, ALL_AGENTS, GRID_AGENTS
 from crew.tools import get_system_metrics, scan_logs, generate_niche_idea
-from crew.pipeline import run_idea_pipeline, run_design_pipeline, _build_vault_report
+from crew.pipeline import run_idea_pipeline, run_design_pipeline, _build_vault_report, run_autonomous_daily_pipeline
 from integrations import discord as _discord
 from integrations.twilio_sms import send_sms, build_briefing_sms
 
@@ -2519,6 +2519,31 @@ async def _review_monitor_loop():
         await asyncio.sleep(3600)
 
 
+
+async def _autonomous_listing_loop():
+    """
+    Fully autonomous daily listing pipeline.
+    Runs every day at 9am — no human approval needed.
+    """
+    from datetime import timedelta as _td
+    await asyncio.sleep(60)
+    while True:
+        try:
+            now = datetime.now()
+            next_run = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            if now >= next_run:
+                next_run += _td(days=1)
+            wait_secs = (next_run - now).total_seconds()
+            print(f"[AUTO PIPELINE] Next run at {next_run.strftime('%Y-%m-%d %H:%M')} ({wait_secs/3600:.1f}h)")
+            await asyncio.sleep(wait_secs)
+            print("[AUTO PIPELINE] Starting autonomous daily listing pipeline...")
+            result = await run_autonomous_daily_pipeline(manager, state, listings_per_run=3)
+            print(f"[AUTO PIPELINE] Complete — {result.get('published', 0)} listings published")
+        except Exception as e:
+            print(f"[AUTO PIPELINE] Error: {type(e).__name__}: {e}")
+            await asyncio.sleep(3600)
+
+
 async def _weekly_email_report_loop():
     """Fires every Sunday at 8am. Sends a branded P&L email via Gmail SMTP."""
     from datetime import timedelta as _td
@@ -2783,6 +2808,33 @@ async def etsy_force_refresh():
     return {"success": bool(result), "expires_in": result.get("expires_in", 3600) if result else 0}
 
 
+
+# ─── Autonomous Pipeline API ─────────────────────────────────────────────────
+
+@app.post("/api/pipeline/run-now")
+async def trigger_pipeline_now(listings: int = 3):
+    """Manually trigger the autonomous daily pipeline from the HUD."""
+    asyncio.create_task(run_autonomous_daily_pipeline(manager, state, listings_per_run=listings))
+    return {"status": "started", "listings_target": listings, "message": f"Pipeline started — generating {listings} listings autonomously"}
+
+
+@app.get("/api/pipeline/status")
+async def pipeline_status():
+    from integrations.leonardo import leonardo_available
+    from integrations.etsy import _can_write as etsy_write, _has_credentials as etsy_read
+    from integrations.printify import printify_available
+    return {
+        "leonardo": leonardo_available(),
+        "dalle": bool(os.getenv("OPENAI_API_KEY")),
+        "printify": printify_available(),
+        "etsy_read": etsy_read(),
+        "etsy_publish": etsy_write(),
+        "serper": bool(os.getenv("SERPER_API_KEY")),
+        "ready": printify_available(),
+        "fully_autonomous": printify_available() and etsy_write(),
+    }
+
+
 # ─── Skills API ──────────────────────────────────────────────────────────────
 
 @app.get("/api/skills")
@@ -2914,3 +2966,4 @@ async def startup():
     asyncio.create_task(_ab_test_resolver_loop())
     asyncio.create_task(_review_monitor_loop())
     asyncio.create_task(_weekly_email_report_loop())
+    asyncio.create_task(_autonomous_listing_loop())

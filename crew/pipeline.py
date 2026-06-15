@@ -9,14 +9,27 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from integrations.leonardo import generate_design as _leonardo_generate, leonardo_available
 try:
-    from integrations.higgsfield import generate_variants as _gen_variants
-    _GENERATOR = "Higgsfield"
+    from integrations.dalle import generate_variants as _dalle_generate
+    _DALLE_AVAILABLE = True
 except ImportError:
-    from integrations.dalle import generate_variants as _gen_variants
-    _GENERATOR = "DALL-E"
+    _DALLE_AVAILABLE = False
 
-generate_variants = _gen_variants
+_GENERATOR = "Leonardo" if leonardo_available() else ("DALL-E" if _DALLE_AVAILABLE else "Demo")
+
+async def generate_variants(prompt: str, n: int = 2) -> list:
+    """Generate design image URLs — Leonardo primary, DALL-E fallback."""
+    if leonardo_available():
+        result = await _leonardo_generate(prompt, prompt, num_images=n)
+        if result.get("success") and result.get("images"):
+            return [img["url"] for img in result["images"]]
+    if _DALLE_AVAILABLE:
+        try:
+            return await _dalle_generate(prompt, n)
+        except Exception:
+            pass
+    return []
 from integrations.printify import upload_image, create_product, publish_product, generate_mockups
 from integrations.etsy import create_listing, build_tags, build_title, build_description, LISTING_FEE
 from integrations import pinterest, discord
@@ -57,17 +70,24 @@ async def run_idea_pipeline(
     await _update_status(manager, state, "VULCAN", "working",
                          f"Generating designs for '{title}'")
 
+    DEMO_IMAGES = [
+        "https://via.placeholder.com/1024x1024/1a1a2e/gold?text=Demo+Design+1",
+        "https://via.placeholder.com/1024x1024/1a1a2e/gold?text=Demo+Design+2",
+    ]
     try:
-        variants = await generate_variants(title, niche, product_type, count=2)
+        raw_urls = await generate_variants(f"{title} — {niche} {product_type} design", n=2)
+        if raw_urls:
+            variants = [{"url": u, "prompt": f"{title} variant {i+1}", "demo": False} for i, u in enumerate(raw_urls)]
+        else:
+            variants = [
+                {"url": DEMO_IMAGES[0], "prompt": f"Demo design for {title}", "demo": True},
+                {"url": DEMO_IMAGES[1], "prompt": f"Demo design variant 2 for {title}", "demo": True},
+            ]
     except Exception as e:
         await _log(manager, "VULCAN", f"Design generation failed: {e}. Using demo placeholders.", "warning")
-        try:
-            from integrations.higgsfield import DEMO_IMAGES as _DEMO
-        except ImportError:
-            from integrations.dalle import DEMO_IMAGES as _DEMO
         variants = [
-            {"url": _DEMO[0], "prompt": f"Demo design for {title}", "demo": True},
-            {"url": _DEMO[1], "prompt": f"Demo design variant 2 for {title}", "demo": True},
+            {"url": DEMO_IMAGES[0], "prompt": f"Demo design for {title}", "demo": True},
+            {"url": DEMO_IMAGES[1], "prompt": f"Demo design variant 2 for {title}", "demo": True},
         ]
 
     design_items = []
@@ -541,3 +561,114 @@ async def _award_xp(
         "level": ag["level"],
         "action": action,
     })
+
+# ─── Autonomous Daily Pipeline ────────────────────────────────────────────────
+
+async def run_autonomous_daily_pipeline(
+    manager,
+    state,
+    listings_per_run: int = 3,
+) -> dict:
+    """
+    Fully automatic pipeline — no human approval needed.
+    Runs every morning: research trends → generate designs → publish to Printify + Etsy.
+    """
+    from crew.tools import generate_niche_idea
+
+    published = []
+    errors = []
+
+    await _log(manager, "ODIN", f"Starting autonomous daily pipeline — targeting {listings_per_run} new listings", "info")
+
+    # Research trending niches via Serper or fallback list
+    try:
+        from integrations.serper import search_trending_niches
+        trends = await search_trending_niches(limit=10)
+        top_niches = [t.get("niche", t.get("keyword", "")) for t in trends[:5] if t]
+    except Exception:
+        top_niches = []
+    if not top_niches:
+        top_niches = ["funny cat", "vintage botanical", "motivational quotes", "dog lover", "celestial moon"]
+
+    await _log(manager, "HEIMDALL", f"Trending niches: {', '.join(top_niches[:3])}", "info")
+
+    for i in range(listings_per_run):
+        niche = top_niches[i % len(top_niches)]
+        try:
+            await _update_status(manager, state, "LOKI", "working", f"Generating idea for: {niche}")
+            idea = generate_niche_idea(niche)
+            title = idea.get("title", f"Premium {niche.title()} Design")
+            keywords = idea.get("keywords", [niche])
+
+            await _log(manager, "LOKI", f"Idea {i+1}/{listings_per_run}: {title}", "info")
+
+            await _update_status(manager, state, "VULCAN", "working", f"Generating design: {title}")
+            images = await generate_variants(title, n=1)
+
+            if not images:
+                await _log(manager, "VULCAN", f"No image generated for '{title}' — skipping", "warning")
+                errors.append({"title": title, "error": "Image generation failed"})
+                continue
+
+            image_url = images[0]
+            await _log(manager, "VULCAN", f"Design created for: {title}", "success")
+
+            from integrations.printify import upload_image as _upload, create_product as _create, publish_product as _publish
+            await _update_status(manager, state, "VULCAN", "working", "Uploading to Printify")
+            image_id = await _upload(image_url, title)
+            if not image_id:
+                errors.append({"title": title, "error": "Printify upload failed"})
+                continue
+
+            product = await _create(
+                title=build_title(title, niche),
+                description=build_description(title, niche, keywords),
+                image_id=image_id,
+            )
+            product_id = product.get("id") if product else None
+            if product_id:
+                await _publish(product_id)
+                await _log(manager, "VULCAN", f"Printify product live: {title}", "success")
+
+            from integrations.etsy import _can_write as etsy_can_write
+            etsy_listing = None
+            if etsy_can_write():
+                await _update_status(manager, state, "LOKI", "working", "Publishing to Etsy")
+                etsy_listing = await create_listing(
+                    title=build_title(title, niche),
+                    description=build_description(title, niche, keywords),
+                    tags=build_tags(niche, keywords),
+                    price_usd=24.99,
+                )
+                if etsy_listing and not etsy_listing.get("demo"):
+                    await _log(manager, "LOKI", f"Etsy listing live: {title}", "success")
+                    await _award_xp(manager, state, "LOKI", 50, "etsy_listing_published")
+            else:
+                await _log(manager, "LOKI", "Etsy OAuth not connected — saved to Printify only", "info")
+
+            published.append({
+                "title": title,
+                "niche": niche,
+                "image_url": image_url,
+                "printify_id": product_id,
+                "etsy_listing": etsy_listing,
+                "timestamp": datetime.now().isoformat(),
+            })
+            await _award_xp(manager, state, "VULCAN", 30, "design_published")
+
+        except Exception as e:
+            err_msg = f"{type(e).__name__}: {e}"
+            errors.append({"title": niche, "error": err_msg})
+            await _log(manager, "ODIN", f"Pipeline error on listing {i+1}: {err_msg}", "error")
+
+    summary = {
+        "published": len(published),
+        "errors": len(errors),
+        "listings": published,
+        "timestamp": datetime.now().isoformat(),
+    }
+    await manager.broadcast({"type": "pipeline_daily_complete", "data": summary})
+    await _update_status(manager, state, "ODIN", "idle", f"Daily pipeline done — {len(published)} listings published")
+    await _log(manager, "ODIN", f"Daily pipeline complete: {len(published)} published, {len(errors)} errors",
+               "success" if not errors else "warning")
+    return summary
