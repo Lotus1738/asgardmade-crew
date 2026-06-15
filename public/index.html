@@ -2818,8 +2818,13 @@ function renderDesigns(designs){
 
   pend.forEach(d=>{
     const fallback=_designPlaceholderSVG(d.ideaTitle, d.productType);
+    /* Route through proxy to bypass Leonardo CDN CORS restrictions */
+    const rawUrl=d.imageUrl||'';
+    const imgSrc=rawUrl&&!rawUrl.startsWith('data:')&&!rawUrl.startsWith('https://via.placeholder')
+      ? `/api/proxy-image?url=${encodeURIComponent(rawUrl)}`
+      : rawUrl;
     const c=document.createElement('div'); c.className='approval-card'; c.id=`design-${d.id}`;
-    c.innerHTML=`<img class="approval-img" src="${esc(d.imageUrl||'')}" alt="${esc(d.ideaTitle)}"
+    c.innerHTML=`<img class="approval-img" src="${esc(imgSrc)}" alt="${esc(d.ideaTitle)}"
         style="object-fit:cover;border-radius:4px;width:100%;max-height:160px;display:block"
         onerror="this.src='${fallback}'">
       <div class="approval-title">${esc(d.ideaTitle||'Untitled')}</div>

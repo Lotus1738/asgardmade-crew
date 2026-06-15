@@ -546,6 +546,31 @@ async def chat_named(agent_name: str, req: ChatRequest):
     return await chat(req)
 
 
+@app.get("/api/proxy-image")
+async def proxy_image(url: str):
+    """
+    Proxy external images (Leonardo CDN, etc.) to avoid browser CORS blocks.
+    The HUD uses /api/proxy-image?url=<encoded_url> instead of the raw CDN URL.
+    """
+    import httpx
+    from fastapi.responses import Response as _Resp
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            content_type = r.headers.get("content-type", "image/jpeg")
+            return _Resp(
+                content=r.content,
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
 @app.get("/api/status")
 async def get_status():
     from integrations.etsy import _has_credentials, _can_write
