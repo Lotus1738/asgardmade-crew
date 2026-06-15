@@ -2498,6 +2498,7 @@ function removeTyping(){ const e=document.getElementById('_typ'); if(e) e.remove
    🔊 ODIN reply → speechSynthesis
 ═══════════════════════════════════════════════ */
 let _voiceRec=null, _voiceActive=false;
+let _lastInputWasVoice=false;  // true = mic triggered sendChat, so ODIN should speak back
 
 function _buildVoiceRec(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -2514,7 +2515,11 @@ function _buildVoiceRec(){
       if(chatAgent!=='ODIN'){ openChat('ODIN'); }
       setTimeout(()=>{
         const inp=document.getElementById('chat-input');
-        if(inp){ inp.value=transcript; sendChat(); }
+        if(inp){
+          inp.value=transcript;
+          _lastInputWasVoice=true;  // flag: this send came from mic
+          sendChat();
+        }
       }, chatAgent==='ODIN'?50:420);
     }
   };
@@ -2852,6 +2857,7 @@ setInterval(runAutoScorer, 5*60*1000);
 async function sendChat(){
   const inp=document.getElementById('chat-input');
   const txt=inp.value.trim(); if(!txt||!chatAgent) return;
+  const wasVoice=_lastInputWasVoice; _lastInputWasVoice=false; // consume the flag
   inp.value=''; appendUserMsg(txt); showTyping();
   if(!chatHistories[chatAgent]) chatHistories[chatAgent]=[];
   const history=chatHistories[chatAgent];
@@ -2880,7 +2886,9 @@ async function sendChat(){
         // ODIN: execute upgrade commands + inter-agent tasks embedded in reply
         if(chatAgent==='ODIN'){
           odinExecuteCommands(data.reply, txt);
-          odinSpeak(data.reply);
+          // Speak only if: mic was used (wasVoice) OR auto-speak is ON
+          // wasVoice=true forces speech regardless of the auto-speak toggle
+          odinSpeak(data.reply, wasVoice);
           parseAndFireInterAgentTasks(data.reply);
         }
       } else {
