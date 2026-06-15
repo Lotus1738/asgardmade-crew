@@ -2895,5 +2895,22 @@ async def startup():
         vault_path = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
         vault_path.mkdir(parents=True, exist_ok=True)
         mem.write("System/startup.md",
-            f"# Pantheon Online\nTimestamp: {datetime.now().isoformat()}\n"
-            f"Vault:
+            f"Vault: {vault_path.resolve()}\nAll agents initialized.\n")
+        print(f"[MEMORY] Obsidian vault active at {vault_path.resolve()}")
+    except Exception as e:
+        print(f"[MEMORY] Vault init warning: {e}")
+
+    asyncio.create_task(_guardian_loop())
+    asyncio.create_task(_heimdall_loop())
+    asyncio.create_task(_heimdall_deep_research_loop())
+    asyncio.create_task(_athena_loop())
+    asyncio.create_task(_vault_loop())
+    asyncio.create_task(_odin_loop())
+    asyncio.create_task(_odin_morning_briefing_loop())
+    asyncio.create_task(_odin_agent_improvement_loop())
+    asyncio.create_task(_odin_autonomous_action_loop())
+    asyncio.create_task(_brain_synthesis_loop())
+    asyncio.create_task(_bestseller_requeue_loop())
+    asyncio.create_task(_ab_test_resolver_loop())
+    asyncio.create_task(_review_monitor_loop())
+    asyncio.create_task(_weekly_email_report_loop())
