@@ -501,13 +501,15 @@ def get_system_prompt(agent_name: str, context: dict | None = None) -> str:
         ctx_lines.append(f"Sales traction (prioritize these niches):\n{context['sales_intel']}")
 
     if "seasonal_intel" in context:
-        ctx_lines.append(f"SEASONAL INTELLIGENCE (upcoming demand spikes):\n{context['seasonal_intel']}")
+        si = context['seasonal_intel']
+        ctx_lines.append(f"SEASONAL INTELLIGENCE (upcoming demand spikes):\n{si}")
 
     if "liveWebSearch" in context:
         ctx_lines.append(context["liveWebSearch"])
 
     if "agentTaskQueue" in context:
-        ctx_lines.append(f"Inter-agent task: {context['agentTaskQueue']}")
+        atq = context['agentTaskQueue']
+        ctx_lines.append(f"Inter-agent task: {atq}")
 
     if ctx_lines:
         context_block = "\n\n".join(ctx_lines)
