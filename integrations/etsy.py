@@ -42,9 +42,9 @@ def build_description(idea_title: str, niche: str, keywords: list[str]) -> str:
         f"{idea_title}\n\n"
         f"A unique {niche} design, perfect for anyone who loves {niche.lower()} aesthetics. "
         f"Printed on demand with high-quality materials.\n\n"
-        f"✦ Perfect gift for: {kw_line}\n"
-        f"✦ High-quality print on demand\n"
-        f"✦ Ships within 3-5 business days\n\n"
+        f"❆ Perfect gift for: {kw_line}\n"
+        f"❆ High-quality print on demand\n"
+        f"❆ Ships within 3-5 business days\n\n"
         f"Questions? Message us — we respond within 24 hours."
     )
 
@@ -97,6 +97,46 @@ async def create_listing(
             "url": data.get("url", ""),
             "demo": False,
         }
+
+
+async def get_recent_reviews(min_rating: int = 1, max_rating: int = 2, limit: int = 25) -> list[dict]:
+    """
+    Fetch recent shop reviews with rating between min_rating and max_rating.
+    Returns a list of review dicts. Falls back to empty list on error or missing creds.
+
+    Each dict contains:
+      review_id, listing_id, listing_title, rating, review, create_timestamp, reviewer
+    """
+    if not _has_credentials():
+        return []
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.get(
+                f"{BASE_URL}/application/shops/{_shop_id()}/reviews",
+                headers=_headers(),
+                params={"limit": limit, "offset": 0},
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            results = data.get("results", [])
+            filtered = []
+            for r in results:
+                rating = r.get("rating", 5)
+                if min_rating <= rating <= max_rating:
+                    filtered.append({
+                        "review_id": str(r.get("review_id", "")),
+                        "listing_id": str(r.get("listing_id", "")),
+                        "listing_title": r.get("title", "Unknown Listing"),
+                        "rating": rating,
+                        "review": r.get("review", ""),
+                        "create_timestamp": r.get("create_timestamp", 0),
+                        "reviewer": r.get("buyer_user_id", "anonymous"),
+                    })
+            return filtered
+        except Exception:
+            return []
 
 
 async def get_shop_stats() -> dict:

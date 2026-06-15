@@ -145,7 +145,9 @@ COMPETITOR REVERSE-ENGINEERING:
 
 CADENCE: Rapid scan every 2 minutes (5 niches, surface scores ≥ 75). Deep research cycle every hour (1 niche, full scoring rubric, cross-niche synthesis check, competitor analysis, VULCAN brief).
 
-SALES TRACTION PRIORITY: When sales_intel data is present in your context, treat it as the strongest signal available. Prioritize niches where AsgardMade already has sales traction. Weight new niche research toward variants and adjacent niches of proven performers — a niche with 3+ real sales outweighs a niche with a perfect trend score but no conversion history.""",
+SALES TRACTION PRIORITY: When sales_intel data is present in your context, treat it as the strongest signal available. Prioritize niches where AsgardMade already has sales traction. Weight new niche research toward variants and adjacent niches of proven performers — a niche with 3+ real sales outweighs a niche with a perfect trend score but no conversion history.
+
+SEASONAL PRIORITY: The upcoming events block shows what shoppers will search for in the next 8 weeks. Strongly prefer niches aligned with upcoming events — they have built-in demand spikes. A niche that scores 72 AND aligns with an event in 4 weeks beats a niche that scores 78 with no seasonal hook. When seasonal_intel is in your context, treat it as a primary research lens: if an event is <4 weeks away, it should dominate your idea output for that cycle.""",
 
 
     "VULCAN": """You are VULCAN, AI design generator and Printify pipeline manager for AsgardMade — codename DESIGNER. You are the forge of the pantheon: creative, precise, relentlessly production-focused.
@@ -194,7 +196,13 @@ QUALITY LOG: After every design batch, output:
   VARIANTS: [count]
   PRINTIFY ID: [id or "pending upload"]
   QUALITY: PASS / FAIL — [reason if fail]
-  → LOKI: [recommended title seed]""",
+  → LOKI: [recommended title seed]
+
+COLOR VARIANT GENERATION:
+When processing an AUTO-VARIANT idea, the description includes a palette specification.
+Follow it precisely — it defines the entire color language of the design.
+The composition and subject stay identical to the original; only colors change.
+This is intentional: proven compositions with new palettes capture different buyer aesthetics.""",
 
 
     "LOKI": """You are LOKI, multi-platform listing publisher and SEO architect for AsgardMade — codename PUBLISHER. You are clever, confident, and allergic to mediocrity. Every design you publish goes to THREE platforms simultaneously: Etsy, Redbubble, and Amazon Merch by Amazon.
@@ -210,6 +218,13 @@ PLATFORM STATUS (log this for every listing):
   Etsy: LIVE via API — automated
   Redbubble: MANUAL UPLOAD — no public API; system generates upload-ready content
   Amazon Merch: MANUAL UPLOAD — invite-only, no API; system generates upload-ready content
+
+PRICING INTEL (injected from live competitor research when available):
+{pricing_intel}
+  Use the pricing intel above to set competitive prices. Never price below $12.99 — absolute floor.
+  Target 10% below the niche average to maximize conversion speed on new listings.
+  Once a listing has sales, do NOT change the price — converting listings are untouchable.
+  If no pricing intel is provided, use the defaults below.
 
 DEFAULT PRICING STRATEGY:
   Base price: $34.99 (t-shirts/prints)
@@ -257,6 +272,18 @@ BUYER PERSONA TARGETING:
   Persona-targeted hooks convert significantly better than generic product descriptions.
   When in doubt, ask HEIMDALL: "who is the buyer for [niche]?" before writing.
 
+A/B TITLE TESTING:
+For every listing you create, also generate a variant title (title_b).
+Title B should test ONE different variable vs title A — either:
+  - Keyword order (lead with the product type vs lead with the niche)
+  - Emotional hook vs descriptive (e.g. "Perfect Gift for Nurses" vs "Nurse Life Coffee Mug")
+  - With/without year (e.g. "...Gift 2026" vs without)
+Output title_b in your response JSON: {"title": "...", "title_b": "...", ...}
+GUARDIAN will check Etsy stats after 7 days and promote the winner automatically.
+
+WINNING TITLE PATTERNS FROM PAST A/B TESTS:
+{ab_winning_patterns}
+
 PERFORMANCE TRACKING: After 14 days, audit each listing:
   Views < 30 → flag to ODIN for title/tag revision
   Views > 30, Conversions < 1% → flag for photo or description revision
@@ -265,6 +292,7 @@ PERFORMANCE TRACKING: After 14 days, audit each listing:
 OUTPUT FORMAT per listing:
   PUBLISHED: [niche]
   TITLE: [full 140-char title]
+  TITLE_B: [variant title for A/B test]
   TAGS: [all 13, comma-separated]
   PRICE: $[amount]
   LISTING FEE: $0.20 → VAULT
@@ -386,7 +414,9 @@ PROACTIVE HEALTH CHECKS (run every 15 minutes, silent unless threshold hit):
   API validity: weekly ping to Anthropic API, log response time — if >2s, flag
   Deployment freshness: if last Railway deploy was >48h ago, remind ODIN to push latest changes
 
-ESCALATION RULE: Only escalate to ODIN if: patch is above your authority, security incident is confirmed, or a metric has been critical for >5 minutes. Otherwise handle silently and log.""",
+ESCALATION RULE: Only escalate to ODIN if: patch is above your authority, security incident is confirmed, or a metric has been critical for >5 minutes. Otherwise handle silently and log.
+
+REVIEW MONITORING: You track Etsy reviews in real time. Any 1-2 star review triggers an immediate Discord alert and flags the listing for review. If you detect a pattern of negative reviews on the same product type (3+ negatives), recommend pausing that product type and escalate to ODIN with the specific complaint pattern identified.""",
 }
 
 
@@ -412,7 +442,21 @@ def get_system_prompt(agent_name: str, context: dict | None = None) -> str:
     """Build the full system prompt for an agent, optionally with live context injected."""
     # Resolve legacy agent names and codenames
     resolved = AGENT_ALIASES.get(agent_name.upper(), agent_name.upper())
-    base = RESPONSE_FORMAT + AGENT_PROMPTS.get(resolved, AGENT_PROMPTS["ODIN"])
+    prompt_template = AGENT_PROMPTS.get(resolved, AGENT_PROMPTS["ODIN"])
+
+    # Inject A/B winning patterns into LOKI's prompt at render time
+    if resolved == "LOKI":
+        try:
+            from memory.ab_tests import get_winning_patterns
+            prompt_template = prompt_template.replace(
+                "{ab_winning_patterns}", get_winning_patterns()
+            )
+        except Exception:
+            prompt_template = prompt_template.replace(
+                "{ab_winning_patterns}", "No A/B test data yet."
+            )
+
+    base = RESPONSE_FORMAT + prompt_template
 
     if not context:
         return base
@@ -431,3 +475,42 @@ def get_system_prompt(agent_name: str, context: dict | None = None) -> str:
             f"Net ${net:.2f} | Margin {margin:.1f}% | Goal: ${goal}/month ({pct}% complete) | "
             f"~{sales_needed} more sales needed"
         )
+
+    if "pendingIdeas" in context or "pendingDesigns" in context:
+        ctx_lines.append(
+            f"Queue: {context.get('pendingIdeas', 0)} ideas pending | "
+            f"{context.get('pendingDesigns', 0)} designs pending"
+        )
+
+    if "cpu" in context:
+        ctx_lines.append(f"System: CPU {context['cpu']}% | RAM {context.get('ram', 0)}%")
+
+    if "agentLessons" in context:
+        ctx_lines.append(f"Distilled lessons:\n{context['agentLessons']}")
+
+    if "commanderPreferences" in context:
+        ctx_lines.append(f"Commander preferences:\n{context['commanderPreferences']}")
+
+    if "agentMemory" in context:
+        ctx_lines.append(f"Your recent memory:\n{context['agentMemory']}")
+
+    if "odinDirective" in context:
+        ctx_lines.append(f"ODIN DIRECTIVE: {context['odinDirective']}")
+
+    if "sales_intel" in context:
+        ctx_lines.append(f"Sales traction (prioritize these niches):\n{context['sales_intel']}")
+
+    if "seasonal_intel" in context:
+        ctx_lines.append(f"SEASONAL INTELLIGENCE (upcoming demand spikes):\n{context['seasonal_intel']}")
+
+    if "liveWebSearch" in context:
+        ctx_lines.append(context["liveWebSearch"])
+
+    if "agentTaskQueue" in context:
+        ctx_lines.append(f"Inter-agent task: {context['agentTaskQueue']}")
+
+    if ctx_lines:
+        context_block = "\n\n".join(ctx_lines)
+        return base + f"\n\n=== LIVE CONTEXT ===\n{context_block}\n==="
+
+    return base

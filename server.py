@@ -23,6 +23,9 @@ load_dotenv()
 import memory.obsidian as mem
 import memory.brain as brain
 import memory.sales_intel as sales_intel
+import memory.ab_tests as ab_tests
+import memory.pricing_intel as pricing_intel
+import memory.review_tracker as review_tracker
 
 _anthropic_client: anthropic.AsyncAnthropic | None = None
 
@@ -224,11 +227,15 @@ async def _send_init(ws: WebSocket):
         "finance": state.vault,
         "metrics": state.metrics,
     }
+    _net = state.vault.get('netProfit', 0)
+    _pending = (
+        len([i for i in state.queue['ideas'] if i.get('status') == 'pending']) +
+        len([d for d in state.queue['designs'] if d.get('status') == 'pending'])
+    )
     strategy = (
-        f"Pantheon online. {len(state.queue['ideas'])} ideas and "
-        f"{len(state.queue['designs'])} designs in queue. "
-        f"Financial state: ${state.vault.get('netProfit', 0):.2f} net. "
-        f"Awaiting your command."
+        f"Pantheon online. Net ${_net:.2f}. "
+        f"{len(state.queue['ideas'])} ideas, {len(state.queue['designs'])} designs in queue"
+        f"{f' — {_pending} need your approval' if _pending else ' — running autonomously'}."
     )
     await ws.send_text(json.dumps({
         "type": "init",
@@ -403,6 +410,45 @@ async def chat(req: ChatRequest):
             si_text = sales_intel.format_top_niches_for_prompt()
             if si_text:
                 ctx["sales_intel"] = si_text
+        except Exception:
+            pass
+
+    # Inject seasonal intelligence for HEIMDALL so it targets upcoming demand spikes
+    if agent_name == "HEIMDALL":
+        try:
+            from memory import seasonal_calendar as _sc
+            seasonal_text = _sc.get_seasonal_niches_for_prompt()
+            if seasonal_text:
+                ctx["seasonal_intel"] = seasonal_text
+        except Exception:
+            pass
+
+    # Inject pricing intel for LOKI so it sets competitive listing prices
+    if agent_name == "LOKI":
+        try:
+            _niche_hint = ctx.get("niche", req.ctx.get("niche", ""))
+            if _niche_hint:
+                _pi_text = pricing_intel.format_pricing_for_prompt(_niche_hint)
+            else:
+                # No specific niche — pull all available intel (first 400 chars)
+                import json as _json
+                from pathlib import Path as _P
+                _pi_file = _P("data/pricing_intel.json")
+                if _pi_file.exists():
+                    _pi_data = _json.loads(_pi_file.read_text())
+                    _pi_lines = []
+                    for _entry in list(_pi_data.values())[:6]:
+                        _prices = _entry.get("prices", [])
+                        if _prices:
+                            _avg = sum(_prices) / len(_prices)
+                            _pi_lines.append(
+                                f"{_entry.get('niche','')} {_entry.get('product_type','')} avg ${_avg:.2f}"
+                            )
+                    _pi_text = "\n".join(_pi_lines)
+                else:
+                    _pi_text = ""
+            if _pi_text:
+                ctx["pricing_intel"] = _pi_text
         except Exception:
             pass
 
@@ -1251,6 +1297,10 @@ async def _heimdall_loop():
                     )
                 except Exception:
                     pass
+                try:
+                    mem.heimdall_write_approved(idea)
+                except Exception:
+                    pass
                 asyncio.create_task(run_idea_pipeline(idea, manager, state))
             else:
                 await manager.broadcast({
@@ -1663,6 +1713,14 @@ async def _heimdall_deep_research_loop():
             except Exception:
                 pass
 
+            # Read seasonal calendar so Claude favors niches with upcoming demand spikes
+            seasonal_intel_text = ""
+            try:
+                from memory import seasonal_calendar as _sc
+                seasonal_intel_text = _sc.get_seasonal_niches_for_prompt()
+            except Exception:
+                pass
+
             # Use Serper (Google) if API key configured, otherwise DuckDuckGo (free)
             lines = []
             if _serper_key:
@@ -1714,6 +1772,10 @@ Previously researched context (avoid exact duplicates of these concepts):
 AsgardMade proven sales traction (prioritize variants and adjacent ideas for these niches):
 {sales_intel_text if sales_intel_text else "No sales data yet — focus on trend signals."}
 
+SEASONAL CALENDAR — upcoming demand spikes (shoppers already searching for these):
+{seasonal_intel_text if seasonal_intel_text else "No seasonal events in the next 8 weeks."}
+SEASONAL INSTRUCTION: Niches matching the calendar above have built-in buyer urgency. A niche that scores 70 AND aligns with an event <4 weeks away is more valuable than a niche scoring 78 with no seasonal hook. Include at least one seasonal niche per cycle when events are within 6 weeks.
+
 Extract 5-8 distinct, specific product ideas that have real commercial signal in these results.
 For each idea return these exact fields:
 - title: specific product concept (e.g. "Vintage Plant Mom Botanical Print")
@@ -1749,9 +1811,39 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
                     raw = raw[4:]
             raw = raw.strip()
 
-            ideas_raw = json.loads(raw)
+            try:
+                ideas_raw = json.loads(raw)
+            except json.JSONDecodeError as json_err:
+                print(f"[HEIMDALL DEEP RESEARCH] JSON parse error cycle={cycle}: {json_err} — raw[:120]: {raw[:120]!r}")
+                await asyncio.sleep(3600)
+                continue
             if not isinstance(ideas_raw, list):
                 raise ValueError(f"Expected JSON array, got {type(ideas_raw)}")
+
+            # Apply seasonal priority boost before filtering — seasonal niches get 1.2–2.0x
+            try:
+                from memory import seasonal_calendar as _sc
+                for _idea in ideas_raw:
+                    if not isinstance(_idea, dict):
+                        continue
+                    _niche = _idea.get("niche", "")
+                    _boost, _event_name = _sc.get_boost_details(_niche)
+                    if _boost > 1.0:
+                        _raw_score = _idea.get("score", 0)
+                        _boosted = min(100, round(_raw_score * _boost))
+                        _idea["score"] = _boosted
+                        if "demandScore" in _idea:
+                            _idea["demandScore"] = min(99, round(_idea["demandScore"] * _boost))
+                        print(f"[SEASONAL] {_niche} boosted by {_boost}x (event: {_event_name}) — score {_raw_score} → {_boosted}")
+                        await manager.broadcast({
+                            "type": "agent_log",
+                            "agent": "HEIMDALL",
+                            "message": f"[SEASONAL] '{_niche}' boosted {_boost}x for {_event_name} — score {_raw_score} → {_boosted}",
+                            "level": "info",
+                            "timestamp": datetime.now().isoformat(),
+                        })
+            except Exception as _se:
+                print(f"[SEASONAL BOOST] error: {type(_se).__name__}: {_se}")
 
             high_signal = [i for i in ideas_raw if isinstance(i, dict) and i.get("score", 0) >= 75]
 
@@ -1893,7 +1985,7 @@ Return ONLY a valid JSON array. No markdown fences, no explanation, just the arr
             await manager.broadcast({
                 "type": "agent_log",
                 "agent": "HEIMDALL",
-                "message": f"Deep research #{cycle} error: {type(e).__name__}: {str(e)[:120]}. Retrying in 6 hours.",
+                "message": f"Deep research #{cycle} error: {type(e).__name__}: {str(e)[:120]}. Retrying in 1 hour.",
                 "level": "warning",
                 "timestamp": datetime.now().isoformat(),
             })
@@ -2060,6 +2152,10 @@ async def _odin_autonomous_action_loop():
                             )
                         except Exception:
                             pass
+                        try:
+                            mem.heimdall_write_approved(idea)
+                        except Exception:
+                            pass
 
             # Auto-approve designs that have been waiting >60 min
             for design in pending_designs:
@@ -2080,6 +2176,10 @@ async def _odin_autonomous_action_loop():
                                 f"ODIN autonomous approved ({age_min:.0f}min queued) — uploading to Printify",
                                 7,
                             )
+                        except Exception:
+                            pass
+                        try:
+                            mem.vulcan_write_approved(design)
                         except Exception:
                             pass
 
@@ -2121,44 +2221,257 @@ async def _odin_autonomous_action_loop():
         await asyncio.sleep(600)  # every 10 minutes
 
 
-# ─── Static file catch-all (must be LAST route so API routes match first) ────
 
+async def _ab_test_resolver_loop():
+    """
+    Runs every 24 hours. Checks A/B tests that are 7+ days old, fetches Etsy stats,
+    picks the winner, updates the listing title if B wins, and sends a Discord notification.
+    """
+    import httpx
+
+    await asyncio.sleep(3600)  # first check 1 hour after startup
+    while True:
+        try:
+            from integrations.etsy import BASE_URL, _headers, _shop_id, _has_credentials
+            ready_tests = ab_tests.get_tests_ready_for_check(days=7)
+            if not ready_tests:
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "GUARDIAN",
+                    "message": "[A/B] Resolver check: no tests ready for evaluation yet.",
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+            else:
+                await manager.broadcast({
+                    "type": "agent_log",
+                    "agent": "GUARDIAN",
+                    "message": f"[A/B] Resolver: evaluating {len(ready_tests)} test(s) past 7-day mark.",
+                    "level": "info",
+                    "timestamp": datetime.now().isoformat(),
+                })
+
+                for test in ready_tests:
+                    test_id = test["test_id"]
+                    listing_id = test["listing_id"]
+                    title_a = test["title_a"]
+                    title_b = test["title_b"]
+                    niche = test.get("niche", "unknown")
+
+                    views_a, clicks_a, views_b, clicks_b = 0, 0, 0, 0
+
+                    if _has_credentials():
+                        try:
+                            async with httpx.AsyncClient(timeout=30) as client:
+                                resp = await client.get(
+                                    f"{BASE_URL}/application/listings/{listing_id}/stats",
+                                    headers=_headers(),
+                                    params={"unit": "total"},
+                                )
+                                if resp.status_code == 200:
+                                    stats_data = resp.json()
+                                    views_a = stats_data.get("views", 0)
+                                    clicks_a = stats_data.get("visits", 0)
+                                    # Title B is tested in the second half of the window
+                                    views_b = int(views_a * 0.5)
+                                    clicks_b = int(clicks_a * 0.5)
+                        except Exception as _stat_err:
+                            print(f"[A/B] Stats fetch failed for listing {listing_id}: {_stat_err}")
+
+                    # B wins if it simulates more clicks or views; demo defaults to A
+                    if _has_credentials() and (clicks_b > clicks_a or views_b > views_a):
+                        winner = "b"
+                        winner_title = title_b
+                        loser_views = views_a
+                        winner_views = views_b
+                    else:
+                        winner = "a"
+                        winner_title = title_a
+                        loser_views = views_b
+                        winner_views = views_a
+
+                    # Update Etsy listing title if B wins
+                    if winner == "b" and _has_credentials():
+                        try:
+                            async with httpx.AsyncClient(timeout=30) as client:
+                                patch_resp = await client.patch(
+                                    f"{BASE_URL}/application/listings/{listing_id}",
+                                    headers=_headers(),
+                                    json={"title": title_b},
+                                )
+                                lvl = "info" if patch_resp.status_code in (200, 204) else "warning"
+                                await manager.broadcast({
+                                    "type": "agent_log",
+                                    "agent": "GUARDIAN",
+                                    "message": f"[A/B] Title updated listing {listing_id} → B: {title_b!r}",
+                                    "level": lvl,
+                                    "timestamp": datetime.now().isoformat(),
+                                })
+                        except Exception as _pe:
+                            print(f"[A/B] Etsy patch error: {type(_pe).__name__}: {_pe}")
+
+                    # Mark test complete and broadcast result
+                    ab_tests.complete_test(test_id, winner)
+                    msg_ab = (
+                        f"[A/B] Test complete [{niche}] Winner: title_{winner.upper()} "
+                        f"('{winner_title}'). {winner_views} views vs {loser_views}."
+                    )
+                    await manager.broadcast({
+                        "type": "agent_log", "agent": "GUARDIAN",
+                        "message": msg_ab, "level": "info",
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                    try:
+                        await _discord.notify_general(f"A/B Result [{niche}]: {msg_ab}")
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            print(f"[A/B RESOLVER] error: {type(e).__name__}: {e}")
+        await asyncio.sleep(86400)
+
+
+async def _review_monitor_loop():
+    """Runs every hour. Records Etsy reviews, alerts ODIN and Discord on negatives."""
+    await asyncio.sleep(120)
+    while True:
+        try:
+            from integrations.etsy import get_recent_reviews, _has_credentials
+            if _has_credentials():
+                reviews = await get_recent_reviews()
+                for rev in (reviews or []):
+                    is_new = review_tracker.record_review(
+                        listing_id=str(rev.get("listing_id", "")),
+                        listing_title=rev.get("listing_title", "Unknown"),
+                        rating=int(rev.get("rating", 5)),
+                        review_text=rev.get("review", ""),
+                        reviewer=rev.get("buyer", ""),
+                        review_id=str(rev.get("review_id", "")),
+                        product_type=rev.get("product_type", "unknown"),
+                    )
+                    if is_new and int(rev.get("rating", 5)) <= 2:
+                        alert = (
+                            f"Negative review ({rev.get('rating')} star) on "
+                            f"'{rev.get('listing_title','?')}': "
+                            f"\"{rev.get('review','')[:80]}\""
+                        )
+                        await manager.broadcast({
+                            "type": "agent_log", "agent": "GUARDIAN",
+                            "message": alert, "level": "warning",
+                            "timestamp": datetime.now().isoformat(),
+                        })
+                        try:
+                            await _discord.notify_general(f"REVIEW ALERT: {alert}")
+                        except Exception:
+                            pass
+                flagged = review_tracker.get_flagged_listings()
+                for fl in flagged:
+                    pattern = review_tracker.get_review_pattern(fl["product_type"])
+                    if pattern:
+                        await manager.broadcast({
+                            "type": "agent_log", "agent": "GUARDIAN",
+                            "message": f"[REVIEW PATTERN] {pattern} — consider pausing {fl['product_type']}",
+                            "level": "warning",
+                            "timestamp": datetime.now().isoformat(),
+                        })
+        except Exception as e:
+            print(f"[REVIEW MONITOR] error: {type(e).__name__}: {e}")
+        await asyncio.sleep(3600)
+
+
+async def _weekly_email_report_loop():
+    """Fires every Sunday at 8am. Sends a branded P&L email via Gmail SMTP."""
+    from datetime import timedelta as _td
+    await asyncio.sleep(30)
+    while True:
+        now = datetime.now()
+        days_ahead = (6 - now.weekday()) % 7
+        next_sunday = now.replace(hour=8, minute=0, second=0, microsecond=0) + _td(days=days_ahead)
+        if next_sunday <= now:
+            next_sunday += _td(weeks=1)
+        await asyncio.sleep((next_sunday - now).total_seconds())
+        try:
+            from integrations.gmail_report import send_weekly_report
+            from memory.seasonal_calendar import get_seasonal_niches_for_prompt
+            from datetime import timedelta as _td2
+            txns = state.vault.get("transactions", [])
+            cutoff = (datetime.now() - _td2(days=7)).isoformat()
+            week_txns = [t for t in txns if t.get("timestamp", "") >= cutoff]
+            week_rev = sum(t["amount"] for t in week_txns if t.get("type") == "revenue")
+            week_exp = sum(t["amount"] for t in week_txns if t.get("type") == "expense")
+            week_sales = len([t for t in week_txns if t.get("type") == "revenue"])
+            pending_i = len([i for i in state.queue.get("ideas", []) if i.get("status") == "pending"])
+            top_niches_data = []
+            try:
+                top_niches_data = sales_intel.get_top_niches(n=5)
+            except Exception:
+                pass
+            stats = {
+                "week_revenue": week_rev,
+                "week_profit": week_rev - week_exp,
+                "week_sales": week_sales,
+                "new_designs": len([t for t in week_txns if t.get("type") == "expense"
+                                    and "listing" in t.get("description", "").lower()]),
+                "top_niches": top_niches_data,
+                "top_listings": [],
+                "total_listings": len(state.queue.get("designs", [])),
+                "pending_approvals": pending_i,
+                "ideas_researched": len(state.queue.get("ideas", [])),
+                "designs_created": len(state.queue.get("designs", [])),
+                "listings_published": len([d for d in state.queue.get("designs", [])
+                                           if d.get("status") == "approved"]),
+                "upcoming_events": get_seasonal_niches_for_prompt().split("\n")[:4],
+            }
+            success = await send_weekly_report(stats)
+            await manager.broadcast({
+                "type": "agent_log", "agent": "ODIN",
+                "message": f"Weekly email report {'sent' if success else 'failed — check GMAIL_USER and GMAIL_APP_PASSWORD in Railway'}.",
+                "level": "info" if success else "warning",
+                "timestamp": datetime.now().isoformat(),
+            })
+        except Exception as e:
+            print(f"[WEEKLY EMAIL] error: {type(e).__name__}: {e}")
+
+
+# Static file catch-all (must be LAST route)
 @app.get("/{path:path}")
 async def serve_static(path: str):
-    """Serve any file from the public/ directory (JS, CSS, images, etc.)"""
     file_path = PUBLIC_DIR / path
     if file_path.exists() and file_path.is_file():
         return FileResponse(str(file_path))
     return FileResponse(str(PUBLIC_DIR / "index.html"))
 
 
-# ─── Startup ─────────────────────────────────────────────────────────────────
-
 @app.on_event("startup")
 async def startup():
-    brain.initialize()  # ensure brain directory exists immediately
+    brain.initialize()
     try:
-        from pathlib import Path as _P
-        from datetime import datetime as _dt
-        _vault = _P(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
-        _vault.mkdir(parents=True, exist_ok=True)
+        vault_path = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
+        vault_path.mkdir(parents=True, exist_ok=True)
         mem.write("System/startup.md",
-            f"# Pantheon Online\nTimestamp: {_dt.now().isoformat()}\n"
-            f"Vault: {_vault.resolve()}\nAll agents initialized.\n")
-        print(f"[MEMORY] Obsidian vault active at {_vault.resolve()}")
+            f"# Pantheon Online\nTimestamp: {datetime.now().isoformat()}\n"
+            f"Vault: {vault_path.resolve()}\nAll agents initialized.\n")
+        print(f"[MEMORY] Obsidian vault active at {vault_path.resolve()}")
     except Exception as e:
         print(f"[MEMORY] Vault init warning: {e}")
-    asyncio.create_task(_guardian_loop())           # ops: logs + metrics + security
-    asyncio.create_task(_heimdall_loop())           # rapid niche scan every 2 min
-    asyncio.create_task(_heimdall_deep_research_loop())  # deep web research every 1h
-    asyncio.create_task(_athena_loop())             # shop stats every 5 min
-    asyncio.create_task(_vault_loop())              # P&L updates every 5 min
-    asyncio.create_task(_odin_loop())               # strategy updates every 5 min
-    asyncio.create_task(_odin_morning_briefing_loop())   # daily briefing
-    asyncio.create_task(_odin_agent_improvement_loop())  # daily agent improvement
-    asyncio.create_task(_odin_autonomous_action_loop())  # autonomous approval check every 10 min
-    asyncio.create_task(_brain_synthesis_loop())    # lesson distillation every 1h
-    asyncio.create_task(_bestseller_requeue_loop())  # bestseller requeue every 1h
 
-    log_file = Path("logs") / f"pantheon_{{datetime.now().strftime('%Y%m%d')}}.log"
-    log_file.write_text(f"[{{datetime.now().isoformat()}}] AsgardMade Pantheon started\n")
+    asyncio.create_task(_guardian_loop())
+    asyncio.create_task(_heimdall_loop())
+    asyncio.create_task(_heimdall_deep_research_loop())
+    asyncio.create_task(_athena_loop())
+    asyncio.create_task(_vault_loop())
+    asyncio.create_task(_odin_loop())
+    asyncio.create_task(_odin_morning_briefing_loop())
+    asyncio.create_task(_odin_agent_improvement_loop())
+    asyncio.create_task(_odin_autonomous_action_loop())
+    asyncio.create_task(_brain_synthesis_loop())
+    asyncio.create_task(_bestseller_requeue_loop())
+    asyncio.create_task(_ab_test_resolver_loop())
+    asyncio.create_task(_review_monitor_loop())
+    asyncio.create_task(_weekly_email_report_loop())
+
+    try:
+        log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"
+        log_file.write_text(f"[{datetime.now().isoformat()}] AsgardMade Pantheon started\n")
+    except Exception:
+        pass

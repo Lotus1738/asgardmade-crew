@@ -2144,13 +2144,13 @@ const PERSONAS = {
     }
   },
   HEIMDALL:{
-    greet(s){ return `From the Bifrost, I see every market horizon, Commander. I scan 12 niches every 2 minutes and generate ideas with demand scoring. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
+    greet(s){ return `From the Bifrost, I see every market horizon, Commander. I quick-scan a random niche every 2 minutes and run deep research across 24 niche categories every hour. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
     respond(m,s){
       m=m.toLowerCase();
       if(/idea|product|niche/.test(m)) return `I rotate through 24 niche categories every hour: cottagecore, dark academia, retro gaming, plant parent, mental health, pet portraits, boho, witch aesthetic, minimalist home, christian faith, dog mom, cat lover, nurse gift, teacher appreciation, hiking outdoor, coastal grandmother, Y2K nostalgia, anime aesthetic, true crime fan, book lover, funny sarcasm, birthday gift, baby shower, and wedding gift. Every 2 minutes I also quick-generate a fresh idea on a random niche. Demand 85+ with low competition = auto-approved.`;
       if(/demand|score/.test(m)) return `Demand scores range 80-96 in my database. High demand + low competition = golden window. I flag those intersections first and queue them for your approval.`;
       if(/ai|claude/.test(m)) return `With an Anthropic API key I use Claude Haiku to craft bespoke product concepts per niche. Without a key I use my template engine — still effective, less bespoke. Either way the ideas flow.`;
-      return ['The rainbow bridge reveals all trends.','I scan twelve niches every two minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
+      return ['The rainbow bridge reveals all trends.','24 niches. Deep research every hour. Quick scan every 2 minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
     }
   },
   VAULT:{
@@ -2951,65 +2951,102 @@ const ODIN_PERSONA = {
   respond(msg){
     const m=msg.toLowerCase(), f=state.vault||{}, mt=state.metrics||{}, agents=state.agents||{};
     const rev=parseFloat(f.totalRevenue||0), exp=parseFloat(f.totalExpenses||0), profit=rev-exp;
+    const margin=rev>0?((profit/rev)*100).toFixed(1):0;
     const pendD=(state.approvals?.designs||[]).filter(d=>d.status==='pending').length;
     const pendI=(state.approvals?.ideas||[]).filter(i=>i.status==='pending').length;
     const agentList=GRID_AGENTS.map(n=>({name:n,xp:agents[n]?.xp||0,level:agents[n]?.level||1,status:agents[n]?.status||'idle'}));
-    const topAgent=agentList.sort((a,b)=>b.xp-a.xp)[0];
-    const weakAgent=agentList.sort((a,b)=>a.xp-b.xp)[0];
+    const topAgent=[...agentList].sort((a,b)=>b.xp-a.xp)[0];
+    const weakAgent=[...agentList].sort((a,b)=>a.xp-b.xp)[0];
     const errAgents=agentList.filter(a=>a.status==='error').map(a=>a.name);
+    const salesNeeded=Math.max(0,Math.ceil((200-profit)/22.92));
+    const goalPct=Math.min(100,(profit/200*100)).toFixed(0);
 
-    if(/daily briefing|briefing|morning|today/.test(m)){
-      const recs=['Review the '+pendI+' pending idea'+(pendI!==1?'s':''),'Check agent logs for errors','Consider raising listing price by $2 if margin is below 40%'];
-      return {text:`DAILY BRIEFING — ${new Date().toLocaleDateString('en',{weekday:'long',month:'short',day:'numeric'})}.\n\nFinancials: Revenue $${rev.toFixed(2)}, Expenses $${exp.toFixed(2)}, Net $${profit.toFixed(2)}.\n\nSystem: CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%${errAgents.length?' ⚠ ERROR in '+errAgents.join(', '):''}.\n\nQueues: ${pendD} design(s) and ${pendI} idea(s) pending approval.\n\nTop performer: ${topAgent?.name} at ${topAgent?.xp} XP. Today's recommended actions:`,recs};
+    if(/daily briefing|briefing|morning|status report|today/.test(m)){
+      const day=new Date().toLocaleDateString('en',{weekday:'long',month:'short',day:'numeric'});
+      const health=errAgents.length?`⚠ ${errAgents.join(', ')} reporting errors`:`All systems nominal`;
+      const recs=[
+        pendI>0?`${pendI} idea${pendI!==1?'s':''} in queue — approve to keep the pipeline moving`:'Heimdall scanning — no pending ideas right now',
+        pendD>0?`${pendD} design${pendD!==1?'s':''} ready for your approval`:'Design queue clear',
+        salesNeeded>0?`${salesNeeded} more sale${salesNeeded!==1?'s':''} to hit $200 target`:'$200 target achieved'
+      ];
+      return {text:`${day}. Here's where we stand, Commander.\n\nRevenue: $${rev.toFixed(2)} | Expenses: $${exp.toFixed(2)} | Net: $${profit.toFixed(2)} | Margin: ${margin}% | Goal: ${goalPct}% complete.\n\nInfrastructure: CPU ${mt.cpu||0}%, RAM ${mt.ram||0}%. ${health}.\n\nQueue: ${pendD} design${pendD!==1?'s':''} and ${pendI} idea${pendI!==1?'s':''} pending.\n\nTop performer: ${topAgent?.name||'—'} at Level ${topAgent?.level||1}.\n\nYour move:`,recs};
     }
-    if(/system audit|audit|health/.test(m)){
+    if(/system audit|audit|health check|infrastructure/.test(m)){
       const cpu=mt.cpu||0, ram=mt.ram||0, disk=mt.disk||0;
       const issues=[];
-      if(cpu>70) issues.push('CPU elevated at '+cpu+'%');
-      if(ram>75) issues.push('RAM pressure at '+ram+'%');
-      if(disk>80) issues.push('Disk usage at '+disk+'%');
-      if(errAgents.length) issues.push('Agent errors: '+errAgents.join(', '));
-      const recs=issues.length?['Run Hephaestus manual patch cycle','Check agent logs for root cause']:['System running cleanly — no action required'];
-      return {text:`SYSTEM AUDIT COMPLETE.\n\nInfrastructure: CPU ${cpu}%, RAM ${ram}%, Disk ${disk}%, Net ${mt.network?.rx||0}KB/s.\n\n${issues.length?'⚠ Issues found:\n'+issues.map(i=>'• '+i).join('\n'):'✓ All thresholds nominal.'}\n\nAgent statuses: ${agentList.map(a=>a.name+'('+a.status+')').join(', ')}.\n\nRecommended:`,recs};
+      if(cpu>70) issues.push(`CPU at ${cpu}% — elevated`);
+      if(ram>75) issues.push(`RAM at ${ram}% — under pressure`);
+      if(disk>80) issues.push(`Disk at ${disk}% — getting full`);
+      if(errAgents.length) issues.push(`${errAgents.join(', ')} in error state`);
+      const recs=issues.length
+        ?['Pull up Guardian logs for the root cause','Consider restarting the affected agent loop']
+        :['Nothing to flag. The pantheon is running cleanly.'];
+      return {text:`Infrastructure audit complete.\n\nCPU ${cpu}% | RAM ${ram}% | Disk ${disk}% | Network ${mt.network?.rx||0} KB/s.\n\n${issues.length?'Issues found:\n'+issues.map(i=>'  '+i).join('\n'):'Everything within threshold. Clean bill of health.'}\n\nAgents: ${agentList.map(a=>`${a.name} (${a.status})`).join(', ')}.\n\nAssessment:`,recs};
     }
-    if(/revenue forecast|forecast|project/.test(m)){
+    if(/revenue forecast|forecast|projection|run rate/.test(m)){
       const daily=rev/Math.max(1,state.vault?.daysRunning||1);
-      const monthly=(daily*30).toFixed(2), annual=(daily*365).toFixed(2);
-      const recs=['Approve '+pendI+' pending idea(s) to increase listing count','Each new Etsy listing adds ~$0.80 average daily revenue','Raise prices on top-performing listings by $2-3'];
-      return {text:`REVENUE FORECAST.\n\nCurrent: $${rev.toFixed(2)} total, ~$${daily.toFixed(2)}/day run rate.\n\nProjections at current pace:\n• 30-day: $${monthly}\n• 90-day: $${(daily*90).toFixed(2)}\n• Annual: $${annual}\n\nProfit margin: ${rev>0?((profit/rev)*100).toFixed(1):0}%.\n\nGrowth levers:`,recs};
+      const recs=[
+        `Approve the ${pendI} pending idea${pendI!==1?'s':''} — more listings means more surface area`,
+        'Each live listing adds roughly $0.80/day on average',
+        'Raise price by $3 on any listing with 5+ views and no sales — it\'s a positioning signal, not a price problem'
+      ];
+      return {text:`At $${daily.toFixed(2)}/day, here's your trajectory:\n\n30 days: $${(daily*30).toFixed(2)} | 90 days: $${(daily*90).toFixed(2)} | Annual: $${(daily*365).toFixed(2)}\n\nMargin is ${margin}%. Goal progress: ${goalPct}% of $200 target. ${salesNeeded>0?`You need ${salesNeeded} more sale${salesNeeded!==1?'s':''} to cross the line.`:'Target achieved.'}\n\nTo accelerate:`,recs};
     }
-    if(/weak point|weakness|problem|gap|improve/.test(m)){
+    if(/weak point|weakness|problem|what.s wrong|gap|bottleneck/.test(m)){
       const recs=[];
-      if(pendI>0) recs.push('Approve '+pendI+' idea(s) — Vulcan is waiting to generate designs');
-      if(pendD>0) recs.push('Approve '+pendD+' design(s) — Loki is waiting to publish listings');
-      if(profit<0) recs.push('Expenses exceed revenue — review Printify costs or raise prices');
-      if((mt.cpu||0)>60) recs.push('CPU above 60% — consider reducing agent cycle frequency');
-      if(recs.length===0) recs.push('No critical weak points detected. Focus on throughput.');
-      return {text:`WEAK POINT ANALYSIS.\n\n${weakAgent?'Lowest XP agent: '+weakAgent.name+' ('+weakAgent.xp+' XP) — may need attention.':''}\n\nIdentified gaps:`,recs};
+      if(pendI>0) recs.push(`${pendI} idea${pendI!==1?'s':''} sitting in queue — Vulcan is idle waiting on you`);
+      if(pendD>0) recs.push(`${pendD} design${pendD!==1?'s':''} ready — Loki can't publish until you approve`);
+      if(profit<0) recs.push('Running at a loss. Check Printify costs or push prices up by $5');
+      if((mt.cpu||0)>60) recs.push('CPU above 60% — agent cycles may be stacking. Check Guardian logs.');
+      if(errAgents.length) recs.push(`${errAgents.join(' and ')} in error state — pull the logs`);
+      if(recs.length===0) recs.push('No critical gaps. The system is running as designed. Focus on throughput.');
+      return {text:`Here's my honest read on where we're leaking, Commander.\n\n${weakAgent?`${weakAgent.name} is the lowest-output agent at ${weakAgent.xp} XP — worth a look.`:''}\n\nGaps I see:`,recs};
     }
-    if(/agent review|agent performance|who is/.test(m)){
-      const rows=agentList.sort((a,b)=>b.xp-a.xp).map((a,i)=>`${i+1}. ${a.name} — ${a.xp} XP, Lvl ${a.level}, ${a.status}`).join('\n');
-      return {text:`AGENT PERFORMANCE REVIEW.\n\n${rows}\n\nTop performer: ${topAgent?.name}.\nLowest activity: ${weakAgent?.name}.\n\nRecommendations:`,recs:['Click any agent room to interface directly','Approve pending queues to give Vulcan and Loki work']};
+    if(/agent.*review|agent.*performance|who.*best|leaderboard/.test(m)){
+      const sorted=[...agentList].sort((a,b)=>b.xp-a.xp);
+      const rows=sorted.map((a,i)=>`${i+1}. ${a.name} — ${a.xp} XP, Level ${a.level}, ${a.status}`).join('\n');
+      return {text:`Agent network standings:\n\n${rows}\n\n${topAgent?.name} is carrying the most XP. ${weakAgent?.name} is the least active — not necessarily a problem, depends on the queue.\n\nDirect access:`,recs:['Click any agent room to open a direct channel','Approve the queue to give Vulcan and Loki something to do']};
     }
-    if(/best move|what should|next step|action/.test(m)){
+    if(/best move|what should i do|next step|what.*action|command/.test(m)){
       let move='', recs=[];
-      if(pendD>0){ move=`You have ${pendD} design(s) ready to review. Approving them launches the Loki publishing pipeline immediately — this is your highest-leverage action right now.`; recs=['Switch to DESIGN QUEUE tab and approve','Each approved design = one new Etsy listing within minutes']; }
-      else if(pendI>0){ move=`You have ${pendI} idea(s) from Heimdall pending. Approving them triggers Vulcan to generate DALL-E designs.`; recs=['Switch to IDEA QUEUE tab and approve','High demand-score ideas should be prioritized first']; }
-      else { move='No pending approvals. The system is autonomous and running. Focus on growth: add more product niches, raise prices on top listings, or wait for Heimdall\'s next research cycle.'; recs=['Ask Heimdall to focus on a specific niche','Review top Etsy listings in Athena\'s report']; }
-      return {text:`BEST MOVE NOW.\n\n${move}`,recs};
+      if(pendD>0){
+        move=`${pendD} design${pendD!==1?'s':''} ready to go. Approving them fires the Loki pipeline immediately — that's your highest-leverage move right now.`;
+        recs=['Open DESIGN QUEUE and approve','Each approval becomes a live Etsy listing within minutes'];
+      } else if(pendI>0){
+        move=`${pendI} idea${pendI!==1?'s':''} from Heimdall waiting. Approve the best ones to start the design pipeline.`;
+        recs=['Open IDEA QUEUE and sort by demand score','High demand + low competition = approve immediately'];
+      } else {
+        move=`Queue is clear — the system is running autonomously. Your best move is letting it run and reviewing results in 24 hours.`;
+        recs=['Ask Heimdall to target a specific niche','Check Athena\'s Etsy stats for listing performance'];
+      }
+      return {text:`Straightforward answer, Commander.\n\n${move}`,recs};
     }
-    if(/guide heimdall|heimdall|niche|research/.test(m)){
-      const recs=['Dark academia — high demand, low saturation','Mental health — consistently trending','Retro gaming + Y2K nostalgia — loyal buyer bases','Dog mom / cat mom — top conversion in POD gifts','Nurse & teacher gifts — evergreen with seasonal spikes','Coastal grandmother + boho aesthetic — growing demographics'];
-      return {text:`HEIMDALL GUIDANCE.\n\nHeimdall cycles through 24 niche seeds across hourly deep-research and 2-minute rapid cycles. Ideas scoring 85+ demand with low competition are auto-approved directly to the design pipeline. To direct his attention, approve high-demand ideas quickly — this reinforces those niches via brain feedback.\n\nNiches with strongest current demand signals:`,recs};
+    if(/guide heimdall|heimdall focus|niche.*research|what.*niches/.test(m)){
+      const recs=['Dark academia — high demand, manageable saturation','Mental health awareness — consistently searches well','Retro gaming + Y2K — loyal buyer base, repeat purchasers','Dog mom / cat mom — top converter in the POD gift category','Nurse and teacher gifts — evergreen with seasonal spikes in May','Coastal grandmother + boho — growing fast, not yet saturated'];
+      return {text:`Heimdall runs two research modes simultaneously. Rapid scan: one random niche every 2 minutes. Deep research: all 24 niche seeds every hour with full scoring, competitor analysis, and a VULCAN brief.\n\nIdeas scoring 85+ demand with low competition auto-approve and skip the queue. Everything else lands in your approval panel.\n\nNiches with the strongest current signal:`,recs};
     }
-    if(/improve agents|upgrade|optimize/.test(m)){
-      const recs=['Set ANTHROPIC_API_KEY to enable Claude-powered ODIN strategies and Heimdall ideas','Set OPENAI_API_KEY to enable real DALL-E design generation','Set ETSY_* vars to connect live Etsy shop data','Add PRINTIFY_* vars to publish directly to your store'];
-      return {text:`AGENT IMPROVEMENT RECOMMENDATIONS.\n\nCurrent mode: ${process?.env?.ANTHROPIC_API_KEY?'AI-powered':'Demo/template mode'}.\n\nTo unlock full AI capability:`,recs};
+    if(/improve.*agent|upgrade.*agent|optimize.*system|make.*better/.test(m)){
+      const recs=[
+        'ANTHROPIC_API_KEY → Claude-powered strategy, research, and agent improvement',
+        'OPENAI_API_KEY → gpt-image-1 design generation (VULCAN)',
+        'HF_KEY → Higgsfield image generation (primary, better quality)',
+        'ETSY_* keys → Live shop data, listing management, review monitoring',
+        'PRINTIFY_* keys → Real product uploads and fulfillment'
+      ];
+      return {text:`The system is already running. These keys unlock the AI-powered layers:\n\nSet them in Railway → Variables. Each one activates a specific capability.\n\nCurrent status: ${rev>0?'Revenue generating':'Pre-revenue, pipeline active'}. ${pendI+pendD} items in queue.\n\nPriority order:`,recs};
     }
-    // Generic strategic response
+    if(/hello|hey|hi|what.*up|how.*going|how are you|sup/.test(m)){
+      const greets=[
+        `Pantheon is online. Revenue at $${rev.toFixed(2)}, ${pendI+pendD} items in queue. What do you need?`,
+        `Commander. Net profit: $${profit.toFixed(2)}. ${goalPct}% to the $200 target. The agents are running. Your call.`,
+        `Good to hear from you. ${topAgent?.name||'The network'} is leading at ${topAgent?.xp||0} XP. ${pendI+pendD>0?`You have ${pendI+pendD} items waiting on your approval.`:'Queue is clear — system running autonomously.'} What's the play?`
+      ];
+      return {text:greets[Math.floor(Math.random()*greets.length)],recs:['DAILY BRIEFING','BEST MOVE NOW','REVENUE FORECAST']};
+    }
+    // Default strategic response
     const responses=[
-      {text:`I see ${pendD} design(s) and ${pendI} idea(s) awaiting your command. Revenue stands at $${rev.toFixed(2)} with a ${rev>0?((profit/rev)*100).toFixed(1):0}% margin. System health is ${(mt.cpu||0)<70?'nominal':'elevated'}. What strategic dimension do you want to explore?`,recs:['DAILY BRIEFING','BEST MOVE NOW','REVENUE FORECAST']},
-      {text:`The Pantheon runs ${GRID_AGENTS.length} specialist agents in continuous cycles. At current XP rates, ${topAgent?.name} leads the network. Your most impactful lever right now is the approval queue — ${pendD+pendI} item(s) are waiting on your command.`,recs:['APPROVE DESIGNS','APPROVE IDEAS','AGENT REVIEW']}
+      {text:`${pendD+pendI} items are waiting on your command. Revenue stands at $${rev.toFixed(2)}, margin ${margin}%. Infrastructure is ${(mt.cpu||0)<70?'clean':'elevated — watch it'}. What do you want to dig into?`,recs:['DAILY BRIEFING','BEST MOVE NOW','SYSTEM AUDIT']},
+      {text:`The Pantheon has ${GRID_AGENTS.length} agents running. ${topAgent?.name||'—'} leads in output. Margin is ${margin}%, goal is ${goalPct}% complete. ${salesNeeded>0?`${salesNeeded} more sale${salesNeeded!==1?'s':''} to hit $200.`:'Target crossed.'} What's your next move?`,recs:['AGENT REVIEW','REVENUE FORECAST','BEST MOVE NOW']}
     ];
     return responses[Math.floor(Math.random()*responses.length)];
   }

@@ -313,3 +313,51 @@
 - `public/index.html:HEIMDALL.greet` — "I scan 12 niches every 2 minutes" is mildly inaccurate (rapid loop picks a random single niche, not 12 fixed ones). Deferred — cosmetic and low impact vs. risk of breaking greet flow.
 
 **Git push:** PENDING — run `git add -A && git commit -m "auto-13: niche cycle clock fix, demo log fix, expense prune accounting, VULCAN persona" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-14) UTC
+
+**Areas reviewed:** Backend reliability (server.py — startup log f-string bug, stale comments), Visual/UX (index.html — HEIMDALL persona accuracy)
+
+**Changes made:**
+
+- `server.py:startup` — **BUG FIX**: Lines 2188-2189 used `{{...}}` (escaped braces) in f-strings instead of `{...}`. This meant the startup log file was named literally `pantheon_{datetime.now().strftime('%Y%m%d')}.log` and its content was `[{datetime.now().isoformat()}] AsgardMade Pantheon started` — both with literal curly braces and `datetime` as plain text, never interpolated. Fixed to single `{` so the filename includes the real date and the content includes the real timestamp.
+
+- `server.py:startup` — Fixed stale `# bestseller requeue every 1h` → `# bestseller requeue every 6h`. The `_bestseller_requeue_loop` sleeps `asyncio.sleep(21600)` = 6 hours. The comment was copy-pasted from `_brain_synthesis_loop` (which is actually 1h) and never corrected.
+
+- `server.py:_heimdall_deep_research_loop` — Fixed error broadcast message: `"Retrying in 6 hours"` → `"Retrying in 1 hour"`. The loop's error handler falls through to `asyncio.sleep(3600)` = 1 hour. The "6 hours" message was misleading the commander about recovery timing.
+
+- `public/index.html:PERSONAS.HEIMDALL.greet` — Fixed stale "I scan 12 niches every 2 minutes". The rapid `_heimdall_loop` picks ONE random niche every 2 minutes — not 12 fixed ones. Deep research covers 24 niches every hour. Updated greet to accurately reflect both loops: "quick-scan a random niche every 2 minutes and run deep research across 24 niche categories every hour." Deferred from auto-13.
+
+- `public/index.html:PERSONAS.HEIMDALL.respond` — Fixed random fallback "I scan twelve niches every two minutes. The market never sleeps." → "24 niches. Deep research every hour. Quick scan every 2 minutes. The market never sleeps." Same accuracy issue as the greet — the commander was being told incorrect system behavior.
+
+**Skipped (risky):**
+
+- Nothing. All 5 changes are surgical and non-breaking.
+
+**Git push:** PENDING — Windows `.git/index.lock` blocks sandbox git (recurring issue). Run `git add -A && git commit -m "auto-14: startup log f-string bug fix, bestseller comment, deep research error msg, HEIMDALL greet+fallback accuracy" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-15) UTC
+
+**Areas reviewed:** Backend reliability (server.py — autonomous approval Obsidian memory gaps, deep research JSON parse logging), Code quality (stale error message)
+
+**Changes made:**
+
+- `server.py:_heimdall_loop` — Added `mem.heimdall_write_approved(idea)` after auto-approve path (demand≥85, low competition). **Memory gap fix**: the `_heimdall_loop` fast-approve path recorded a brain outcome but never wrote the Obsidian "approved" note. WebSocket `approve_idea` handler does both; this autonomous path did only one. Now parity with all manual approval paths.
+
+- `server.py:_odin_autonomous_action_loop` (ideas) — Added `mem.heimdall_write_approved(idea)` after ODIN's time-based auto-approval of ideas (score≥70, age≥30 min). Same gap as above — brain outcome was recorded (added in auto-7) but Obsidian was never notified. HEIMDALL's approved-idea memory folder was therefore missing the majority of real approvals.
+
+- `server.py:_odin_autonomous_action_loop` (designs) — Added `mem.vulcan_write_approved(design)` after ODIN's time-based auto-approval of designs (age≥60 min). Same gap — brain outcome was recorded (auto-7) but Obsidian never got the approval note. VULCAN's approved-design memory was incomplete.
+
+- `server.py:_heimdall_deep_research_loop` — Wrapped `json.loads(raw)` in a targeted `json.JSONDecodeError` catch with `raw[:120]` logged and a `continue` to skip the failed cycle. Previously, if the LLM returned non-JSON (markdown wrapper, apology text), it fell through to the outer `except Exception` which logged the error type but NOT what the model actually returned — Railway debugging was nearly blind. Mirrors the same fix applied to brain synthesis and improvement loops in auto-11.
+
+- `server.py:_heimdall_deep_research_loop` — Fixed stale error broadcast: `"Retrying in 6 hours"` → `"Retrying in 1 hour"`. Run-14 logged this fix but the edit did not persist in the file. The loop's actual sleep is `asyncio.sleep(3600)` = 1 hour. The commander was being told an incorrect recovery time in the HUD log feed.
+
+**Skipped (risky):**
+
+- `server.py:_heimdall_deep_research_loop` auto-approve path — also missing `mem.heimdall_write_approved(_idea)` (same pattern as edits 1-3 above). Skipped to stay within the 5-edit limit; deferred to next run.
+
+**Git push:** PENDING — run `git add -A && git commit -m "auto-15: autonomous approval Obsidian mem writes, deep research JSON parse logging, retrying msg fix" && git push` manually to deploy.

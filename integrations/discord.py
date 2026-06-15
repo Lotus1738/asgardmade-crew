@@ -93,3 +93,17 @@ async def notify_briefing(briefing_text: str) -> None:
         title="🌅 Morning Briefing — AsgardMade Pantheon",
         color=COLOR_BLUE,
     )
+
+
+async def notify_review_alert(
+    listing_title: str,
+    rating: int,
+    review_text: str,
+    listing_id: str | None = None,
+) -> None:
+    """Fires for 1-2 star reviews."""
+    stars = "⭐" * rating + "☆" * (5 - rating)
+    msg = f"**{stars} — {listing_title}**\n\"{review_text[:200]}\""
+    if listing_id:
+        msg += f"\nhttps://www.etsy.com/listing/{listing_id}"
+    await notify(msg, title="⚠️ Negative Review Alert", color=0xe74c3c)

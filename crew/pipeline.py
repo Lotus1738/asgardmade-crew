@@ -22,6 +22,8 @@ from integrations.etsy import create_listing, build_tags, build_title, build_des
 from integrations import pinterest, discord
 from integrations.publisher import publish_everywhere, format_publish_log
 import memory.obsidian as mem
+import memory.ab_tests as ab_tests
+import memory.pricing_intel as pricing_intel
 
 if TYPE_CHECKING:
     from server import ConnectionManager, AppState
@@ -132,7 +134,18 @@ async def run_design_pipeline(
     product_type = design.get("productType", "t-shirt")
     image_url = design["imageUrl"]
     keywords = design.get("keywords", [])
-    price_usd = 34.99  # LOKI default listing price
+    # Use pricing intel to set a competitive price; fall back to $34.99 if no data
+    _pricing_intel_text = pricing_intel.format_pricing_for_prompt(niche)
+    _suggested = pricing_intel.get_suggested_price(niche, product_type, floor=12.99)
+    if _suggested > 12.99:
+        # Price 10% below niche average to maximize conversion speed
+        price_usd = round(_suggested * 0.90, 2)
+        price_usd = max(price_usd, 12.99)  # hard floor
+    else:
+        price_usd = 34.99  # default when no intel available
+
+    await _log(manager, "LOKI",
+               f"Pricing intel for '{niche}': {_pricing_intel_text or 'no data yet'} → listing at ${price_usd:.2f}.")
 
     await _log(manager, "VULCAN",
                f"Design approved. Uploading '{title}' image to Printify CDN.")
@@ -221,6 +234,23 @@ async def run_design_pipeline(
                f"Listing created {'(demo)' if listing_demo else ''}. "
                f"ID: {listing_id}. Tags: {len(etsy_tags)} applied. "
                f"Price: ${price_usd}. Listing fee logged to Vault.")
+
+    # ── A/B title test creation ────────────────────────────────────────────────
+    # Parse title_b from listing_result (LOKI may have returned it via AI response).
+    # Falls back to a simple year-variant so every listing always has a test running.
+    try:
+        title_b = listing_result.get("title_b") or _make_title_b_fallback(etsy_title)
+        ab_test = ab_tests.create_test(
+            listing_id=str(listing_id),
+            title_a=etsy_title,
+            title_b=title_b,
+            niche=niche,
+        )
+        await _log(manager, "LOKI",
+                   f"[A/B] Test created for listing {listing_id}: "
+                   f"\"{etsy_title}\" vs \"{title_b}\"")
+    except Exception as _ab_err:
+        print(f"[A/B] Test creation failed for listing {listing_id}: {_ab_err}")
 
     # ── Pinterest auto-pin ─────────────────────────────────────────────────────
     # Pin the listing to Pinterest using the first mockup image (or raw design).
@@ -366,6 +396,23 @@ async def run_design_pipeline(
         "data": {"strategy": strategy_text, "strategyCount": state.strategy_count},
     })
     await _award_xp(manager, state, "ODIN", 15, "pipeline_confirmed")
+
+
+def _make_title_b_fallback(title_a: str) -> str:
+    """
+    Generate a simple title_b variant when LOKI doesn't produce one.
+    Tests the 'with year' variable — appends '2026' if not already present,
+    or strips year if it's already there (testing without).
+    """
+    from datetime import datetime as _dt
+    year = str(_dt.now().year)
+    if year in title_a:
+        # Strip the year — test without it
+        return title_a.replace(f" {year}", "").replace(f", {year}", "").strip()
+    else:
+        # Add the year — test with it
+        candidate = f"{title_a} {year}"
+        return candidate[:140]
 
 
 def _build_vault_report(state: "AppState") -> dict:
