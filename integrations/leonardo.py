@@ -10,12 +10,17 @@ Leonardo generates better POD designs than DALL-E:
   - Better for apparel/merchandise
   - Free tier: 150 tokens/day (~30 images)
 
+Fallback: gpt-image-1 (OpenAI) — used when Leonardo tokens are depleted.
+  Images are saved locally to public/generated/ and served via /generated/ route.
+  (Pollinations.ai is blocked from Railway IPs — do not use as fallback.)
+
 API docs: https://docs.leonardo.ai/reference/creategeneration
 """
 from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 import httpx
 
 BASE_URL = "https://cloud.leonardo.ai/api/rest/v1"
@@ -95,6 +100,72 @@ def _build_pod_prompt(idea_title: str, niche: str, style_hint: str = "", product
     return prompt
 
 
+async def _generate_via_ai_fallback(
+    idea_title: str,
+    niche: str,
+    product_type: str = "t-shirt",
+) -> dict:
+    """
+    Fallback image generator using gpt-image-1 (OpenAI).
+    Used when Leonardo.ai tokens are exhausted.
+    Saves images locally to public/generated/ and returns a local /generated/ URL.
+    NOTE: Pollinations.ai is blocked from Railway server IPs (returns 402) — do not use.
+    """
+    import hashlib
+    import base64
+    import openai
+
+    prompt = _build_pod_prompt(idea_title, niche, product_type=product_type)
+    design_id = hashlib.md5(f"{idea_title}_{niche}_{product_type}".encode()).hexdigest()[:12]
+    cache_dir = Path("public/generated")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    local_file = cache_dir / f"{design_id}.jpg"
+
+    # Return cached version if it exists and is a real image
+    if local_file.exists() and local_file.stat().st_size > 5000:
+        print(f"[GPT-IMAGE] Cache hit: /generated/{design_id}.jpg")
+        return {
+            "success": True,
+            "images": [{"url": f"/generated/{design_id}.jpg", "id": design_id}],
+            "generation_id": design_id,
+            "demo": False,
+            "source": "gpt_image_cached",
+            "error": None,
+        }
+
+    try:
+        print(f"[GPT-IMAGE] Generating: {idea_title} ({product_type})")
+        client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        resp = await client.images.generate(
+            model="gpt-image-1",
+            prompt=prompt[:1500],
+            n=1,
+            size="1024x1024",
+            quality="low",
+        )
+        img_bytes = base64.b64decode(resp.data[0].b64_json)
+        local_file.write_bytes(img_bytes)
+        print(f"[GPT-IMAGE] Saved {len(img_bytes)} bytes to /generated/{design_id}.jpg")
+        return {
+            "success": True,
+            "images": [{"url": f"/generated/{design_id}.jpg", "id": design_id}],
+            "generation_id": design_id,
+            "demo": False,
+            "source": "gpt_image_1",
+            "error": None,
+        }
+    except Exception as e:
+        print(f"[GPT-IMAGE] Error: {e}")
+        return {
+            "success": False,
+            "images": [],
+            "generation_id": "",
+            "demo": False,
+            "source": "",
+            "error": f"gpt-image-1: {e}",
+        }
+
+
 async def generate_design(
     idea_title: str,
     niche: str,
@@ -105,7 +176,11 @@ async def generate_design(
     num_images: int = 2,
 ) -> dict:
     """
-    Generate POD design images via Leonardo.ai.
+    Generate POD design images.
+
+    Tries Leonardo.ai first (higher quality). If Leonardo tokens are exhausted
+    or the key is unavailable, automatically falls back to gpt-image-1 (OpenAI).
+    Images are saved locally to public/generated/ and served via /generated/ URL.
 
     Returns:
         {
@@ -116,14 +191,10 @@ async def generate_design(
             "error": str | None,
         }
     """
+    # If no Leonardo key, go straight to gpt-image-1
     if not leonardo_available():
-        return {
-            "success": False,
-            "images": [],
-            "generation_id": "",
-            "demo": True,
-            "error": "LEONARDO_API_KEY not set",
-        }
+        print("[GENERATE] No Leonardo key — using gpt-image-1 fallback")
+        return await _generate_via_ai_fallback(idea_title, niche, product_type)
 
     prompt = _build_pod_prompt(idea_title, niche, style_hint, product_type)
 
@@ -151,18 +222,19 @@ async def generate_design(
                 headers=_headers(),
                 json=payload,
             )
+
+            # Token exhaustion → fall back to Pollinations
+            if resp.status_code == 400 and "not enough" in resp.text.lower():
+                print("[LEONARDO] Tokens exhausted — falling back to Pollinations.ai")
+                return await _generate_via_ai_fallback(idea_title, niche, product_type)
+
             resp.raise_for_status()
             data = resp.json()
             gen_id = data.get("sdGenerationJob", {}).get("generationId", "")
 
             if not gen_id:
-                return {
-                    "success": False,
-                    "images": [],
-                    "generation_id": "",
-                    "demo": False,
-                    "error": f"No generation ID returned: {data}",
-                }
+                print("[LEONARDO] No generation ID — falling back to Pollinations.ai")
+                return await _generate_via_ai_fallback(idea_title, niche, product_type)
 
             # Step 2: Poll for completion (up to 90 seconds)
             for attempt in range(18):
@@ -187,42 +259,24 @@ async def generate_design(
                         "images": images,
                         "generation_id": gen_id,
                         "demo": False,
+                        "source": "leonardo",
                         "error": None,
                     }
                 elif status == "FAILED":
-                    return {
-                        "success": False,
-                        "images": [],
-                        "generation_id": gen_id,
-                        "demo": False,
-                        "error": "Generation failed on Leonardo servers",
-                    }
+                    print("[LEONARDO] Generation failed — falling back to Pollinations.ai")
+                    return await _generate_via_ai_fallback(idea_title, niche, product_type)
                 # PENDING or IN_PROGRESS — keep polling
 
-            return {
-                "success": False,
-                "images": [],
-                "generation_id": gen_id,
-                "demo": False,
-                "error": "Timed out waiting for generation (90s)",
-            }
+            print("[LEONARDO] Timed out — falling back to Pollinations.ai")
+            return await _generate_via_ai_fallback(idea_title, niche, product_type)
 
         except httpx.HTTPStatusError as e:
-            return {
-                "success": False,
-                "images": [],
-                "generation_id": "",
-                "demo": False,
-                "error": f"HTTP {e.response.status_code}: {e.response.text[:200]}",
-            }
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+            print(f"[LEONARDO] {error_msg} — falling back to Pollinations.ai")
+            return await _generate_via_ai_fallback(idea_title, niche, product_type)
         except Exception as e:
-            return {
-                "success": False,
-                "images": [],
-                "generation_id": "",
-                "demo": False,
-                "error": f"{type(e).__name__}: {e}",
-            }
+            print(f"[LEONARDO] {type(e).__name__}: {e} — falling back to Pollinations.ai")
+            return await _generate_via_ai_fallback(idea_title, niche, product_type)
 
 
 async def get_remaining_tokens() -> int:

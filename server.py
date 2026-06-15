@@ -18,6 +18,7 @@ import anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 load_dotenv()
@@ -186,6 +187,10 @@ app = FastAPI(title="AsgardMade Pantheon", version="1.0.0")
 
 # Serve public files
 PUBLIC_DIR = Path("public")
+
+# Serve AI-generated images as static files (gpt-image-1 saves here)
+os.makedirs("public/generated", exist_ok=True)
+app.mount("/generated", StaticFiles(directory="public/generated"), name="generated")
 
 
 @app.get("/")
