@@ -2960,24 +2960,20 @@ async def debug_printify_test_create():
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    # Step 1: Upload a minimal 1×1 black PNG as test image
-    png_1x1 = base64.b64encode(bytes([
-        0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x00,0x00,0x00,0x0d,0x49,0x48,0x44,0x52,
-        0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,
-        0xde,0x00,0x00,0x00,0x0c,0x49,0x44,0x41,0x54,0x08,0xd7,0x63,0x60,0x60,0x60,0x00,
-        0x00,0x00,0x04,0x00,0x01,0x27,0x07,0x15,0x43,0x00,0x00,0x00,0x00,0x49,0x45,0x4e,
-        0x44,0xae,0x42,0x60,0x82
-    ])).decode()
+    # Step 1: Upload a real test image via public URL (avoids small-image rejection)
+    # Use a known-good Unsplash 1024x1024 photo — no auth needed
+    test_image_url = "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=1024&q=80"
 
     upload_result = None
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(
                 "https://api.printify.com/v1/uploads/images.json",
                 headers=headers,
-                json={"file_name": "debug_test.png", "contents": png_1x1},
+                json={"file_name": "debug_test.jpg", "url": test_image_url},
             )
-            upload_result = {"status": r.status_code, "body": r.json() if r.status_code < 300 else r.text[:300]}
+            body_json = r.json() if r.headers.get("content-type","").startswith("application/json") else r.text[:400]
+            upload_result = {"status": r.status_code, "body": body_json}
             if r.status_code >= 300:
                 return {"step": "upload_image", "FAILED": True, **upload_result}
             image_id = r.json()["id"]
