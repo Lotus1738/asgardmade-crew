@@ -31,18 +31,20 @@ _variant_cache: dict[str, list] = {}
 
 
 def _headers() -> dict:
+    # .strip() is critical — Railway env vars can have trailing newlines which
+    # cause httpx to raise "Illegal header value" and silently kill all API calls
     return {
-        "Authorization": f"Bearer {os.getenv('PRINTIFY_API_KEY', '')}",
+        "Authorization": f"Bearer {os.getenv('PRINTIFY_API_KEY', '').strip()}",
         "Content-Type": "application/json",
     }
 
 
 def _shop_id() -> str:
-    return os.getenv("PRINTIFY_SHOP_ID", "")
+    return os.getenv("PRINTIFY_SHOP_ID", "").strip()
 
 
 def _has_credentials() -> bool:
-    return bool(os.getenv("PRINTIFY_API_KEY")) and bool(os.getenv("PRINTIFY_SHOP_ID"))
+    return bool(os.getenv("PRINTIFY_API_KEY", "").strip()) and bool(os.getenv("PRINTIFY_SHOP_ID", "").strip())
 
 
 async def upload_image(image_url: str, filename: str = "design.png") -> dict:
