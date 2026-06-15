@@ -2902,7 +2902,7 @@ async def pipeline_status():
 async def debug_printify_providers(blueprint_id: int):
     """List all print providers that support a given blueprint ID — use to find working combos."""
     import httpx
-    api_key = os.getenv("PRINTIFY_API_KEY", "")
+    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()  # strip() critical — key has trailing \n\n
     if not api_key:
         return {"error": "PRINTIFY_API_KEY not set"}
     try:
@@ -2924,7 +2924,7 @@ async def debug_printify_providers(blueprint_id: int):
 async def debug_printify_variants(blueprint_id: int, provider_id: int):
     """Show raw Printify API response for a blueprint/provider variant combo."""
     import httpx
-    api_key = os.getenv("PRINTIFY_API_KEY", "")
+    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(503, detail="PRINTIFY_API_KEY not set")
     async with httpx.AsyncClient(timeout=20) as client:
