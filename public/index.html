@@ -2205,13 +2205,13 @@ const PERSONAS = {
     }
   },
   HEIMDALL:{
-    greet(s){ return `From the Bifrost, I see every market horizon, Commander. I scan 12 niches every 2 minutes and generate ideas with demand scoring. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
+    greet(s){ return `From the Bifrost, I see every market horizon, Commander. I quick-scan a random niche every 2 minutes and run deep research across 24 niche categories every hour. ${(s.approvals?.ideas||[]).filter(i=>i.status==='pending').length} ideas await your review. What opportunity interests you?`; },
     respond(m,s){
       m=m.toLowerCase();
-      if(/idea|product|niche/.test(m)) return `My 12 niche seeds: cottagecore, dark academia, retro gaming, plant parent, mental health, space exploration, hiking, coffee culture, pet portraits, witchy aesthetic, minimalist design, and pride. Each scored by demand and competition.`;
+      if(/idea|product|niche/.test(m)) return `My 24 niche pool: cottagecore, dark academia, retro gaming, plant parent, mental health, dog mom, cat lover, nurse gift, teacher appreciation, hiking outdoor, coastal grandmother, Y2K nostalgia, anime aesthetic, true crime fan, book lover, boho aesthetic, witch aesthetic, minimalist home, christian faith, pet portraits, funny sarcasm, birthday gift women, baby shower gift, wedding gift. Demand 85+ and low competition = auto-approved direct to Vulcan.`;
       if(/demand|score/.test(m)) return `Demand scores range 80-96 in my database. High demand + low competition = golden window. I flag those intersections first and queue them for your approval.`;
       if(/ai|claude/.test(m)) return `With an Anthropic API key I use Claude Haiku to craft bespoke product concepts per niche. Without a key I use my template engine — still effective, less bespoke. Either way the ideas flow.`;
-      return ['The rainbow bridge reveals all trends.','I scan twelve niches every two minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
+      return ['The rainbow bridge reveals all trends.','24 niches. Deep research every hour. Quick scan every 2 minutes. The market never sleeps.','Your next bestseller is already in the queue. Check it.','Opportunity fades fast. I capture it before it disappears.'][Math.floor(Math.random()*4)];
     }
   },
   VAULT:{
@@ -2228,7 +2228,7 @@ const PERSONAS = {
     }
   },
   VULCAN:{
-    greet(s){ return `The forge burns bright, Commander. I generate designs with DALL-E and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
+    greet(s){ return `The forge burns bright, Commander. I generate designs with gpt-image-1 (OpenAI's latest image model) and push approved ones to Printify. ${(s.approvals?.designs||[]).filter(d=>d.status==='pending').length} designs await your verdict. What shall we create for the empire?`; },
     respond(m,s){
       m=m.toLowerCase();
       if(/design|create|generate/.test(m)) return `When you approve an idea, I build a DALL-E prompt optimized for POD: flat vector illustration, transparent background, centered composition. I generate 2 variants per idea — you pick which one goes to Printify.`;
@@ -3038,7 +3038,7 @@ function initFromState(s,strategy){
       profitMargin:f.totalRevenue>0?(((f.netProfit||0)/f.totalRevenue)*100).toFixed(1)+'%':'0%',
       totalTransactions:(f.transactions||[]).length,
       daysRunning:Math.max(1,Math.floor((Date.now()-new Date(f.startDate||Date.now()).getTime())/86400000)+1),
-      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),recentTransactions:(f.transactions||[]).slice(0,15)
+      dailyBreakdown:(()=>{const dm={};(f.transactions||[]).forEach(t=>{if(t.type==='revenue'){const d=(t.timestamp||'').slice(0,10);dm[d]=(dm[d]||0)+t.amount;}});return Object.entries(dm).sort().slice(-30).map(([date,revenue])=>({date,revenue:Math.round(revenue*100)/100}));})(),salesCount:(f.transactions||[]).filter(t=>t.type==='revenue').length,recentTransactions:[...(f.transactions||[])].sort((a,b)=>(b.timestamp||'').localeCompare(a.timestamp||'')).slice(0,15)
     });
   }
   if(s.metrics) updateArgusBar(s.metrics);
@@ -3326,172 +3326,4 @@ function handleMsg(msg){
             secondaryLabel:`⚡ APPROVE ALL (${ni.length})`,secondaryFn:approveAllIdeas,
             severity:'info',timeout:15000});
         }
-        addLog(agent,`${ni.length} new ${category==='designs'?'design(s)':'idea(s)'} awaiting approval`,'info');
-        updateMissionStrip();
-      } break;
-    case 'queue_update':
-      if(data){
-        const{category,id,status}=data;
-        const lst=state.approvals[category];
-        if(lst){ const it=lst.find(i=>i.id===id); if(it) it.status=status; }
-        if(category==='designs') renderDesigns(state.approvals.designs);
-        else renderIdeas(state.approvals.ideas);
-      } break;
-    case 'vault_report': if(data){ state.vault=data; window.__vaultNet=parseFloat(data.netProfit||0); updateVault(data); window.__lastVaultReport=data; } break;
-    case 'odin_strategy':
-      if(data){
-        document.getElementById('odin-text').textContent=data.strategy||'';
-        state.strategyCount=data.strategyCount||state.strategyCount+1;
-        document.getElementById('strategy-count').textContent=state.strategyCount;
-        updateAgentCard('ODIN',{status:'idle',xp:state.agents['ODIN']?.xp||0,level:state.agents['ODIN']?.level||1,lastAction:`Strategy #${state.strategyCount} deployed`});
-        const xpEl=document.getElementById('odin-xp-val'), lvlEl=document.getElementById('odin-lvl-val');
-        if(xpEl) xpEl.textContent=(state.agents['ODIN']?.xp||0).toLocaleString();
-        if(lvlEl) lvlEl.textContent=state.agents['ODIN']?.level||1;
-      } break;
-    case 'leaderboard': if(data){ state.leaderboard=data; updateLeaderboard(data); } break;
-    case 'hermes_report': if(data) setAgentChips('GUARDIAN',[{label:'ERR',val:data.errors?.length||0},{label:'WARN',val:data.warnings?.length||0},{label:'FILES',val:data.fileCount||0},{label:'SCAN#',val:data.scanId||0}]); break;
-    case 'tyr_report': if(data) setAgentChips('GUARDIAN',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
-    case 'hephaestus_report': if(data&&data.patches) setAgentChips('GUARDIAN',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
-    case 'athena_report': if(data) setAgentChips('VAULT',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
-    case 'loki_published': if(data) setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]); break;
-    case 'vulcan_published': if(data) setAgentChips('VULCAN',[{label:'PROD',val:data.product?.id||'N/A'}]); break;
-  }
-}
-
-/* ═══════════════════════════════════════════════
-   PARTICLE BG CANVAS
-═══════════════════════════════════════════════ */
-(function(){
-  const c=document.getElementById('bg'), ctx=c.getContext('2d');
-  const pts=[];
-  function resize(){ c.width=window.innerWidth; c.height=window.innerHeight; }
-  window.addEventListener('resize',resize); resize();
-  for(let i=0;i<70;i++) pts.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,s:Math.random()*1.4+.3,a:Math.random()*.35+.08});
-  function draw(){
-    ctx.clearRect(0,0,c.width,c.height);
-    pts.forEach(p=>{
-      p.x+=p.vx; p.y+=p.vy;
-      if(p.x<0) p.x=c.width; if(p.x>c.width) p.x=0;
-      if(p.y<0) p.y=c.height; if(p.y>c.height) p.y=0;
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.s,0,Math.PI*2);
-      ctx.fillStyle=`rgba(0,180,255,${p.a})`; ctx.fill();
-    });
-    for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
-      const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);
-      if(d<90){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y);
-        ctx.strokeStyle=`rgba(0,100,255,${.14*(1-d/90)})`; ctx.lineWidth=.5; ctx.stroke(); }
-    }
-    requestAnimationFrame(draw);
-  }
-  draw();
-})();
-
-/* ═══════════════════════════════════════════════
-   CLOCK + BOOT
-═══════════════════════════════════════════════ */
-function tickClock(){
-  const n=new Date();
-  document.getElementById('clock').textContent=n.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'America/New_York'});
-  document.getElementById('date-display').textContent=n.toLocaleDateString('en',{weekday:'short',year:'numeric',month:'short',day:'numeric'}).toUpperCase();
-}
-setInterval(tickClock,1000); tickClock();
-
-function esc(s){ if(!s) return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-buildAgentGrid();
-// init 2D pixel building — PixelBuilding is inlined so always available
-setTimeout(() => {
-  const floorEl = document.getElementById('pantheon-floor');
-  if (floorEl) PixelBuilding.init(floorEl);
-}, 300);
-connect();
-
-// ── VAULT graph modal ────────────────────────────────────────────────────
-window.__vaultGraphData = null;
-
-function showVaultGraph(data){
-  window.__vaultGraphData = data;
-  const modal = document.getElementById('vault-graph-modal');
-  if(modal) { renderVaultGraph(data); modal.style.display='flex'; }
-}
-function closeVaultGraph(){
-  const modal = document.getElementById('vault-graph-modal');
-  if(modal) modal.style.display='none';
-}
-function renderVaultGraph(data){
-  const canvas = document.getElementById('vault-graph-canvas');
-  if(!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle = '#000a18'; ctx.fillRect(0,0,W,H);
-  const txns = (data && data.recentTransactions) ? data.recentTransactions : [];
-  const daily = (data && data.dailyBreakdown) ? data.dailyBreakdown : [];
-  const net = parseFloat((data && data.netProfit) || 0);
-  const rev = parseFloat((data && data.totalRevenue) || 0);
-  const exp = parseFloat((data && data.totalExpenses) || 0);
-  // Summary boxes
-  const boxes = [
-    {label:'REVENUE', val:'$'+rev.toFixed(2), col:'#00ff88'},
-    {label:'EXPENSES', val:'$'+exp.toFixed(2), col:'#ff4466'},
-    {label:'NET P&L', val:(net>=0?'+':'')+' $'+Math.abs(net).toFixed(2), col: net>=0?'#00ff88':'#ff4466'},
-  ];
-  boxes.forEach((b,i)=>{
-    const bx=20+i*(W/3-10), by=10, bw=W/3-16, bh=42;
-    ctx.fillStyle='#050d1a'; ctx.fillRect(bx,by,bw,bh);
-    ctx.strokeStyle=b.col+'66'; ctx.lineWidth=1; ctx.strokeRect(bx+.5,by+.5,bw,bh);
-    ctx.fillStyle='#668899'; ctx.font='bold 8px monospace'; ctx.textAlign='left';
-    ctx.fillText(b.label, bx+6, by+8);
-    ctx.save(); ctx.shadowColor=b.col; ctx.shadowBlur=8;
-    ctx.fillStyle=b.col; ctx.font='bold 13px monospace';
-    ctx.fillText(b.val, bx+6, by+26); ctx.restore();
-  });
-  // Bar chart — daily revenue (last 14 days)
-  const bars = daily.slice(-14);
-  const maxVal = bars.reduce((m,d)=>Math.max(m,d.revenue||0),0.01);
-  const chartX=20, chartY=64, chartW=W-40, chartH=H-140;
-  ctx.fillStyle='#020d18'; ctx.fillRect(chartX,chartY,chartW,chartH);
-  ctx.strokeStyle='#00d4ff22'; ctx.lineWidth=.6; ctx.strokeRect(chartX+.5,chartY+.5,chartW,chartH);
-  // grid lines
-  [.25,.5,.75,1].forEach(f=>{const gy=chartY+chartH*(1-f);ctx.strokeStyle='#00d4ff11';ctx.lineWidth=.5;ctx.beginPath();ctx.moveTo(chartX,gy);ctx.lineTo(chartX+chartW,gy);ctx.stroke();ctx.fillStyle='#446677';ctx.font='6px monospace';ctx.textAlign='right';ctx.fillText('$'+(maxVal*f).toFixed(0),chartX-2,gy+2);});
-  const bw2 = (chartW-10)/(Math.max(bars.length,1));
-  bars.forEach((d,i)=>{
-    const bh2 = chartH * (d.revenue/maxVal);
-    const bx2 = chartX+5+i*bw2, by2 = chartY+chartH-bh2;
-    const col = d.revenue>0?'#00d4ff':'#334455';
-    ctx.save(); ctx.shadowColor=col; ctx.shadowBlur=6;
-    ctx.fillStyle=col+'cc'; ctx.fillRect(bx2,by2,bw2-2,bh2);
-    ctx.restore();
-    if(bars.length<=10){ctx.fillStyle='#446677';ctx.font='5px monospace';ctx.textAlign='center';ctx.fillText((d.date||'').slice(5),bx2+bw2/2,chartY+chartH+8);}
-  });
-  ctx.fillStyle='#00d4ff'; ctx.font='bold 7px monospace'; ctx.textAlign='center';
-  ctx.fillText('DAILY REVENUE (LAST '+bars.length+' DAYS)', W/2, chartY-4);
-  // recent transactions list
-  const listY = chartY+chartH+20;
-  ctx.fillStyle='#00d4ff88'; ctx.font='bold 7px monospace'; ctx.textAlign='left';
-  ctx.fillText('RECENT TRANSACTIONS', 20, listY);
-  txns.slice(0,5).forEach((t,i)=>{
-    const ty=listY+10+i*16;
-    const tCol=t.type==='revenue'?'#00ff88':'#ff4466';
-    ctx.fillStyle='#050d1a'; ctx.fillRect(20,ty,W-40,13);
-    ctx.fillStyle=tCol; ctx.font='bold 6px monospace';
-    ctx.fillText((t.type==='revenue'?'+':'-')+'$'+Math.abs(t.amount).toFixed(2), 24, ty+4);
-    ctx.fillStyle='#668899'; ctx.fillText(t.description||t.source||'', 80, ty+4);
-    ctx.fillStyle='#334455'; ctx.textAlign='right';
-    ctx.fillText((t.timestamp||'').slice(0,10), W-24, ty+4);
-    ctx.textAlign='left';
-  });
-}
-
-// Check VAULT chat responses for financial keywords and trigger graph
-const _origHandleMsg = typeof handleMsg === 'function' ? handleMsg : null;
-document.addEventListener('DOMContentLoaded',()=>{
-  // Override sendMessage to intercept VAULT financial queries
-  const origSend = window.sendMessage;
-  window.sendMessage = function(){
-    origSend && origSend.apply(this, arguments);
-  };
-});
-</script>
-</body>
-</html>
+        addLog(age
