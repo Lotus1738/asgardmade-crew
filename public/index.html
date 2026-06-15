@@ -1311,6 +1311,7 @@ const PixelBuilding = (() => {
       <button class="ms-cmd" onclick="switchTab('ideas')">💡 IDEAS</button>
       <button class="ms-cmd" onclick="switchTab('designs')">🎨 DESIGNS</button>
       <button id="voice-odin-btn" onclick="toggleOdinVoice()">🎙 SPEAK TO ODIN</button>
+      <button id="odin-mute-btn" onclick="toggleOdinMute()" style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px">🔊 MUTE ODIN</button>
     </div>
     <!-- Agent oversight in command zone -->
     <div id="odin-oversight-col">
@@ -2421,6 +2422,8 @@ function toggleChatVoice(){ toggleOdinVoice(); }
 
 /* ─── ODIN speaks back via text-to-speech ─── */
 let _odinVoice=null;
+let _odinMuted = (localStorage.getItem('odinMuted')==='true');
+
 function _loadOdinVoice(){
   const voices=speechSynthesis.getVoices();
   _odinVoice = voices.find(v=>/david|uk english male|daniel|alex/i.test(v.name))
@@ -2433,7 +2436,34 @@ if(window.speechSynthesis){
   _loadOdinVoice();
 }
 
+function _syncMuteBtn(){
+  const btn=document.getElementById('odin-mute-btn');
+  if(!btn) return;
+  if(_odinMuted){
+    btn.textContent='🔇 UNMUTE ODIN';
+    btn.style.background='rgba(201,0,0,.15)';
+    btn.style.borderColor='rgba(201,0,0,.4)';
+    btn.style.color='#ff6b6b';
+  } else {
+    btn.textContent='🔊 MUTE ODIN';
+    btn.style.background='rgba(201,168,76,.08)';
+    btn.style.borderColor='rgba(201,168,76,.3)';
+    btn.style.color='var(--c1)';
+  }
+}
+
+function toggleOdinMute(){
+  _odinMuted=!_odinMuted;
+  localStorage.setItem('odinMuted', _odinMuted);
+  if(_odinMuted && window.speechSynthesis) speechSynthesis.cancel();
+  _syncMuteBtn();
+}
+
+// Apply mute state on load
+window.addEventListener('DOMContentLoaded', _syncMuteBtn);
+
 function odinSpeak(text){
+  if(_odinMuted) return;
   if(!window.speechSynthesis) return;
   speechSynthesis.cancel();
   // Strip command tags before speaking
@@ -2755,10 +2785,11 @@ function renderDesigns(designs){
   if(!pend.length){ tab.innerHTML=`<div class="empty-state"><div class="e-icon">⚒</div><div class="e-text">NO PENDING DESIGNS<br>VULCAN STANDING BY</div></div>`; return; }
   pend.forEach(d=>{
     const c=document.createElement('div'); c.className='approval-card'; c.id=`design-${d.id}`;
-    c.innerHTML=`<img class="approval-img" src="${esc(d.imageUrl)}" alt="${esc(d.ideaTitle)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22110%22><rect fill=%22%23001240%22/><text x=%22100%22 y=%2260%22 text-anchor=%22middle%22 fill=%22%2300d4ff%22 font-size=%2210%22>DESIGN</text></svg>'">
+    c.innerHTML=`<img class="approval-img" src="${esc(d.imageUrl)}" alt="${esc(d.ideaTitle)}" style="object-fit:cover;border-radius:4px;width:100%;max-height:160px" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div style="display:none;align-items:center;justify-content:center;height:100px;background:rgba(201,168,76,.06);border:1px dashed rgba(201,168,76,.2);border-radius:4px;color:var(--txt2);font-size:8px;letter-spacing:1px;margin-bottom:6px">📦 ${esc(d.productType||'Product').toUpperCase()} MOCKUP LOADING</div>
       <div class="approval-title">${esc(d.ideaTitle||'Untitled')}</div>
-      <span class="approval-badge">${esc(d.productType||'Product')}</span>
-      <div class="approval-meta">Variant #${d.variantIndex||1} · ${d.demo?'DEMO':'gpt-image-1'}</div>
+      <span class="approval-badge">📦 ${esc(d.productType||'Product').toUpperCase()}</span>
+      <div class="approval-meta">Variant #${d.variantIndex||1} · ${d.demo?'DEMO MODE':'AI Mockup'}</div>
       <div class="approval-actions">
         <button class="btn-approve" onclick="approveDesign('${d.id}')">✓ APPROVE</button>
         <button class="btn-reject"  onclick="rejectItem('design','${d.id}')">✗ REJECT</button>
@@ -3323,4 +3354,175 @@ function handleMsg(msg){
           pushActionAlert({icon:'🌈',title:'HEIMDALL — IDEAS READY',
             msg:`${ni.length} niche idea${ni.length>1?'s':''} queued for review. Top demand score: ${top?.demandScore||'N/A'} — ${top?.title||''}`,
             primaryLabel:'◈ REVIEW IDEAS',primaryFn:()=>switchTab('ideas'),
-            secondaryLabel:`⚡ APPROVE A
+            secondaryLabel:`⚡ APPROVE ALL (${ni.length})`,secondaryFn:approveAllIdeas,
+            severity:'info',timeout:15000});
+        }
+        addLog(agent,`${ni.length} new ${category==='designs'?'design(s)':'idea(s)'} awaiting approval`,'info');
+        updateMissionStrip();
+      } break;
+    case 'queue_update':
+      if(data){
+        const{category,id,status}=data;
+        const lst=state.approvals[category];
+        if(lst){ const it=lst.find(i=>i.id===id); if(it) it.status=status; }
+        if(category==='designs') renderDesigns(state.approvals.designs);
+        else renderIdeas(state.approvals.ideas);
+      } break;
+    case 'vault_report': if(data){ state.vault=data; window.__vaultNet=parseFloat(data.netProfit||0); updateVault(data); window.__lastVaultReport=data; } break;
+    case 'odin_strategy':
+      if(data){
+        document.getElementById('odin-text').textContent=data.strategy||'';
+        state.strategyCount=data.strategyCount||state.strategyCount+1;
+        document.getElementById('strategy-count').textContent=state.strategyCount;
+        updateAgentCard('ODIN',{status:'idle',xp:state.agents['ODIN']?.xp||0,level:state.agents['ODIN']?.level||1,lastAction:`Strategy #${state.strategyCount} deployed`});
+        const xpEl=document.getElementById('odin-xp-val'), lvlEl=document.getElementById('odin-lvl-val');
+        if(xpEl) xpEl.textContent=(state.agents['ODIN']?.xp||0).toLocaleString();
+        if(lvlEl) lvlEl.textContent=state.agents['ODIN']?.level||1;
+      } break;
+    case 'leaderboard': if(data){ state.leaderboard=data; updateLeaderboard(data); } break;
+    case 'hermes_report': if(data) setAgentChips('GUARDIAN',[{label:'ERR',val:data.errors?.length||0},{label:'WARN',val:data.warnings?.length||0},{label:'FILES',val:data.fileCount||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'tyr_report': if(data) setAgentChips('GUARDIAN',[{label:'BLKD',val:data.totalBlocked||0},{label:'NEW',val:data.newThreats?.length||0},{label:'SCAN#',val:data.scanId||0}]); break;
+    case 'hephaestus_report': if(data&&data.patches) setAgentChips('GUARDIAN',[{label:'PATCHES',val:data.patches.length},{label:'AUTO',val:data.patches.filter(p=>p.autoFixed).length}]); break;
+    case 'athena_report': if(data) setAgentChips('VAULT',[{label:'REV',val:'$'+(data.todayRevenue||0)},{label:'ORDERS',val:data.totalOrders||0},{label:'LISTS',val:data.activeListings||0}]); break;
+    case 'loki_published': if(data) setAgentChips('LOKI',[{label:'ID',val:data.listingId||'N/A'},{label:'PRICE',val:'$'+(data.price||0)}]); break;
+    case 'vulcan_published': if(data) setAgentChips('VULCAN',[{label:'PROD',val:data.product?.id||'N/A'}]); break;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   PARTICLE BG CANVAS
+═══════════════════════════════════════════════ */
+(function(){
+  const c=document.getElementById('bg'), ctx=c.getContext('2d');
+  const pts=[];
+  function resize(){ c.width=window.innerWidth; c.height=window.innerHeight; }
+  window.addEventListener('resize',resize); resize();
+  for(let i=0;i<70;i++) pts.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25,s:Math.random()*1.4+.3,a:Math.random()*.35+.08});
+  function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+    pts.forEach(p=>{
+      p.x+=p.vx; p.y+=p.vy;
+      if(p.x<0) p.x=c.width; if(p.x>c.width) p.x=0;
+      if(p.y<0) p.y=c.height; if(p.y>c.height) p.y=0;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.s,0,Math.PI*2);
+      ctx.fillStyle=`rgba(0,180,255,${p.a})`; ctx.fill();
+    });
+    for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
+      const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<90){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y);
+        ctx.strokeStyle=`rgba(0,100,255,${.14*(1-d/90)})`; ctx.lineWidth=.5; ctx.stroke(); }
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+/* ═══════════════════════════════════════════════
+   CLOCK + BOOT
+═══════════════════════════════════════════════ */
+function tickClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent=n.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'America/New_York'});
+  document.getElementById('date-display').textContent=n.toLocaleDateString('en',{weekday:'short',year:'numeric',month:'short',day:'numeric'}).toUpperCase();
+}
+setInterval(tickClock,1000); tickClock();
+
+function esc(s){ if(!s) return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+buildAgentGrid();
+// init 2D pixel building — PixelBuilding is inlined so always available
+setTimeout(() => {
+  const floorEl = document.getElementById('pantheon-floor');
+  if (floorEl) PixelBuilding.init(floorEl);
+}, 300);
+connect();
+
+// ── VAULT graph modal ────────────────────────────────────────────────────
+window.__vaultGraphData = null;
+
+function showVaultGraph(data){
+  window.__vaultGraphData = data;
+  const modal = document.getElementById('vault-graph-modal');
+  if(modal) { renderVaultGraph(data); modal.style.display='flex'; }
+}
+function closeVaultGraph(){
+  const modal = document.getElementById('vault-graph-modal');
+  if(modal) modal.style.display='none';
+}
+function renderVaultGraph(data){
+  const canvas = document.getElementById('vault-graph-canvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#000a18'; ctx.fillRect(0,0,W,H);
+  const txns = (data && data.recentTransactions) ? data.recentTransactions : [];
+  const daily = (data && data.dailyBreakdown) ? data.dailyBreakdown : [];
+  const net = parseFloat((data && data.netProfit) || 0);
+  const rev = parseFloat((data && data.totalRevenue) || 0);
+  const exp = parseFloat((data && data.totalExpenses) || 0);
+  // Summary boxes
+  const boxes = [
+    {label:'REVENUE', val:'$'+rev.toFixed(2), col:'#00ff88'},
+    {label:'EXPENSES', val:'$'+exp.toFixed(2), col:'#ff4466'},
+    {label:'NET P&L', val:(net>=0?'+':'')+' $'+Math.abs(net).toFixed(2), col: net>=0?'#00ff88':'#ff4466'},
+  ];
+  boxes.forEach((b,i)=>{
+    const bx=20+i*(W/3-10), by=10, bw=W/3-16, bh=42;
+    ctx.fillStyle='#050d1a'; ctx.fillRect(bx,by,bw,bh);
+    ctx.strokeStyle=b.col+'66'; ctx.lineWidth=1; ctx.strokeRect(bx+.5,by+.5,bw,bh);
+    ctx.fillStyle='#668899'; ctx.font='bold 8px monospace'; ctx.textAlign='left';
+    ctx.fillText(b.label, bx+6, by+8);
+    ctx.save(); ctx.shadowColor=b.col; ctx.shadowBlur=8;
+    ctx.fillStyle=b.col; ctx.font='bold 13px monospace';
+    ctx.fillText(b.val, bx+6, by+26); ctx.restore();
+  });
+  // Bar chart — daily revenue (last 14 days)
+  const bars = daily.slice(-14);
+  const maxVal = bars.reduce((m,d)=>Math.max(m,d.revenue||0),0.01);
+  const chartX=20, chartY=64, chartW=W-40, chartH=H-140;
+  ctx.fillStyle='#020d18'; ctx.fillRect(chartX,chartY,chartW,chartH);
+  ctx.strokeStyle='#00d4ff22'; ctx.lineWidth=.6; ctx.strokeRect(chartX+.5,chartY+.5,chartW,chartH);
+  // grid lines
+  [.25,.5,.75,1].forEach(f=>{const gy=chartY+chartH*(1-f);ctx.strokeStyle='#00d4ff11';ctx.lineWidth=.5;ctx.beginPath();ctx.moveTo(chartX,gy);ctx.lineTo(chartX+chartW,gy);ctx.stroke();ctx.fillStyle='#446677';ctx.font='6px monospace';ctx.textAlign='right';ctx.fillText('$'+(maxVal*f).toFixed(0),chartX-2,gy+2);});
+  const bw2 = (chartW-10)/(Math.max(bars.length,1));
+  bars.forEach((d,i)=>{
+    const bh2 = chartH * (d.revenue/maxVal);
+    const bx2 = chartX+5+i*bw2, by2 = chartY+chartH-bh2;
+    const col = d.revenue>0?'#00d4ff':'#334455';
+    ctx.save(); ctx.shadowColor=col; ctx.shadowBlur=6;
+    ctx.fillStyle=col+'cc'; ctx.fillRect(bx2,by2,bw2-2,bh2);
+    ctx.restore();
+    if(bars.length<=10){ctx.fillStyle='#446677';ctx.font='5px monospace';ctx.textAlign='center';ctx.fillText((d.date||'').slice(5),bx2+bw2/2,chartY+chartH+8);}
+  });
+  ctx.fillStyle='#00d4ff'; ctx.font='bold 7px monospace'; ctx.textAlign='center';
+  ctx.fillText('DAILY REVENUE (LAST '+bars.length+' DAYS)', W/2, chartY-4);
+  // recent transactions list
+  const listY = chartY+chartH+20;
+  ctx.fillStyle='#00d4ff88'; ctx.font='bold 7px monospace'; ctx.textAlign='left';
+  ctx.fillText('RECENT TRANSACTIONS', 20, listY);
+  txns.slice(0,5).forEach((t,i)=>{
+    const ty=listY+10+i*16;
+    const tCol=t.type==='revenue'?'#00ff88':'#ff4466';
+    ctx.fillStyle='#050d1a'; ctx.fillRect(20,ty,W-40,13);
+    ctx.fillStyle=tCol; ctx.font='bold 6px monospace';
+    ctx.fillText((t.type==='revenue'?'+':'-')+'$'+Math.abs(t.amount).toFixed(2), 24, ty+4);
+    ctx.fillStyle='#668899'; ctx.fillText(t.description||t.source||'', 80, ty+4);
+    ctx.fillStyle='#334455'; ctx.textAlign='right';
+    ctx.fillText((t.timestamp||'').slice(0,10), W-24, ty+4);
+    ctx.textAlign='left';
+  });
+}
+
+// Check VAULT chat responses for financial keywords and trigger graph
+const _origHandleMsg = typeof handleMsg === 'function' ? handleMsg : null;
+document.addEventListener('DOMContentLoaded',()=>{
+  // Override sendMessage to intercept VAULT financial queries
+  const origSend = window.sendMessage;
+  window.sendMessage = function(){
+    origSend && origSend.apply(this, arguments);
+  };
+});
+</script>
+</body>
+</html>

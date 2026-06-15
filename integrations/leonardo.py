@@ -42,24 +42,64 @@ def leonardo_available() -> bool:
     return bool(os.getenv("LEONARDO_API_KEY"))
 
 
-def _build_pod_prompt(idea_title: str, niche: str, style_hint: str = "") -> str:
-    """Build an optimized prompt for print-on-demand designs."""
-    base = (
-        f"A high-quality print-on-demand graphic design for '{idea_title}', "
-        f"{niche} theme. "
-        f"Clean vector-style illustration, transparent-friendly, bold colors, "
-        f"centered composition suitable for t-shirts and merchandise. "
-        f"Professional graphic design, no text, no watermarks. "
+_PRODUCT_MOCKUP_TEMPLATES = {
+    "t-shirt": (
+        "A flat-lay product photography mockup of a white t-shirt on a clean light background, "
+        "with a custom graphic print centered on the chest showing '{design}' ({niche} theme). "
+        "Professional Etsy product photo, sharp details, soft shadows, photorealistic."
+    ),
+    "hoodie": (
+        "A flat-lay product photography mockup of a black pullover hoodie on a clean background, "
+        "front graphic print showing '{design}' ({niche} theme). "
+        "Professional Etsy product photo, photorealistic, sharp focus."
+    ),
+    "mug": (
+        "A product photography mockup of a white ceramic coffee mug on a wooden table, "
+        "with '{design}' ({niche} theme) printed on the side. "
+        "Professional Etsy product photo, warm lighting, photorealistic."
+    ),
+    "poster": (
+        "A product photography mockup of a framed art print hanging on a white wall, "
+        "artwork shows '{design}' ({niche} theme). "
+        "Professional Etsy product photo, clean minimalist staging, photorealistic."
+    ),
+    "tote bag": (
+        "A product photography mockup of a natural canvas tote bag on a clean white background, "
+        "with '{design}' ({niche} theme) screen-printed on the front. "
+        "Professional Etsy product photo, photorealistic."
+    ),
+    "phone case": (
+        "A product photography mockup of a clear/white smartphone phone case, "
+        "with '{design}' ({niche} theme) printed design. "
+        "Professional Etsy product photo, clean background, photorealistic."
+    ),
+}
+
+_DEFAULT_MOCKUP = (
+    "A product photography mockup of a {product_type} with '{design}' ({niche} theme) print design. "
+    "Professional Etsy product photo, clean background, photorealistic, sharp details."
+)
+
+
+def _build_pod_prompt(idea_title: str, niche: str, style_hint: str = "", product_type: str = "t-shirt") -> str:
+    """Build a product mockup prompt so the generated image shows the actual Etsy product."""
+    pt_lower = product_type.lower().strip()
+    template = _PRODUCT_MOCKUP_TEMPLATES.get(pt_lower, _DEFAULT_MOCKUP)
+    prompt = template.format(
+        design=idea_title,
+        niche=niche,
+        product_type=product_type,
     )
     if style_hint:
-        base += style_hint
-    return base
+        prompt += f" {style_hint}"
+    return prompt
 
 
 async def generate_design(
     idea_title: str,
     niche: str,
     style_hint: str = "",
+    product_type: str = "t-shirt",
     width: int = 1024,
     height: int = 1024,
     num_images: int = 2,
@@ -85,7 +125,7 @@ async def generate_design(
             "error": "LEONARDO_API_KEY not set",
         }
 
-    prompt = _build_pod_prompt(idea_title, niche, style_hint)
+    prompt = _build_pod_prompt(idea_title, niche, style_hint, product_type)
 
     payload = {
         "prompt": prompt,

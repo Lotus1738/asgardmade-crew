@@ -18,10 +18,10 @@ except ImportError:
 
 _GENERATOR = "Leonardo" if leonardo_available() else ("DALL-E" if _DALLE_AVAILABLE else "Demo")
 
-async def generate_variants(prompt: str, n: int = 2) -> list:
-    """Generate design image URLs — Leonardo primary, DALL-E fallback."""
+async def generate_variants(prompt: str, n: int = 2, product_type: str = "t-shirt") -> list:
+    """Generate product mockup image URLs — Leonardo primary, DALL-E fallback."""
     if leonardo_available():
-        result = await _leonardo_generate(prompt, prompt, num_images=n)
+        result = await _leonardo_generate(prompt, prompt, product_type=product_type, num_images=n)
         if result.get("success") and result.get("images"):
             return [img["url"] for img in result["images"]]
     if _DALLE_AVAILABLE:
@@ -75,7 +75,7 @@ async def run_idea_pipeline(
         "https://via.placeholder.com/1024x1024/1a1a2e/gold?text=Demo+Design+2",
     ]
     try:
-        raw_urls = await generate_variants(f"{title} — {niche} {product_type} design", n=2)
+        raw_urls = await generate_variants(f"{title} — {niche}", n=2, product_type=product_type)
         if raw_urls:
             variants = [{"url": u, "prompt": f"{title} variant {i+1}", "demo": False} for i, u in enumerate(raw_urls)]
         else:
@@ -665,4 +665,16 @@ async def run_autonomous_daily_pipeline(
         except Exception as e:
             err_msg = f"{type(e).__name__}: {e}"
             errors.append({"title": niche, "error": err_msg})
-            await _log(manager, "ODIN", f"Pipeline error on listing {i+1}: {err_
+            await _log(manager, "ODIN", f"Pipeline error on listing {i+1}: {err_msg}", "error")
+
+    summary = {
+        "published": len(published),
+        "errors": len(errors),
+        "listings": published,
+        "timestamp": datetime.now().isoformat(),
+    }
+    await manager.broadcast({"type": "pipeline_daily_complete", "data": summary})
+    await _update_status(manager, state, "ODIN", "idle", f"Daily pipeline done — {len(published)} listings published")
+    await _log(manager, "ODIN", f"Daily pipeline complete: {len(published)} published, {len(errors)} errors",
+               "success" if not errors else "warning")
+    return summary

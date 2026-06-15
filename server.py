@@ -2480,19 +2480,6 @@ async def _review_monitor_loop():
                             )
                         except Exception:
                             pass
-                    elif is_new and rating == 3:
-                        # 3-star = mediocre. Not bad enough to alert, but signals a gap
-                        # between buyer expectation and reality. LOKI should learn from these
-                        # to adjust title/description accuracy and set clearer expectations.
-                        try:
-                            brain.record_outcome(
-                                "LOKI",
-                                f"Mediocre review (3 star) on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
-                                f"3 star: {rev.get('review','')[:100]} — consider improving title clarity or description expectations",
-                                4,
-                            )
-                        except Exception:
-                            pass
                     elif is_new and rating >= 4:
                         # Brain feedback for positive reviews so LOKI learns which listing
                         # styles, niches, and product types generate happy customers.
@@ -2503,17 +2490,6 @@ async def _review_monitor_loop():
                                 "LOKI",
                                 f"Positive review on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
                                 f"{rating} star: {rev.get('review','')[:100]}",
-                                9 if rating == 5 else 7,
-                            )
-                        except Exception:
-                            pass
-                        # GUARDIAN learns which product types generate satisfied customers —
-                        # helps calibrate what to protect vs. flag in future scans.
-                        try:
-                            brain.record_outcome(
-                                "GUARDIAN",
-                                f"Positive review on product type '{rev.get('product_type','?')}' listing '{rev.get('listing_title','?')}'",
-                                f"{rating} star — this product type is working well for customers",
                                 9 if rating == 5 else 7,
                             )
                         except Exception:
@@ -2951,4 +2927,43 @@ async def os_status():
             "pending_ideas": len([i for i in state.queue.get("ideas",[]) if i.get("status")=="pending"]),
             "pending_designs": len([d for d in state.queue.get("designs",[]) if d.get("status")=="pending"]),
         },
-    
+        "vault": state.vault, "metrics": state.metrics,
+    }
+
+
+# Static file catch-all (must be LAST route)
+@app.get("/{path:path}")
+async def serve_static(path: str):
+    file_path = PUBLIC_DIR / path
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(str(file_path))
+    return FileResponse(str(PUBLIC_DIR / "index.html"))
+
+
+@app.on_event("startup")
+async def startup():
+    brain.initialize()
+    try:
+        vault_path = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./data/obsidian"))
+        vault_path.mkdir(parents=True, exist_ok=True)
+        mem.write("System/startup.md",
+            f"Vault: {vault_path.resolve()}\nAll agents initialized.\n")
+        print(f"[MEMORY] Obsidian vault active at {vault_path.resolve()}")
+    except Exception as e:
+        print(f"[MEMORY] Vault init warning: {e}")
+
+    asyncio.create_task(_guardian_loop())
+    asyncio.create_task(_heimdall_loop())
+    asyncio.create_task(_heimdall_deep_research_loop())
+    asyncio.create_task(_athena_loop())
+    asyncio.create_task(_vault_loop())
+    asyncio.create_task(_odin_loop())
+    asyncio.create_task(_odin_morning_briefing_loop())
+    asyncio.create_task(_odin_agent_improvement_loop())
+    asyncio.create_task(_odin_autonomous_action_loop())
+    asyncio.create_task(_brain_synthesis_loop())
+    asyncio.create_task(_bestseller_requeue_loop())
+    asyncio.create_task(_ab_test_resolver_loop())
+    asyncio.create_task(_review_monitor_loop())
+    asyncio.create_task(_weekly_email_report_loop())
+    asyncio.create_task(_autonomous_listing_loop())
