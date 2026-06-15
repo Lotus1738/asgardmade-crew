@@ -1411,6 +1411,7 @@ const _origSwitchTab = typeof switchTab !== 'undefined' ? switchTab : null;
       <button class="ms-cmd" onclick="switchTab('designs')">🎨 DESIGNS</button>
       <button id="voice-odin-btn" onclick="toggleOdinVoice()">🎙 SPEAK TO ODIN</button>
       <button id="odin-mute-btn" onclick="toggleOdinMute()" style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px">🔊 MUTE ODIN</button>
+      <button id="odin-autospeak-btn" onclick="toggleAutoSpeak()" style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px">⚡ AUTO-SPEAK: OFF</button>
     </div>
     <!-- Agent oversight in command zone -->
     <div id="odin-oversight-col">
@@ -2472,7 +2473,11 @@ function appendAgentMsg(txt){
   const h=document.getElementById('chat-history');
   const icon=AGENT_META[chatAgent]?.icon||'⚡';
   const d=document.createElement('div'); d.className='cmsg agent';
-  d.innerHTML=`<div class="cmsg-icon">${icon}</div><div class="cbubble" id="_tb"></div>`;
+  // Add a small speak button on ODIN messages so Mario can replay any reply
+  const speakBtn = chatAgent==='ODIN'
+    ? `<button class="msg-speak-btn" title="Read aloud" onclick="odinSpeak(this.closest('.cmsg').querySelector('.cbubble').textContent, true)" style="background:none;border:none;color:rgba(201,168,76,.5);cursor:pointer;font-size:10px;padding:2px 4px;margin-top:3px;display:block">🔊</button>`
+    : '';
+  d.innerHTML=`<div class="cmsg-icon">${icon}</div><div style="display:flex;flex-direction:column;align-items:flex-start"><div class="cbubble" id="_tb"></div>${speakBtn}</div>`;
   h.appendChild(d);
   const bub=d.querySelector('#_tb'); bub.removeAttribute('id');
   let i=0;
@@ -2545,59 +2550,142 @@ function toggleOdinVoice(){
 
 function toggleChatVoice(){ toggleOdinVoice(); }
 
-/* ─── ODIN speaks back via text-to-speech ─── */
-let _odinVoice=null;
-let _odinMuted = (localStorage.getItem('odinMuted')==='true');
+/* ═══════════════════════════════════════════════
+   ODIN VOICE SYSTEM v3
+   Primary:  OpenAI TTS via /api/tts  (natural "onyx" voice)
+   Fallback: Browser speechSynthesis   (Google/Microsoft neural if available)
+   Controls: Mute toggle, Auto-speak toggle, explicit mic button
+═══════════════════════════════════════════════ */
 
+// Persistent state
+let _odinMuted      = (localStorage.getItem('odinMuted')     === 'true');
+let _odinAutoSpeak  = (localStorage.getItem('odinAutoSpeak') === 'true'); // OFF by default
+let _odinSpeaking   = false;
+let _odinAudio      = null;   // current HTMLAudioElement (OpenAI TTS)
+let _odinVoice      = null;   // best browser voice (fallback)
+
+// ── Browser voice loader (fallback) ──────────────────────────────────────────
 function _loadOdinVoice(){
-  const voices=speechSynthesis.getVoices();
-  _odinVoice = voices.find(v=>/david|uk english male|daniel|alex/i.test(v.name))
-            || voices.find(v=>v.lang.startsWith('en')&&/male/i.test(v.name))
+  if(!window.speechSynthesis) return;
+  const voices = speechSynthesis.getVoices();
+  // Prefer: Google UK English Male → Microsoft Guy → Daniel → any en-GB → any en
+  _odinVoice = voices.find(v=>/google uk english male/i.test(v.name))
+            || voices.find(v=>/microsoft guy/i.test(v.name))
+            || voices.find(v=>/microsoft david/i.test(v.name))
+            || voices.find(v=>/daniel/i.test(v.name) && v.lang.startsWith('en'))
+            || voices.find(v=>v.lang==='en-GB')
             || voices.find(v=>v.lang.startsWith('en'))
             || null;
 }
 if(window.speechSynthesis){
-  speechSynthesis.onvoiceschanged=_loadOdinVoice;
+  speechSynthesis.onvoiceschanged = _loadOdinVoice;
   _loadOdinVoice();
 }
 
-function _syncMuteBtn(){
-  const btn=document.getElementById('odin-mute-btn');
-  if(!btn) return;
-  if(_odinMuted){
-    btn.textContent='🔇 UNMUTE ODIN';
-    btn.style.background='rgba(201,0,0,.15)';
-    btn.style.borderColor='rgba(201,0,0,.4)';
-    btn.style.color='#ff6b6b';
-  } else {
-    btn.textContent='🔊 MUTE ODIN';
-    btn.style.background='rgba(201,168,76,.08)';
-    btn.style.borderColor='rgba(201,168,76,.3)';
-    btn.style.color='var(--c1)';
+// ── Stop all audio immediately ────────────────────────────────────────────────
+function odinStop(){
+  if(_odinAudio){ try{ _odinAudio.pause(); _odinAudio.src=''; } catch(e){} _odinAudio=null; }
+  if(window.speechSynthesis) speechSynthesis.cancel();
+  _odinSpeaking = false;
+}
+
+// ── Sync button UI ────────────────────────────────────────────────────────────
+function _syncVoiceUI(){
+  // Mute button
+  const muteBtn = document.getElementById('odin-mute-btn');
+  if(muteBtn){
+    if(_odinMuted){
+      muteBtn.textContent='🔇 UNMUTE ODIN';
+      muteBtn.style.cssText='background:rgba(201,0,0,.15);border:1px solid rgba(201,0,0,.4);color:#ff6b6b;font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
+    } else {
+      muteBtn.textContent='🔊 MUTE ODIN';
+      muteBtn.style.cssText='background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
+    }
+  }
+  // Auto-speak button
+  const asBtn = document.getElementById('odin-autospeak-btn');
+  if(asBtn){
+    if(_odinAutoSpeak){
+      asBtn.textContent='⚡ AUTO-SPEAK: ON';
+      asBtn.style.cssText='background:rgba(201,168,76,.2);border:1px solid rgba(201,168,76,.7);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
+    } else {
+      asBtn.textContent='⚡ AUTO-SPEAK: OFF';
+      asBtn.style.cssText='background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);color:var(--c1);font-size:7px;padding:5px 8px;border-radius:3px;cursor:pointer;letter-spacing:.5px;width:100%;margin-top:2px';
+    }
   }
 }
 
 function toggleOdinMute(){
-  _odinMuted=!_odinMuted;
+  _odinMuted = !_odinMuted;
   localStorage.setItem('odinMuted', _odinMuted);
-  if(_odinMuted && window.speechSynthesis) speechSynthesis.cancel();
-  _syncMuteBtn();
+  if(_odinMuted) odinStop();
+  _syncVoiceUI();
 }
 
-// Apply mute state on load
-window.addEventListener('DOMContentLoaded', _syncMuteBtn);
+function toggleAutoSpeak(){
+  _odinAutoSpeak = !_odinAutoSpeak;
+  localStorage.setItem('odinAutoSpeak', _odinAutoSpeak);
+  _syncVoiceUI();
+}
 
-function odinSpeak(text){
-  if(_odinMuted) return;
-  if(!window.speechSynthesis) return;
-  speechSynthesis.cancel();
-  // Strip command tags before speaking
-  const clean=text.replace(/\[CMD:[^\]]+\]/g,'').trim();
+window.addEventListener('DOMContentLoaded', _syncVoiceUI);
+
+// ── Core speak function ───────────────────────────────────────────────────────
+async function odinSpeak(text, force=false){
+  // force=true means called from explicit button press; ignore mute+autoSpeak guards
+  if(_odinMuted && !force) return;
+  if(!_odinAutoSpeak && !force) return;   // push-to-speak mode: only speak when forced
+
+  // Clean text: strip [CMD:...] blocks, markdown, excess whitespace
+  const clean = text
+    .replace(/\[CMD:[^\]]+\]/g, '')
+    .replace(/[*_`#>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if(!clean) return;
-  const utt=new SpeechSynthesisUtterance(clean);
-  utt.rate=0.87; utt.pitch=0.7; utt.volume=0.9;
-  if(_odinVoice) utt.voice=_odinVoice;
+
+  // Truncate to 500 chars so it doesn't drone on forever
+  const spoken = clean.length > 500 ? clean.slice(0, 497) + '...' : clean;
+
+  odinStop();
+  _odinSpeaking = true;
+
+  // ── Try OpenAI TTS first (/api/tts returns MP3) ──
+  try {
+    const resp = await fetch('/api/tts', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text: spoken, voice: 'onyx' })
+    });
+    if(resp.ok){
+      const blob  = await resp.blob();
+      const url   = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      _odinAudio  = audio;
+      audio.onended = ()=>{ URL.revokeObjectURL(url); _odinSpeaking=false; _odinAudio=null; };
+      audio.onerror = ()=>{ URL.revokeObjectURL(url); _odinSpeaking=false; _odinAudio=null; };
+      audio.play();
+      return;
+    }
+  } catch(e){ /* fall through to browser TTS */ }
+
+  // ── Fallback: browser speechSynthesis ──
+  if(!window.speechSynthesis){ _odinSpeaking=false; return; }
+  const utt = new SpeechSynthesisUtterance(spoken);
+  utt.rate   = 0.90;   // slightly slower than default = more natural
+  utt.pitch  = 0.85;   // slightly lower pitch = authoritative
+  utt.volume = 1.0;
+  if(_odinVoice) utt.voice = _odinVoice;
+  utt.onend = ()=>{ _odinSpeaking=false; };
   speechSynthesis.speak(utt);
+}
+
+// ── "Speak last reply" button — reads back the most recent ODIN message ──────
+function odinSpeakLastReply(){
+  const msgs = document.querySelectorAll('#chat-messages .msg-odin .msg-text');
+  if(!msgs.length){ addLog('ODIN','Nothing to read back yet.','info'); return; }
+  const last = msgs[msgs.length-1].textContent;
+  odinSpeak(last, true);  // force=true, ignores auto-speak setting
 }
 
 /* ═══════════════════════════════════════════════
