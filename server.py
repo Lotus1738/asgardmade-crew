@@ -859,6 +859,22 @@ async def auto_score(req: AutoScoreRequest):
         except Exception:
             pass
 
+    # Record scoring outcome for HOLD/FLAG decisions so brain learns threshold calibration.
+    # The auto-approved branch already records outcomes (added in auto-12).
+    # Without this, the brain is blind to items that were scored but not approved —
+    # it can't learn which patterns consistently land in the "not yet ready" zone.
+    if not auto_approved:
+        try:
+            _agent_key = "HEIMDALL" if req.item_type == "idea" else "VULCAN"
+            brain.record_outcome(
+                _agent_key,
+                f"Scored {req.item_type}: '{item.get('title', item.get('ideaTitle', req.item_id))}' ({item.get('niche', '?')})",
+                f"{decision} via auto-score — Risk:{risk} Confidence:{confidence} — awaiting threshold",
+                4 if decision == "HOLD" else 6,
+            )
+        except Exception:
+            pass
+
     return {
         "ok": True,
         "item_id": req.item_id,
@@ -1072,6 +1088,18 @@ async def add_transaction(body: dict):
 
     vault_report = _build_vault_report(state)
     await manager.broadcast({"type": "vault_report", "data": vault_report})
+
+    # Brain outcome for revenue transactions so VAULT can learn from real sales
+    if txn["type"] == "revenue":
+        try:
+            brain.record_outcome(
+                "VAULT",
+                f"Revenue transaction: ${txn['amount']:.2f} — '{txn.get('description', 'sale')}'",
+                f"Sale recorded via REST — niche: {body.get('niche', 'general')}, source: {txn.get('source', 'manual')}",
+                9,
+            )
+        except Exception:
+            pass
 
     # Discord sale notification for revenue transactions
     if txn["type"] == "revenue":
@@ -1619,7 +1647,26 @@ async def _bestseller_requeue_loop():
 
             if requeued:
                 state.save_queue()
-                for idea in requeued:
+                # Auto-approve high-confidence bestseller requeues — same criteria as _heimdall_loop.
+                # Bestseller niches have proven conversion data, so high-demand/low-competition
+                # ideas in these niches should flow to the pipeline without waiting 30+ min for
+                # ODIN's autonomous approval loop.
+                _needs_review = []
+                for _idea in requeued:
+                    _demand = _idea.get("demandScore", 0)
+                    _comp = _idea.get("competition", "medium")
+                    if _demand >= 85 and _comp == "low":
+                        _idea["status"] = "approved"
+                        asyncio.create_task(run_idea_pipeline(_idea, manager, state))
+                        try:
+                            mem.heimdall_write_approved(_idea)
+                        except Exception:
+                            pass
+                    else:
+                        _needs_review.append(_idea)
+                if any(_i.get("status") == "approved" for _i in requeued):
+                    state.save_queue()  # persist auto-approval status
+                for idea in _needs_review:
                     await manager.broadcast({
                         "type": "approval_queue",
                         "agent": "HEIMDALL",
@@ -2340,6 +2387,16 @@ async def _ab_test_resolver_loop():
                         await _discord.notify_general(f"A/B Result [{niche}]: {msg_ab}")
                     except Exception:
                         pass
+                    # Brain outcome so LOKI learns which title styles win A/B tests
+                    try:
+                        brain.record_outcome(
+                            "LOKI",
+                            f"A/B title test [{niche}] listing {listing_id}: '{title_a}' vs '{title_b}'",
+                            f"Winner: title_{winner.upper()} ('{winner_title}') — {winner_views} views vs {loser_views}",
+                            8 if winner == "b" else 6,
+                        )
+                    except Exception:
+                        pass
 
         except Exception as e:
             print(f"[A/B RESOLVER] error: {type(e).__name__}: {e}")
@@ -2379,6 +2436,16 @@ async def _review_monitor_loop():
                             await _discord.notify_general(f"REVIEW ALERT: {alert}")
                         except Exception:
                             pass
+                        # Brain feedback so GUARDIAN + LOKI learn from negative reviews
+                        try:
+                            brain.record_outcome(
+                                "GUARDIAN",
+                                f"Negative review on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
+                                f"{rev.get('rating')} star: {rev.get('review','')[:100]}",
+                                1,
+                            )
+                        except Exception:
+                            pass
                 flagged = review_tracker.get_flagged_listings()
                 for fl in flagged:
                     pattern = review_tracker.get_review_pattern(fl["product_type"])
@@ -2389,6 +2456,16 @@ async def _review_monitor_loop():
                             "level": "warning",
                             "timestamp": datetime.now().isoformat(),
                         })
+                        # LOKI should learn which product types accumulate bad reviews
+                        try:
+                            brain.record_outcome(
+                                "LOKI",
+                                f"Product type flagged by reviews: {fl['product_type']}",
+                                f"Pattern: {pattern} — may need listing changes or product pause",
+                                2,
+                            )
+                        except Exception:
+                            pass
         except Exception as e:
             print(f"[REVIEW MONITOR] error: {type(e).__name__}: {e}")
         await asyncio.sleep(3600)

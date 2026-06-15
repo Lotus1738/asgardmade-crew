@@ -385,3 +385,27 @@
 - Nothing. All 5 changes are surgical and non-breaking.
 
 **Git push:** PENDING — run `git add -A && git commit -m "auto-16: deep research Obsidian gap, VULCAN brain outcomes, price ceiling cap, briefing sales count fix" && git push` manually to deploy.
+
+---
+
+## Run 2026-06-14T(auto-17) UTC
+
+**Areas reviewed:** Backend reliability (server.py — brain feedback gaps in A/B resolver, review monitor, vault REST), Pipeline robustness (bestseller requeue auto-approve), Code quality (auto-score brain blind spot)
+
+**Changes made:**
+
+- `server.py:_ab_test_resolver_loop` — Added `brain.record_outcome("LOKI", ...)` after each A/B test completes. Score 8 when variant B wins (title improvement confirmed), 6 when A holds. LOKI was completely blind to A/B results — the brain synthesis loop had zero data on which title styles beat the baseline. Now it can learn patterns like "year in title loses" or "niche keyword at front wins."
+
+- `server.py:_review_monitor_loop` — Added `brain.record_outcome("GUARDIAN", score=1)` after each new negative review (≤2 stars), and `brain.record_outcome("LOKI", score=2)` after each flagged product-type pattern. GUARDIAN should learn which product categories accumulate complaints; LOKI should learn which listings need reformulation or pausing.
+
+- `server.py:/api/vault/transaction` — Added `brain.record_outcome("VAULT", score=9)` for revenue transactions submitted via the REST endpoint. The pipeline path records VAULT outcomes on every real sale. The REST endpoint (used by Etsy webhooks, manual entries, and external tools) was the last path invisible to the brain — VAULT's synthesis loop had no data on externally-reported sales.
+
+- `server.py:_bestseller_requeue_loop` — Added auto-approve logic for ideas that meet demand≥85 + competition=="low". Previously all bestseller requeues went to human review regardless of demand score, waiting up to 30+ min for ODIN's autonomous loop. Bestseller niches have real conversion proof — high-confidence ideas in those niches now flow directly to the pipeline. Also writes Obsidian approved-idea note, matching `_heimdall_loop` behavior.
+
+- `server.py:/api/auto-score` — Added `brain.record_outcome` for HOLD and FLAG decisions (items scored but not auto-approved). The auto-approve path already recorded outcomes (auto-12). Without HOLD/FLAG recording, the brain was blind to items that consistently sat below the threshold — it couldn't learn which patterns land in the "not yet ready" zone or help calibrate future scoring.
+
+**Skipped (risky):**
+
+- `_odin_agent_improvement_loop` including ODIN in the self-review loop — circular reasoning risk (ODIN reviewing its own strategy with the strategy it already wrote). Deferred.
+
+**Git push:** PENDING — Windows `.git/index.lock` blocks sandbox git (recurring issue). Run `git add -A && git commit -m "auto-17: A/B brain, review brain, vault REST brain, bestseller auto-approve, auto-score HOLD brain" && git push` manually to deploy.

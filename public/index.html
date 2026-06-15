@@ -3,957 +3,1084 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AsgardMade Pantheon</title>
+<title>AsgardMade Pantheon — Command HUD</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-:root{
-  --bg:#07070f;--bg2:#0d0d1a;--bg3:#131320;--bg4:#191928;
-  --gold:#c9a84c;--gold2:#e8c96e;--gold-dim:#6b561e;
-  --cyan:#00d4ff;--purple:#8b5cf6;--orange:#f97316;
-  --green:#22c55e;--red:#ef4444;--pink:#ff4dff;
-  --text:#e8e8f0;--text2:#8888aa;--text3:#444460;
-  --border:#1a1a2e;--border2:#252540;
-  --font:'Courier New',monospace;
-}
-html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);}
+  :root {
+    --odin:    #ffd700;
+    --heimdall:#00e5ff;
+    --vulcan:  #ff6b35;
+    --loki:    #c084fc;
+    --vault:   #4ade80;
+    --guardian:#f87171;
+    --bg:      #050508;
+    --panel:   #0a0a12;
+    --border:  #1a1a2e;
+    --text:    #c8c8d4;
+    --dim:     #555570;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
 
-/* Grid scanlines overlay */
-body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
-  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.08) 2px,rgba(0,0,0,.08) 4px);}
+  /* ── TOP BAR ── */
+  #topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    background: #08080f;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  #topbar .logo { color: var(--odin); font-weight: bold; letter-spacing: 3px; font-size: 13px; }
+  #topbar .status { display: flex; gap: 16px; }
+  #topbar .status span { color: var(--dim); }
+  #topbar .status span b { color: var(--text); }
+  #ws-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f87171; margin-right: 4px; }
+  #ws-dot.connected { background: #4ade80; }
 
-/* ── TOP HUD BAR ── */
-#hud-top{position:fixed;top:0;left:0;right:0;height:36px;z-index:100;
-  background:rgba(7,7,15,.95);border-bottom:1px solid var(--gold-dim);
-  display:flex;align-items:center;padding:0 16px;gap:0;font-size:11px;letter-spacing:.5px;}
-.hud-logo{color:var(--gold);font-weight:700;font-size:13px;letter-spacing:3px;margin-right:20px;text-shadow:0 0 10px var(--gold);}
-.hud-sep{color:var(--border2);margin:0 8px;}
-.hud-stat{color:var(--text2);}
-.hud-stat .val{color:var(--gold);}
-.hud-stat .val.cyan{color:var(--cyan);}
-.hud-stat .val.green{color:var(--green);}
-.hud-stat .val.orange{color:var(--orange);}
-#hud-clock{margin-left:auto;color:var(--text3);font-size:10px;}
-.ws-dot{width:6px;height:6px;border-radius:50%;background:var(--red);display:inline-block;margin-right:6px;margin-left:12px;}
-.ws-dot.connected{background:var(--green);box-shadow:0 0 6px var(--green);}
+  /* ── MAIN GRID ── */
+  #hud {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 3px;
+    padding: 3px;
+    overflow: hidden;
+  }
 
-/* ── MAIN LAYOUT ── */
-#main{position:fixed;top:36px;bottom:120px;left:0;right:0;display:flex;gap:0;}
+  /* room panels */
+  .room {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .room:hover { border-color: var(--agent-color, #ffd700); }
+  .room.active { border-color: var(--agent-color, #ffd700); box-shadow: inset 0 0 30px rgba(255,215,0,0.05); }
 
-/* Left: Active character panel */
-#char-panel{width:220px;flex-shrink:0;border-right:1px solid var(--border2);display:flex;flex-direction:column;background:var(--bg2);padding:14px;}
-.char-portrait-frame{width:120px;height:120px;margin:0 auto 12px;position:relative;border:2px solid var(--gold-dim);}
-.char-portrait-frame::before,.char-portrait-frame::after{content:'';position:absolute;width:8px;height:8px;border-color:var(--gold);border-style:solid;}
-.char-portrait-frame::before{top:-2px;left:-2px;border-width:2px 0 0 2px;}
-.char-portrait-frame::after{bottom:-2px;right:-2px;border-width:0 2px 2px 0;}
-.char-name-hud{text-align:center;color:var(--gold);font-size:14px;font-weight:700;letter-spacing:3px;text-shadow:0 0 8px var(--gold);}
-.char-title-hud{text-align:center;color:var(--text3);font-size:9px;letter-spacing:2px;text-transform:uppercase;margin-top:2px;}
-.char-stats{margin-top:12px;display:flex;flex-direction:column;gap:5px;}
-.stat-line{display:flex;justify-content:space-between;font-size:10px;}
-.stat-line .sk{color:var(--text3);letter-spacing:.5px;}
-.stat-line .sv{font-weight:700;}
-.stat-bar{height:4px;background:var(--border2);border-radius:2px;margin-top:2px;}
-.stat-bar-fill{height:100%;border-radius:2px;transition:width .5s;}
-.char-task{margin-top:12px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;padding:8px;font-size:10px;color:var(--text2);line-height:1.5;}
-.char-task .ct-label{color:var(--text3);font-size:9px;letter-spacing:1px;margin-bottom:4px;}
-.status-badge{display:inline-block;padding:2px 8px;border-radius:2px;font-size:9px;font-weight:700;letter-spacing:1px;margin-top:8px;}
-.status-badge.online{background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3);}
-.status-badge.idle{background:rgba(68,68,96,.15);color:var(--text3);border:1px solid var(--border2);}
-.status-badge.working{background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.3);}
-.status-badge.error{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.3);}
+  /* ODIN spans center both rows */
+  #room-odin {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    cursor: default;
+    --agent-color: var(--odin);
+  }
+  #room-heimdall { grid-column: 1; grid-row: 1; --agent-color: var(--heimdall); }
+  #room-vulcan   { grid-column: 3; grid-row: 1; --agent-color: var(--vulcan); }
+  #room-loki     { grid-column: 1; grid-row: 2; --agent-color: var(--loki); }
+  #room-vault    { grid-column: 3; grid-row: 2; --agent-color: var(--vault); }
 
-/* Center: Chat */
-#chat-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;}
-#chat-header{padding:10px 16px;border-bottom:1px solid var(--border2);display:flex;align-items:center;gap:10px;flex-shrink:0;background:var(--bg2);}
-#chat-agent-name{font-size:13px;font-weight:700;letter-spacing:2px;}
-#chat-agent-role{font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;}
-#chat-messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;background:var(--bg);}
-.msg-user{align-self:flex-end;max-width:70%;background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold2);
-  padding:8px 12px;border-radius:2px;font-size:12px;line-height:1.5;position:relative;}
-.msg-user::before{content:'YOU';position:absolute;top:-14px;right:0;font-size:8px;color:var(--text3);letter-spacing:1px;}
-.msg-agent{align-self:flex-start;max-width:75%;background:var(--bg3);border-left:3px solid var(--gold);
-  padding:8px 12px;font-size:12px;line-height:1.5;color:var(--text);}
-.msg-agent .ma-name{font-size:8px;letter-spacing:1px;margin-bottom:4px;font-weight:700;}
-#chat-typing{padding:4px 16px;font-size:10px;color:var(--text3);letter-spacing:.5px;min-height:18px;background:var(--bg);}
-#chat-input-row{padding:12px 14px;border-top:1px solid var(--border2);display:flex;gap:8px;flex-shrink:0;background:var(--bg2);}
-#chat-input{flex:1;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:8px 12px;font-size:12px;font-family:var(--font);border-radius:2px;}
-#chat-input:focus{outline:none;border-color:var(--gold-dim);}
-#chat-send{background:var(--gold);color:#000;border:none;padding:8px 16px;font-family:var(--font);font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer;}
-#chat-send:hover{background:var(--gold2);}
+  /* room label */
+  .room-label {
+    position: absolute;
+    top: 6px;
+    left: 10px;
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    color: var(--agent-color, var(--odin));
+    text-shadow: 0 0 8px currentColor;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .room-sublabel {
+    position: absolute;
+    top: 20px;
+    left: 10px;
+    font-size: 9px;
+    color: var(--dim);
+    z-index: 10;
+    pointer-events: none;
+  }
 
-/* Right: Tools panel */
-#tools-panel{width:300px;flex-shrink:0;border-left:1px solid var(--border2);display:flex;flex-direction:column;background:var(--bg2);}
-#tools-tabs{display:flex;border-bottom:1px solid var(--border2);flex-shrink:0;}
-.ttab{flex:1;padding:9px 4px;text-align:center;font-size:9px;letter-spacing:.8px;cursor:pointer;color:var(--text3);border-bottom:2px solid transparent;transition:all .15s;}
-.ttab:hover{color:var(--text);}
-.ttab.active{color:var(--gold);border-bottom-color:var(--gold);}
-#tools-body{flex:1;overflow-y:auto;padding:12px;}
+  /* corner click hint for side rooms */
+  .room-hint {
+    position: absolute;
+    bottom: 6px;
+    right: 8px;
+    font-size: 9px;
+    color: var(--dim);
+    z-index: 10;
+    pointer-events: none;
+  }
 
-/* ── CHARACTER ROSTER (bottom) ── */
-#roster{position:fixed;bottom:0;left:0;right:0;height:116px;background:rgba(7,7,15,.97);
-  border-top:1px solid var(--gold-dim);display:flex;align-items:center;justify-content:center;
-  gap:12px;padding:0 20px;z-index:100;}
-.roster-card{width:90px;padding:6px;border:1px solid var(--border2);cursor:pointer;
-  transition:all .15s;background:var(--bg2);position:relative;flex-shrink:0;}
-.roster-card:hover,.roster-card.active{border-color:var(--gold);background:var(--bg3);}
-.roster-card.active::before{content:'▲';position:absolute;top:-14px;left:50%;transform:translateX(-50%);color:var(--gold);font-size:8px;}
-.roster-portrait{width:60px;height:60px;margin:0 auto 4px;display:block;}
-.roster-name{text-align:center;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--text2);}
-.roster-lvl{text-align:center;font-size:8px;color:var(--text3);}
-.roster-status-dot{position:absolute;top:4px;right:4px;width:5px;height:5px;border-radius:50%;}
-.roster-status-dot.online{background:var(--green);box-shadow:0 0 4px var(--green);}
-.roster-status-dot.idle{background:var(--text3);}
-.roster-status-dot.working{background:var(--orange);box-shadow:0 0 4px var(--orange);}
+  /* SVG characters */
+  .room-svg {
+    width: 100%;
+    height: 100%;
+  }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar{width:4px;height:4px;}
-::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:var(--border2);}
+  /* ── ODIN ROOM INTERIOR ── */
+  #odin-interior {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 8px;
+    gap: 6px;
+  }
+  #odin-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  #odin-portrait { flex-shrink: 0; }
+  #odin-name-block { flex: 1; }
+  #odin-name-block .agent-name { color: var(--odin); font-size: 14px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 0 12px var(--odin); }
+  #odin-name-block .agent-role { color: var(--dim); font-size: 10px; }
+  #chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #chat-area::-webkit-scrollbar { width: 4px; }
+  #chat-area::-webkit-scrollbar-track { background: transparent; }
+  #chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .msg {
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 90%;
+  }
+  .msg.user { background: #1a1a2e; align-self: flex-end; color: #e8e8ff; }
+  .msg.agent { background: #0d1a0d; align-self: flex-start; border-left: 2px solid var(--active-color, var(--odin)); color: var(--text); }
+  .msg.system { color: var(--dim); font-size: 10px; align-self: center; }
+  .msg .msg-name { font-size: 9px; font-weight: bold; margin-bottom: 2px; color: var(--active-color, var(--odin)); }
 
-/* ── Tool panel internals ── */
-.tool-section{margin-bottom:14px;}
-.tool-section-title{font-size:9px;color:var(--text3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border);}
-.metric-row{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:11px;}
-.metric-row .mk{color:var(--text3);font-size:10px;}
-.metric-row .mv{color:var(--gold);font-weight:700;}
-.metric-row .mv.cyan{color:var(--cyan);}
-.metric-row .mv.green{color:var(--green);}
-.skill-item{padding:7px 8px;border:1px solid var(--border2);margin-bottom:5px;cursor:pointer;font-size:10px;display:flex;align-items:center;gap:8px;}
-.skill-item:hover{border-color:var(--gold-dim);background:var(--bg3);}
-.skill-item .si-icon{font-size:14px;width:18px;text-align:center;}
-.skill-item .si-name{color:var(--text);flex:1;}
-.skill-item .si-pack{font-size:8px;color:var(--text3);}
-.queue-item-mini{padding:7px 8px;border:1px solid var(--border2);margin-bottom:5px;font-size:10px;}
-.queue-item-mini .qim-title{color:var(--text);margin-bottom:3px;}
-.queue-item-mini .qim-meta{color:var(--text3);font-size:9px;margin-bottom:5px;}
-.qim-actions{display:flex;gap:5px;}
-.qim-btn{padding:2px 8px;font-size:9px;font-family:var(--font);cursor:pointer;border:none;letter-spacing:.5px;}
-.qim-btn.approve{background:rgba(34,197,94,.2);color:var(--green);border:1px solid rgba(34,197,94,.3);}
-.qim-btn.reject{background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.2);}
-.gmail-mini{padding:6px 8px;border:1px solid var(--border2);margin-bottom:4px;cursor:pointer;font-size:10px;}
-.gmail-mini:hover{border-color:var(--gold-dim);}
-.gmail-mini .gm-from{color:var(--cyan);font-size:9px;margin-bottom:2px;}
-.gmail-mini .gm-subj{color:var(--text);}
-.log-entry{font-size:9px;font-family:var(--font);padding:2px 0;border-bottom:1px solid var(--border);color:var(--text3);line-height:1.4;}
-.log-entry .le-agent{font-weight:700;}
-.log-entry .le-agent.ODIN{color:var(--gold);}
-.log-entry .le-agent.HEIMDALL{color:var(--cyan);}
-.log-entry .le-agent.VULCAN{color:var(--orange);}
-.log-entry .le-agent.LOKI{color:var(--purple);}
-.log-entry .le-agent.VAULT{color:var(--green);}
-.log-entry .le-agent.GUARDIAN{color:var(--pink);}
-.log-entry .le-agent.SYSTEM{color:var(--text3);}
+  #chat-input-row {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  #chat-input {
+    flex: 1;
+    background: #0a0a14;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 3px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  #chat-input:focus { border-color: var(--active-color, var(--odin)); }
+  #chat-send {
+    background: var(--active-color, var(--odin));
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 7px 14px;
+    border-radius: 3px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: opacity 0.2s;
+  }
+  #chat-send:hover { opacity: 0.8; }
 
-/* ── Skill Runner Overlay ── */
-#skill-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:none;align-items:center;justify-content:center;}
-#skill-overlay.show{display:flex;}
-#skill-box{background:var(--bg2);border:1px solid var(--gold-dim);padding:20px;width:420px;font-family:var(--font);}
-.sb-title{color:var(--gold);font-size:13px;font-weight:700;letter-spacing:2px;margin-bottom:14px;}
-.sb-args{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
-.sb-arg label{font-size:9px;color:var(--text3);letter-spacing:1px;display:block;margin-bottom:3px;}
-.sb-arg input{width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:6px 8px;font-size:11px;font-family:var(--font);}
-.sb-arg input:focus{outline:none;border-color:var(--gold-dim);}
-.sb-btns{display:flex;gap:8px;}
-.sb-btn{padding:6px 14px;font-size:10px;font-family:var(--font);cursor:pointer;letter-spacing:1px;border:1px solid;}
-.sb-btn.run{background:var(--gold);color:#000;border-color:var(--gold);font-weight:700;}
-.sb-btn.cancel{background:transparent;color:var(--text3);border-color:var(--border2);}
-#sb-result{margin-top:10px;background:var(--bg);border:1px solid var(--border2);padding:8px;font-size:10px;color:var(--text2);max-height:120px;overflow-y:auto;white-space:pre-wrap;display:none;}
+  /* agent selector tabs under input */
+  #agent-tabs {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .agent-tab {
+    flex: 1;
+    padding: 4px;
+    background: #0a0a14;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    text-align: center;
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: var(--dim);
+    transition: all 0.15s;
+  }
+  .agent-tab:hover { border-color: var(--tab-color); color: var(--tab-color); }
+  .agent-tab.active { background: color-mix(in srgb, var(--tab-color) 15%, transparent); border-color: var(--tab-color); color: var(--tab-color); }
 
-/* ── Toast ── */
-#toasts{position:fixed;top:44px;right:12px;z-index:600;display:flex;flex-direction:column;gap:6px;}
-.toast{background:var(--bg3);border:1px solid var(--border2);padding:8px 12px;min-width:220px;max-width:280px;font-size:10px;border-left:3px solid var(--cyan);animation:tin .2s ease;}
-.toast.success{border-left-color:var(--green);}
-.toast.error{border-left-color:var(--red);}
-.toast.warning{border-left-color:var(--orange);}
-.toast .t-title{font-weight:700;margin-bottom:2px;letter-spacing:.5px;}
-.toast .t-msg{color:var(--text3);}
-@keyframes tin{from{opacity:0;transform:translateX(10px);}to{opacity:1;}}
-@keyframes tout{to{opacity:0;transform:translateX(10px);}}
+  /* side room overlay chat (expands on click) */
+  .room-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(5,5,8,0.95);
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 6px;
+    z-index: 20;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .room.active .room-overlay { opacity: 1; pointer-events: all; }
+  .room-overlay-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .room-overlay-name { font-weight: bold; font-size: 13px; letter-spacing: 2px; }
+  .room-overlay-role { font-size: 10px; color: var(--dim); }
+  .room-overlay-close {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    font-family: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+  .room-overlay-close:hover { border-color: var(--agent-color); color: var(--agent-color); }
+  .room-chat { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+  .room-chat::-webkit-scrollbar { width: 3px; }
+  .room-chat::-webkit-scrollbar-thumb { background: var(--border); }
+  .room-input-row { display: flex; gap: 4px; flex-shrink: 0; }
+  .room-input {
+    flex: 1;
+    background: #0a0a14;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    outline: none;
+  }
+  .room-input:focus { border-color: var(--agent-color); }
+  .room-send {
+    background: var(--agent-color);
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
 
-/* ── Pixel Art Canvas ── */
-canvas.pixel-art{image-rendering:pixelated;image-rendering:crisp-edges;display:block;}
+  /* scanline fx */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+    pointer-events: none;
+    z-index: 999;
+  }
 
-/* ── XP bar animation ── */
-@keyframes xp-pulse{0%,100%{opacity:1;}50%{opacity:.7;}}
-.xp-bar-working{animation:xp-pulse 1.5s infinite;}
+  /* thinking indicator */
+  .thinking { color: var(--dim); font-style: italic; font-size: 11px; }
+  .thinking::after { content: '...'; animation: dots 1.2s infinite; }
+  @keyframes dots { 0%,20%{content:'.'} 40%,60%{content:'..'} 80%,100%{content:'...'} }
+
+  /* glow pulse on agent name */
+  @keyframes glow-pulse {
+    0%,100% { text-shadow: 0 0 8px currentColor; }
+    50% { text-shadow: 0 0 20px currentColor, 0 0 40px currentColor; }
+  }
+  .agent-name { animation: glow-pulse 3s ease-in-out infinite; }
 </style>
 </head>
 <body>
 
-<!-- ── TOP HUD ── -->
-<div id="hud-top">
-  <span class="hud-logo">⚡ PANTHEON</span>
-  <span class="hud-sep">//</span>
-  <span class="hud-stat">REV <span class="val" id="h-rev">$0.00</span></span>
-  <span class="hud-sep">·</span>
-  <span class="hud-stat">NET <span class="val green" id="h-net">$0.00</span></span>
-  <span class="hud-sep">·</span>
-  <span class="hud-stat">GOAL <span class="val cyan" id="h-goal">0%</span></span>
-  <span class="hud-sep">·</span>
-  <span class="hud-stat">QUEUE <span class="val orange" id="h-queue">0</span></span>
-  <span class="hud-sep">·</span>
-  <span class="hud-stat">INBOX <span class="val" id="h-inbox">—</span></span>
-  <div class="ws-dot" id="ws-dot"></div>
-  <span id="hud-clock">—</span>
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="logo">⚡ ASGARDMADE PANTHEON</div>
+  <div class="status">
+    <span><span id="ws-dot"></span>NEXUS: <b id="ws-status">OFFLINE</b></span>
+    <span>AGENT: <b id="active-agent-label">ODIN</b></span>
+    <span id="clock"></span>
+  </div>
 </div>
 
-<!-- ── MAIN ── -->
-<div id="main">
+<!-- MAIN HUD GRID -->
+<div id="hud">
 
-  <!-- Left: Active character panel -->
-  <div id="char-panel">
-    <div class="char-portrait-frame" id="active-portrait-frame">
-      <canvas class="pixel-art" id="active-canvas" width="120" height="120"></canvas>
-    </div>
-    <div class="char-name-hud" id="active-name">ODIN</div>
-    <div class="char-title-hud" id="active-title">THE ALLFATHER · COMMANDER</div>
-    <div style="text-align:center;margin-top:6px;"><span class="status-badge idle" id="active-status-badge">IDLE</span></div>
-    <div class="char-stats" id="active-stats">
-      <div class="stat-line"><span class="sk">LEVEL</span><span class="sv" id="active-level" style="color:var(--gold)">1</span></div>
-      <div class="stat-line"><span class="sk">XP</span><span class="sv" id="active-xp" style="color:var(--cyan)">0</span></div>
-      <div class="stat-bar"><div class="stat-bar-fill" id="active-xp-bar" style="width:0%;background:linear-gradient(90deg,var(--purple),var(--cyan))"></div></div>
-      <div class="stat-line"><span class="sk">TASKS</span><span class="sv" id="active-tasks" style="color:var(--green)">0</span></div>
-      <div class="stat-line"><span class="sk">ERRORS</span><span class="sv" id="active-errors" style="color:var(--red)">0</span></div>
-    </div>
-    <div class="char-task" id="active-task-box">
-      <div class="ct-label">CURRENT TASK</div>
-      <div id="active-task-text">Standing by for orders.</div>
-    </div>
-    <div style="margin-top:10px;">
-      <button style="width:100%;padding:6px;background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);font-family:var(--font);font-size:9px;letter-spacing:1.5px;cursor:pointer;" onclick="runAgentAction()">▶ GIVE ORDER</button>
-    </div>
-  </div>
-
-  <!-- Center: Chat -->
-  <div id="chat-panel">
-    <div id="chat-header">
-      <canvas class="pixel-art" id="chat-mini-canvas" width="28" height="28"></canvas>
-      <div>
-        <div id="chat-agent-name" style="color:var(--gold)">ODIN</div>
-        <div id="chat-agent-role">Commander · All-Father · Level 1</div>
+  <!-- ═══════════════════════════════════ HEIMDALL — Observatory ═════ -->
+  <div class="room" id="room-heimdall" onclick="toggleRoom('heimdall')">
+    <div class="room-label" style="color:var(--heimdall)">HEIMDALL</div>
+    <div class="room-sublabel">THE WATCHER · OBSERVATORY</div>
+    <div class="room-hint">CLICK TO ENGAGE</div>
+    <svg class="room-svg" viewBox="0 0 300 280" xmlns="http://www.w3.org/2000/svg">
+      <!-- Observatory background -->
+      <defs>
+        <radialGradient id="obs-bg" cx="50%" cy="60%" r="70%">
+          <stop offset="0%" stop-color="#001824"/>
+          <stop offset="100%" stop-color="#000810"/>
+        </radialGradient>
+        <radialGradient id="hm-glow" cx="50%" cy="40%" r="50%">
+          <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+        <filter id="hm-eye-glow">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect width="300" height="280" fill="url(#obs-bg)"/>
+      <rect width="300" height="280" fill="url(#hm-glow)"/>
+      <!-- Stars -->
+      <circle cx="20" cy="15" r="1" fill="#fff" opacity="0.6"/>
+      <circle cx="55" cy="30" r="1.5" fill="#fff" opacity="0.8"/>
+      <circle cx="90" cy="10" r="1" fill="#fff" opacity="0.5"/>
+      <circle cx="140" cy="25" r="1" fill="#fff" opacity="0.7"/>
+      <circle cx="200" cy="8" r="2" fill="#fff" opacity="0.9"/>
+      <circle cx="250" cy="20" r="1" fill="#fff" opacity="0.6"/>
+      <circle cx="280" cy="35" r="1.5" fill="#fff" opacity="0.7"/>
+      <circle cx="170" cy="45" r="1" fill="#00e5ff" opacity="0.8"/>
+      <circle cx="30" cy="55" r="1" fill="#fff" opacity="0.4"/>
+      <circle cx="270" cy="60" r="1" fill="#fff" opacity="0.5"/>
+      <!-- Telescope scope -->
+      <rect x="130" y="50" width="8" height="40" fill="#1a3a4a" rx="2"/>
+      <ellipse cx="134" cy="50" rx="14" ry="5" fill="#0d2a36"/>
+      <rect x="124" y="45" width="20" height="8" fill="#0a2030" rx="2"/>
+      <!-- HEIMDALL character -->
+      <!-- Cloak/body -->
+      <ellipse cx="150" cy="230" rx="55" ry="20" fill="#001a24" opacity="0.5"/>
+      <!-- Cape flowing -->
+      <path d="M 110 170 Q 95 200 100 250 L 200 250 Q 205 200 190 170 Z" fill="#003344" opacity="0.8"/>
+      <path d="M 108 170 Q 90 210 95 255 L 115 255 Q 108 210 120 172 Z" fill="#002233"/>
+      <path d="M 192 170 Q 210 210 205 255 L 185 255 Q 192 210 180 172 Z" fill="#002233"/>
+      <!-- Armor torso -->
+      <rect x="120" y="165" width="60" height="60" fill="#0d3040" rx="4"/>
+      <rect x="124" y="168" width="52" height="54" fill="#0a2535" rx="3"/>
+      <!-- Armor details -->
+      <path d="M 150 170 L 144 185 L 150 188 L 156 185 Z" fill="#00e5ff" opacity="0.6"/>
+      <rect x="132" y="178" width="36" height="2" fill="#00e5ff" opacity="0.3"/>
+      <rect x="132" y="185" width="36" height="1" fill="#00e5ff" opacity="0.2"/>
+      <!-- Neck -->
+      <rect x="143" y="152" width="14" height="18" fill="#c8a07a" rx="2"/>
+      <!-- Head -->
+      <ellipse cx="150" cy="140" rx="26" ry="28" fill="#d4a876"/>
+      <!-- Helmet — Bifrost Horn Helm -->
+      <path d="M 124 128 Q 120 110 115 90 Q 125 95 130 120 Z" fill="#005566"/>
+      <path d="M 176 128 Q 180 110 185 90 Q 175 95 170 120 Z" fill="#005566"/>
+      <!-- Helm band -->
+      <rect x="124" y="120" width="52" height="18" fill="#006680" rx="3"/>
+      <rect x="126" y="122" width="48" height="14" fill="#0088aa" rx="2"/>
+      <!-- Helm visor stripe -->
+      <rect x="126" y="130" width="48" height="4" fill="#00e5ff" opacity="0.5"/>
+      <!-- Eyes — cyan glowing -->
+      <ellipse cx="139" cy="143" rx="7" ry="6" fill="#001824"/>
+      <ellipse cx="161" cy="143" rx="7" ry="6" fill="#001824"/>
+      <ellipse cx="139" cy="143" rx="5" ry="4.5" fill="#003a50"/>
+      <ellipse cx="161" cy="143" rx="5" ry="4.5" fill="#003a50"/>
+      <ellipse cx="139" cy="143" rx="3" ry="3" fill="#00e5ff" filter="url(#hm-eye-glow)"/>
+      <ellipse cx="161" cy="143" rx="3" ry="3" fill="#00e5ff" filter="url(#hm-eye-glow)"/>
+      <circle cx="140" cy="142" r="1" fill="#80f2ff"/>
+      <circle cx="162" cy="142" r="1" fill="#80f2ff"/>
+      <!-- Nose -->
+      <path d="M 148 150 Q 150 156 152 150" stroke="#a07050" stroke-width="1.5" fill="none"/>
+      <!-- Mouth — watchful expression -->
+      <path d="M 143 160 Q 150 162 157 160" stroke="#805040" stroke-width="1.5" fill="none"/>
+      <!-- Beard — Asgardian white streaks -->
+      <path d="M 135 162 Q 130 170 133 180 Q 140 175 145 165 Z" fill="#e8dcc8"/>
+      <path d="M 165 162 Q 170 170 167 180 Q 160 175 155 165 Z" fill="#e8dcc8"/>
+      <path d="M 140 163 Q 138 175 142 185 Q 150 178 158 185 Q 162 175 160 163 Q 155 168 150 167 Q 145 168 140 163 Z" fill="#d0c4a8"/>
+      <!-- Eyebrows -->
+      <path d="M 132 136 Q 139 133 146 136" stroke="#8a6030" stroke-width="2" fill="none"/>
+      <path d="M 154 136 Q 161 133 168 136" stroke="#8a6030" stroke-width="2" fill="none"/>
+      <!-- Bifrost staff glowing -->
+      <rect x="200" y="100" width="5" height="150" fill="#004455" rx="2"/>
+      <ellipse cx="202" cy="100" rx="10" ry="10" fill="#00e5ff" opacity="0.8"/>
+      <ellipse cx="202" cy="100" rx="6" ry="6" fill="#80f2ff"/>
+      <line x1="202" y1="90" x2="202" y2="75" stroke="#00e5ff" stroke-width="1.5" opacity="0.6"/>
+      <ellipse cx="202" cy="73" rx="5" ry="5" fill="#00e5ff" opacity="0.5"/>
+      <!-- Aura lines -->
+      <line x1="202" y1="100" x2="240" y2="70" stroke="#00e5ff" stroke-width="0.5" opacity="0.3"/>
+      <line x1="202" y1="100" x2="260" y2="120" stroke="#00e5ff" stroke-width="0.5" opacity="0.3"/>
+      <line x1="202" y1="100" x2="220" y2="140" stroke="#00e5ff" stroke-width="0.5" opacity="0.3"/>
+    </svg>
+    <!-- Overlay chat panel -->
+    <div class="room-overlay" id="overlay-heimdall">
+      <div class="room-overlay-header">
+        <div>
+          <div class="room-overlay-name" style="color:var(--heimdall)">HEIMDALL</div>
+          <div class="room-overlay-role">Research · Market Intelligence · Trend Watcher</div>
+        </div>
+        <button class="room-overlay-close" onclick="closeRoom(event,'heimdall')">✕ CLOSE</button>
       </div>
-      <div style="margin-left:auto;display:flex;gap:8px;">
-        <button style="padding:4px 10px;background:transparent;border:1px solid var(--border2);color:var(--text3);font-size:9px;font-family:var(--font);cursor:pointer;letter-spacing:1px;" onclick="clearChat()">CLEAR</button>
-        <button style="padding:4px 10px;background:transparent;border:1px solid var(--border2);color:var(--text3);font-size:9px;font-family:var(--font);cursor:pointer;letter-spacing:1px;" onclick="loadAgentLog()">LOG</button>
+      <div class="room-chat" id="chat-heimdall"></div>
+      <div class="room-input-row">
+        <input class="room-input" id="input-heimdall" placeholder="Ask HEIMDALL to research..." style="--agent-color:var(--heimdall)" onkeydown="if(event.key==='Enter')sendRoomChat('heimdall')"/>
+        <button class="room-send" style="background:var(--heimdall)" onclick="sendRoomChat('heimdall')">SEND</button>
       </div>
     </div>
-    <div id="chat-messages">
-      <div style="text-align:center;padding:30px;color:var(--text3);font-size:11px;letter-spacing:1px;">
-        — PANTHEON ONLINE —<br><br>Select an agent from the roster below.<br>Click <span style="color:var(--gold)">▶ GIVE ORDER</span> to command directly.
+  </div>
+
+  <!-- ═══════════════════════════════════ ODIN — Throne Room (CENTER) ═════ -->
+  <div class="room" id="room-odin">
+    <div id="odin-interior">
+      <div id="odin-header">
+        <div id="odin-portrait">
+          <svg width="90" height="110" viewBox="0 0 90 110" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="odin-bg-sm" cx="50%" cy="40%" r="60%">
+                <stop offset="0%" stop-color="#1a1000"/>
+                <stop offset="100%" stop-color="#080600"/>
+              </radialGradient>
+              <filter id="odin-glow-sm">
+                <feGaussianBlur stdDeviation="1.5" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <rect width="90" height="110" fill="url(#odin-bg-sm)" rx="4"/>
+            <!-- Throne back hint -->
+            <rect x="30" y="10" width="30" height="45" fill="#1a1200" rx="2"/>
+            <rect x="32" y="12" width="26" height="41" fill="#241800" rx="2"/>
+            <!-- Odin cape -->
+            <path d="M 15 75 Q 8 90 10 108 L 80 108 Q 82 90 75 75 Z" fill="#1a1000"/>
+            <path d="M 14 75 Q 6 92 8 110 L 22 110 Q 16 92 26 76 Z" fill="#110c00"/>
+            <!-- Armor -->
+            <rect x="25" y="68" width="40" height="35" fill="#2a1e00" rx="3"/>
+            <path d="M 45 70 L 40 80 L 45 82 L 50 80 Z" fill="#ffd700" opacity="0.8"/>
+            <!-- Neck -->
+            <rect x="39" y="58" width="12" height="12" fill="#c8904a" rx="2"/>
+            <!-- Head -->
+            <ellipse cx="45" cy="48" rx="22" ry="24" fill="#d4904a"/>
+            <!-- Silver crown/helm of Odin -->
+            <path d="M 23 38 Q 20 25 25 18 Q 30 22 32 34 Z" fill="#a08000"/>
+            <path d="M 67 38 Q 70 25 65 18 Q 60 22 58 34 Z" fill="#a08000"/>
+            <rect x="23" y="30" width="44" height="14" fill="#c8a000" rx="2"/>
+            <rect x="25" y="32" width="40" height="10" fill="#e8c000" rx="2"/>
+            <!-- Eye patch — Odin's sacrifice -->
+            <ellipse cx="37" cy="50" rx="8" ry="6" fill="#0a0800"/>
+            <rect x="29" y="49" width="16" height="2" fill="#1a1200" rx="1"/>
+            <!-- Single eye — left (viewer's right), all-seeing -->
+            <ellipse cx="57" cy="50" rx="7" ry="6" fill="#0a0800"/>
+            <ellipse cx="57" cy="50" rx="5" ry="4.5" fill="#1a1400"/>
+            <ellipse cx="57" cy="50" rx="3" ry="3" fill="#ffd700" filter="url(#odin-glow-sm)"/>
+            <circle cx="58" cy="49" r="1" fill="#fff8e0"/>
+            <!-- Runes on eyepatch -->
+            <text x="31" y="52" font-size="6" fill="#ffd700" opacity="0.5" font-family="serif">ᚱ</text>
+            <!-- Nose -->
+            <path d="M 43 55 Q 45 60 47 55" stroke="#9a6030" stroke-width="1.2" fill="none"/>
+            <!-- Mouth — commanding, slight smirk -->
+            <path d="M 38 63 Q 43 65 50 63 Q 48 67 45 68 Q 42 67 38 63 Z" fill="#8a4020"/>
+            <path d="M 38 63 Q 45 66 50 63" stroke="#6a3018" stroke-width="1" fill="none"/>
+            <!-- Beard — white, full, magnificent -->
+            <path d="M 28 60 Q 22 72 26 85 Q 35 78 40 68 Z" fill="#f0e8d0"/>
+            <path d="M 62 60 Q 68 72 64 85 Q 55 78 50 68 Z" fill="#f0e8d0"/>
+            <path d="M 34 64 Q 30 80 36 92 Q 45 84 54 92 Q 60 80 56 64 Q 50 72 45 71 Q 40 72 34 64 Z" fill="#e0d8c0"/>
+            <!-- Eyebrow — one raised (wisdom) -->
+            <path d="M 50 43 Q 57 40 64 43" stroke="#8a6020" stroke-width="2" fill="none"/>
+          </svg>
+        </div>
+        <div id="odin-name-block">
+          <div class="agent-name" style="color:var(--odin)">⚡ ODIN</div>
+          <div class="agent-role">ALL-FATHER · COMMAND INTELLIGENCE</div>
+          <div style="font-size:9px;color:var(--dim);margin-top:2px" id="active-info">Speaking as: <span id="speak-as" style="color:var(--odin)">ODIN</span></div>
+        </div>
+      </div>
+
+      <!-- Agent selector tabs -->
+      <div id="agent-tabs">
+        <div class="agent-tab active" style="--tab-color:var(--odin)" data-agent="ODIN" onclick="switchAgent('ODIN')">ODIN</div>
+        <div class="agent-tab" style="--tab-color:var(--heimdall)" data-agent="HEIMDALL" onclick="switchAgent('HEIMDALL')">HEIMDALL</div>
+        <div class="agent-tab" style="--tab-color:var(--vulcan)" data-agent="VULCAN" onclick="switchAgent('VULCAN')">VULCAN</div>
+        <div class="agent-tab" style="--tab-color:var(--loki)" data-agent="LOKI" onclick="switchAgent('LOKI')">LOKI</div>
+        <div class="agent-tab" style="--tab-color:var(--vault)" data-agent="VAULT" onclick="switchAgent('VAULT')">VAULT</div>
+        <div class="agent-tab" style="--tab-color:var(--guardian)" data-agent="GUARDIAN" onclick="switchAgent('GUARDIAN')">GUARDIAN</div>
+      </div>
+
+      <!-- Chat messages -->
+      <div id="chat-area"></div>
+
+      <!-- Input -->
+      <div id="chat-input-row">
+        <input id="chat-input" placeholder="Command the Pantheon..." onkeydown="if(event.key==='Enter')sendChat()"/>
+        <button id="chat-send" onclick="sendChat()">SEND</button>
       </div>
     </div>
-    <div id="chat-typing"></div>
-    <div id="chat-input-row">
-      <span style="color:var(--gold);font-size:11px;margin-right:4px;align-self:center;">&gt;</span>
-      <input type="text" id="chat-input" placeholder="Speak your command..." autocomplete="off" onkeydown="if(event.key==='Enter')sendChat()">
-      <button id="chat-send" onclick="sendChat()">SEND</button>
+  </div>
+
+  <!-- ═══════════════════════════════════ VULCAN — Forge ═════ -->
+  <div class="room" id="room-vulcan" onclick="toggleRoom('vulcan')">
+    <div class="room-label" style="color:var(--vulcan)">VULCAN</div>
+    <div class="room-sublabel">THE FORGE · DESIGNER</div>
+    <div class="room-hint">CLICK TO ENGAGE</div>
+    <svg class="room-svg" viewBox="0 0 300 280" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="forge-bg" cx="50%" cy="80%" r="70%">
+          <stop offset="0%" stop-color="#1a0800"/>
+          <stop offset="100%" stop-color="#080400"/>
+        </radialGradient>
+        <radialGradient id="forge-glow" cx="50%" cy="90%" r="50%">
+          <stop offset="0%" stop-color="#ff6b35" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+        <filter id="vc-fire">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect width="300" height="280" fill="url(#forge-bg)"/>
+      <rect width="300" height="280" fill="url(#forge-glow)"/>
+      <!-- Forge coals at base -->
+      <ellipse cx="150" cy="265" rx="80" ry="15" fill="#1a0500"/>
+      <ellipse cx="150" cy="262" rx="60" ry="10" fill="#ff3300" opacity="0.4"/>
+      <ellipse cx="150" cy="260" rx="40" ry="7" fill="#ff6600" opacity="0.5"/>
+      <!-- Forge anvil -->
+      <rect x="60" y="235" width="80" height="15" fill="#1a1a1a" rx="2"/>
+      <rect x="55" y="230" width="90" height="10" fill="#2a2a2a" rx="2"/>
+      <!-- Hammer on anvil -->
+      <rect x="90" y="215" width="30" height="8" fill="#555" rx="2"/>
+      <rect x="100" y="195" width="8" height="28" fill="#888" rx="1"/>
+      <!-- VULCAN character — muscular, one-eyed craftsman -->
+      <path d="M 105 170 Q 90 195 92 250 L 210 250 Q 212 195 195 170 Z" fill="#2a1500" opacity="0.9"/>
+      <!-- Leather apron -->
+      <rect x="115" y="160" width="70" height="70" fill="#1a0c00" rx="3"/>
+      <rect x="118" y="162" width="64" height="66" fill="#241000" rx="2"/>
+      <!-- Apron details -->
+      <line x1="118" y1="175" x2="182" y2="175" stroke="#3a1800" stroke-width="1.5"/>
+      <line x1="118" y1="185" x2="182" y2="185" stroke="#3a1800" stroke-width="1"/>
+      <!-- Muscular arms -->
+      <ellipse cx="105" cy="185" rx="14" ry="22" fill="#c87040"/>
+      <ellipse cx="195" cy="185" rx="14" ry="22" fill="#c87040"/>
+      <!-- Neck -->
+      <rect x="143" y="148" width="14" height="16" fill="#c87040" rx="2"/>
+      <!-- Head — wide, powerful, scarred -->
+      <ellipse cx="150" cy="132" rx="30" ry="28" fill="#d07840"/>
+      <!-- Soot/forge marks on skin -->
+      <ellipse cx="138" cy="128" rx="4" ry="2" fill="#1a0a00" opacity="0.4"/>
+      <ellipse cx="162" cy="135" rx="3" ry="2" fill="#1a0a00" opacity="0.3"/>
+      <!-- Bald head with metal band -->
+      <ellipse cx="150" cy="110" rx="30" ry="12" fill="#d07840"/>
+      <rect x="120" y="106" width="60" height="8" fill="#8b4513" rx="2"/>
+      <rect x="122" y="107" width="56" height="6" fill="#a0522d" rx="2"/>
+      <!-- Metal rivets on band -->
+      <circle cx="128" cy="110" r="2" fill="#ffd700"/>
+      <circle cx="145" cy="110" r="2" fill="#ffd700"/>
+      <circle cx="162" cy="110" r="2" fill="#ffd700"/>
+      <circle cx="172" cy="110" r="2" fill="#ffd700"/>
+      <!-- Beard — short, fiery red -->
+      <path d="M 128 148 Q 122 158 126 168 Q 138 162 144 152 Z" fill="#8b2500"/>
+      <path d="M 172 148 Q 178 158 174 168 Q 162 162 156 152 Z" fill="#8b2500"/>
+      <path d="M 134 150 Q 132 162 137 172 Q 150 164 163 172 Q 168 162 166 150 Q 158 158 150 157 Q 142 158 134 150 Z" fill="#a03000"/>
+      <!-- Eyes — one has forge-fire glow, one squinting from heat -->
+      <ellipse cx="137" cy="133" rx="7" ry="6" fill="#0a0500"/>
+      <ellipse cx="163" cy="133" rx="7" ry="6" fill="#0a0500"/>
+      <ellipse cx="137" cy="133" rx="4" ry="4" fill="#ff6b35" filter="url(#vc-fire)"/>
+      <ellipse cx="163" cy="133" rx="5" ry="4.5" fill="#1a1000"/>
+      <ellipse cx="163" cy="133" rx="3" ry="3" fill="#ff8c35"/>
+      <circle cx="138" cy="132" r="1" fill="#ffcc88"/>
+      <!-- squinted brow over left eye -->
+      <path d="M 130 127 Q 137 125 144 128" stroke="#6a3010" stroke-width="2" fill="none"/>
+      <path d="M 156 127 Q 163 124 170 127" stroke="#6a3010" stroke-width="2" fill="none"/>
+      <!-- Nose — broad -->
+      <path d="M 146 140 Q 147 146 150 147 Q 153 146 154 140" stroke="#a06030" stroke-width="1.5" fill="none"/>
+      <!-- Mouth — determined, clenched jaw -->
+      <path d="M 138 153 Q 150 156 162 153" stroke="#804020" stroke-width="2" fill="none"/>
+      <!-- Scar across cheek -->
+      <path d="M 162 138 Q 172 144 175 148" stroke="#6a2010" stroke-width="1.5" fill="none" opacity="0.7"/>
+      <!-- Big hammer (Vulcan's tool) held up right -->
+      <rect x="192" y="120" width="12" height="50" fill="#555" rx="2"/>
+      <rect x="182" y="110" width="32" height="18" fill="#666" rx="3"/>
+      <rect x="184" y="112" width="28" height="14" fill="#777" rx="2"/>
+      <!-- Fire sparks -->
+      <circle cx="80" cy="200" r="2" fill="#ff6b35" opacity="0.7"/>
+      <circle cx="95" cy="185" r="1.5" fill="#ff9933" opacity="0.6"/>
+      <circle cx="220" cy="195" r="2" fill="#ff6b35" opacity="0.7"/>
+      <circle cx="210" cy="178" r="1" fill="#ffcc00" opacity="0.8"/>
+      <circle cx="70" cy="220" r="1.5" fill="#ff3300" opacity="0.5"/>
+    </svg>
+    <div class="room-overlay" id="overlay-vulcan">
+      <div class="room-overlay-header">
+        <div>
+          <div class="room-overlay-name" style="color:var(--vulcan)">VULCAN</div>
+          <div class="room-overlay-role">Design · Product Creation · Visual Craft</div>
+        </div>
+        <button class="room-overlay-close" onclick="closeRoom(event,'vulcan')">✕ CLOSE</button>
+      </div>
+      <div class="room-chat" id="chat-vulcan"></div>
+      <div class="room-input-row">
+        <input class="room-input" id="input-vulcan" placeholder="Commission a design..." style="--agent-color:var(--vulcan)" onkeydown="if(event.key==='Enter')sendRoomChat('vulcan')"/>
+        <button class="room-send" style="background:var(--vulcan)" onclick="sendRoomChat('vulcan')">FORGE</button>
+      </div>
     </div>
   </div>
 
-  <!-- Right: Tools -->
-  <div id="tools-panel">
-    <div id="tools-tabs">
-      <div class="ttab active" onclick="switchTool('log')">LOG</div>
-      <div class="ttab" onclick="switchTool('skills')">SKILLS</div>
-      <div class="ttab" onclick="switchTool('queue')">QUEUE</div>
-      <div class="ttab" onclick="switchTool('google')">GMAIL</div>
-      <div class="ttab" onclick="switchTool('stats')">STATS</div>
+  <!-- ═══════════════════════════════════ LOKI — Theater ═════ -->
+  <div class="room" id="room-loki" onclick="toggleRoom('loki')">
+    <div class="room-label" style="color:var(--loki)">LOKI</div>
+    <div class="room-sublabel">THE TRICKSTER · PUBLISHER</div>
+    <div class="room-hint">CLICK TO ENGAGE</div>
+    <svg class="room-svg" viewBox="0 0 300 280" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="stage-bg" cx="50%" cy="50%" r="70%">
+          <stop offset="0%" stop-color="#0d0018"/>
+          <stop offset="100%" stop-color="#050008"/>
+        </radialGradient>
+        <radialGradient id="loki-spotlight" cx="50%" cy="20%" r="40%">
+          <stop offset="0%" stop-color="#c084fc" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+        <filter id="lk-glow">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect width="300" height="280" fill="url(#stage-bg)"/>
+      <rect width="300" height="280" fill="url(#loki-spotlight)"/>
+      <!-- Stage floor -->
+      <rect x="0" y="240" width="300" height="40" fill="#120020"/>
+      <rect x="0" y="238" width="300" height="5" fill="#1e0035"/>
+      <!-- Stage curtains -->
+      <path d="M 0 0 Q 20 40 15 280 L 50 280 Q 45 40 60 0 Z" fill="#2a0040" opacity="0.8"/>
+      <path d="M 300 0 Q 280 40 285 280 L 250 280 Q 255 40 240 0 Z" fill="#2a0040" opacity="0.8"/>
+      <!-- Curtain folds -->
+      <path d="M 20 0 Q 35 60 30 280" stroke="#3a0060" stroke-width="1" fill="none" opacity="0.5"/>
+      <path d="M 280 0 Q 265 60 270 280" stroke="#3a0060" stroke-width="1" fill="none" opacity="0.5"/>
+      <!-- LOKI character — slim, cunning, horned helm -->
+      <path d="M 115 170 Q 100 200 105 255 L 195 255 Q 200 200 185 170 Z" fill="#1a002a" opacity="0.9"/>
+      <!-- Green-purple trickster armor -->
+      <rect x="120" y="162" width="60" height="65" fill="#0d1a00" rx="4"/>
+      <rect x="123" y="165" width="54" height="59" fill="#10200a" rx="3"/>
+      <!-- Serpent scale pattern on armor -->
+      <path d="M 128 170 Q 135 173 142 170 Q 135 177 128 174 Z" fill="#1a3000" opacity="0.6"/>
+      <path d="M 143 170 Q 150 173 157 170 Q 150 177 143 174 Z" fill="#1a3000" opacity="0.6"/>
+      <path d="M 158 170 Q 165 173 172 170 Q 165 177 158 174 Z" fill="#1a3000" opacity="0.6"/>
+      <path d="M 128 178 Q 135 181 142 178 Q 135 185 128 182 Z" fill="#1a3000" opacity="0.5"/>
+      <path d="M 143 178 Q 150 181 157 178 Q 150 185 143 182 Z" fill="#1a3000" opacity="0.5"/>
+      <!-- Purple cloak trim -->
+      <rect x="120" y="162" width="60" height="4" fill="#c084fc" opacity="0.6"/>
+      <rect x="120" y="224" width="60" height="3" fill="#c084fc" opacity="0.4"/>
+      <!-- Neck -->
+      <rect x="143" y="150" width="14" height="16" fill="#b8906a" rx="2"/>
+      <!-- Head — angular, sharp features -->
+      <ellipse cx="150" cy="133" rx="24" ry="26" fill="#b8906a"/>
+      <!-- Loki's iconic horned helm -->
+      <path d="M 126 120 Q 115 95 108 70 Q 120 75 128 100 Z" fill="#004a20"/>
+      <path d="M 174 120 Q 185 95 192 70 Q 180 75 172 100 Z" fill="#004a20"/>
+      <!-- Horn accent lines -->
+      <path d="M 120 108 Q 114 88 110 72" stroke="#00ff66" stroke-width="1" fill="none" opacity="0.4"/>
+      <path d="M 180 108 Q 186 88 190 72" stroke="#00ff66" stroke-width="1" fill="none" opacity="0.4"/>
+      <!-- Helm base -->
+      <rect x="126" y="112" width="48" height="16" fill="#006030" rx="3"/>
+      <rect x="128" y="114" width="44" height="12" fill="#008040" rx="2"/>
+      <!-- Loki eyes — mischievous, mismatched -->
+      <ellipse cx="138" cy="134" rx="7" ry="6" fill="#080010"/>
+      <ellipse cx="162" cy="134" rx="7" ry="6" fill="#080010"/>
+      <ellipse cx="138" cy="134" rx="5" ry="4.5" fill="#1a0030"/>
+      <ellipse cx="162" cy="134" rx="5" ry="4.5" fill="#100020"/>
+      <ellipse cx="138" cy="134" rx="3" ry="3" fill="#c084fc" filter="url(#lk-glow)"/>
+      <ellipse cx="162" cy="134" rx="3" ry="3" fill="#00ff80" filter="url(#lk-glow)"/>
+      <circle cx="139" cy="133" r="1" fill="#e0c0ff"/>
+      <circle cx="163" cy="133" r="1" fill="#c0ffd8"/>
+      <!-- Eyebrows — sharp, arched in amusement -->
+      <path d="M 130 127 Q 138 122 146 127" stroke="#5a3a10" stroke-width="2" fill="none"/>
+      <path d="M 154 127 Q 162 122 170 127" stroke="#5a3a10" stroke-width="2" fill="none"/>
+      <!-- Nose — sharp, elegant -->
+      <path d="M 147 141 L 148 148 Q 150 150 152 148 L 153 141" stroke="#8a6038" stroke-width="1.2" fill="none"/>
+      <!-- Smile — smirk, scheming -->
+      <path d="M 138 154 Q 145 156 155 151 Q 154 158 150 160 Q 145 158 138 154 Z" fill="#7a3020"/>
+      <path d="M 138 154 Q 148 158 158 151" stroke="#6a2818" stroke-width="1" fill="none"/>
+      <!-- Goatee — narrow, sharp -->
+      <path d="M 145 160 Q 143 172 150 176 Q 157 172 155 160 Q 151 164 150 163 Q 149 164 145 160 Z" fill="#3a2010"/>
+      <!-- Scepter/staff of mischief -->
+      <rect x="80" y="90" width="4" height="160" fill="#003020" rx="2"/>
+      <path d="M 60 85 Q 82 70 104 85 Q 82 100 60 85 Z" fill="#00c060" opacity="0.8"/>
+      <ellipse cx="82" cy="85" rx="10" ry="10" fill="#00ff80" opacity="0.6"/>
+      <ellipse cx="82" cy="85" rx="5" ry="5" fill="#c084fc"/>
+    </svg>
+    <div class="room-overlay" id="overlay-loki">
+      <div class="room-overlay-header">
+        <div>
+          <div class="room-overlay-name" style="color:var(--loki)">LOKI</div>
+          <div class="room-overlay-role">Publishing · Listings · Content Strategy</div>
+        </div>
+        <button class="room-overlay-close" onclick="closeRoom(event,'loki')">✕ CLOSE</button>
+      </div>
+      <div class="room-chat" id="chat-loki"></div>
+      <div class="room-input-row">
+        <input class="room-input" id="input-loki" placeholder="Craft a listing or caption..." style="--agent-color:var(--loki)" onkeydown="if(event.key==='Enter')sendRoomChat('loki')"/>
+        <button class="room-send" style="background:var(--loki);color:#fff" onclick="sendRoomChat('loki')">PUBLISH</button>
+      </div>
     </div>
-    <div id="tools-body"></div>
   </div>
 
-</div>
-
-<!-- ── CHARACTER ROSTER ── -->
-<div id="roster" id="roster-bar">
-  <!-- populated by JS -->
-</div>
-
-<!-- ── SKILL RUNNER OVERLAY ── -->
-<div id="skill-overlay">
-  <div id="skill-box">
-    <div class="sb-title" id="sb-title">⚡ RUN SKILL</div>
-    <div class="sb-args" id="sb-args"></div>
-    <div class="sb-btns">
-      <button class="sb-btn run" onclick="executeSkill()">▶ EXECUTE</button>
-      <button class="sb-btn cancel" onclick="closeSkillOverlay()">CANCEL</button>
+  <!-- ═══════════════════════════════════ VAULT — Treasury ═════ -->
+  <div class="room" id="room-vault" onclick="toggleRoom('vault')">
+    <div class="room-label" style="color:var(--vault)">VAULT</div>
+    <div class="room-sublabel">THE TREASURY · FINANCE</div>
+    <div class="room-hint">CLICK TO ENGAGE</div>
+    <svg class="room-svg" viewBox="0 0 300 280" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="vault-bg" cx="50%" cy="50%" r="60%">
+          <stop offset="0%" stop-color="#001a08"/>
+          <stop offset="100%" stop-color="#000a04"/>
+        </radialGradient>
+        <radialGradient id="vault-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#4ade80" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </radialGradient>
+        <filter id="vt-glow">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect width="300" height="280" fill="url(#vault-bg)"/>
+      <rect width="300" height="280" fill="url(#vault-glow)"/>
+      <!-- Gold coins pile -->
+      <ellipse cx="240" cy="250" rx="40" ry="12" fill="#a08000" opacity="0.4"/>
+      <ellipse cx="240" cy="245" rx="35" ry="10" fill="#c8a000" opacity="0.5"/>
+      <ellipse cx="238" cy="240" rx="30" ry="8" fill="#ffd700" opacity="0.4"/>
+      <!-- Vault door hint -->
+      <rect x="10" y="200" width="70" height="75" fill="#001a0a" rx="4"/>
+      <circle cx="45" cy="237" r="20" fill="#002a10" stroke="#4ade80" stroke-width="1"/>
+      <circle cx="45" cy="237" r="14" fill="#003018" stroke="#4ade80" stroke-width="0.5"/>
+      <line x1="45" y1="223" x2="45" y2="237" stroke="#4ade80" stroke-width="2"/>
+      <line x1="45" y1="237" x2="55" y2="237" stroke="#4ade80" stroke-width="2"/>
+      <!-- VAULT character — wise elder, robes of plenty -->
+      <path d="M 108 172 Q 92 200 95 260 L 205 260 Q 208 200 192 172 Z" fill="#001a08" opacity="0.9"/>
+      <!-- Emerald robes -->
+      <rect x="112" y="164" width="76" height="68" fill="#002a10" rx="4"/>
+      <rect x="115" y="167" width="70" height="62" fill="#003518" rx="3"/>
+      <!-- Robe patterns -->
+      <path d="M 150 170 L 142 182 L 150 186 L 158 182 Z" fill="#4ade80" opacity="0.5"/>
+      <rect x="120" y="178" width="60" height="1.5" fill="#4ade80" opacity="0.3"/>
+      <rect x="120" y="185" width="60" height="1" fill="#4ade80" opacity="0.2"/>
+      <!-- Ledger/book held at side -->
+      <rect x="90" y="180" width="20" height="28" fill="#003010" stroke="#4ade80" stroke-width="1" rx="1"/>
+      <line x1="90" y1="188" x2="110" y2="188" stroke="#4ade80" stroke-width="0.5" opacity="0.5"/>
+      <line x1="90" y1="194" x2="110" y2="194" stroke="#4ade80" stroke-width="0.5" opacity="0.5"/>
+      <line x1="90" y1="200" x2="110" y2="200" stroke="#4ade80" stroke-width="0.5" opacity="0.5"/>
+      <!-- Neck -->
+      <rect x="143" y="152" width="14" height="16" fill="#b89070" rx="2"/>
+      <!-- Head — older, wise, serene -->
+      <ellipse cx="150" cy="135" rx="27" ry="26" fill="#b89070"/>
+      <!-- Hood/cowl -->
+      <path d="M 123 120 Q 118 100 122 80 Q 130 88 132 110 Z" fill="#003020"/>
+      <path d="M 177 120 Q 182 100 178 80 Q 170 88 168 110 Z" fill="#003020"/>
+      <path d="M 123 115 Q 128 108 150 107 Q 172 108 177 115 Q 172 108 150 108 Q 128 108 123 115 Z" fill="#004028"/>
+      <path d="M 122 118 Q 136 112 150 111 Q 164 112 178 118" stroke="#005a38" stroke-width="1.5" fill="none"/>
+      <!-- Eyes — calm, knowing -->
+      <ellipse cx="138" cy="136" rx="7" ry="6" fill="#080a08"/>
+      <ellipse cx="162" cy="136" rx="7" ry="6" fill="#080a08"/>
+      <ellipse cx="138" cy="136" rx="5" ry="4.5" fill="#102010"/>
+      <ellipse cx="162" cy="136" rx="5" ry="4.5" fill="#102010"/>
+      <ellipse cx="138" cy="136" rx="3" ry="3" fill="#4ade80" filter="url(#vt-glow)"/>
+      <ellipse cx="162" cy="136" rx="3" ry="3" fill="#4ade80" filter="url(#vt-glow)"/>
+      <circle cx="139" cy="135" r="1" fill="#c0ffd8"/>
+      <circle cx="163" cy="135" r="1" fill="#c0ffd8"/>
+      <!-- Eyebrows — thick, wise -->
+      <path d="M 130 129 Q 138 126 146 129" stroke="#7a5030" stroke-width="2.5" fill="none"/>
+      <path d="M 154 129 Q 162 126 170 129" stroke="#7a5030" stroke-width="2.5" fill="none"/>
+      <!-- Nose — distinguished -->
+      <path d="M 147 143 Q 148 149 150 150 Q 152 149 153 143" stroke="#907050" stroke-width="1.5" fill="none"/>
+      <!-- Mouth — slight satisfied smile -->
+      <path d="M 138 155 Q 150 159 162 155 Q 158 161 150 163 Q 142 161 138 155 Z" fill="#784030"/>
+      <!-- Long white flowing beard (elder) -->
+      <path d="M 126 148 Q 116 165 120 185 Q 134 175 140 160 Z" fill="#e8e0d0"/>
+      <path d="M 174 148 Q 184 165 180 185 Q 166 175 160 160 Z" fill="#e8e0d0"/>
+      <path d="M 132 152 Q 128 172 134 195 Q 150 184 166 195 Q 172 172 168 152 Q 160 162 150 161 Q 140 162 132 152 Z" fill="#d8d0c0"/>
+      <!-- Elder wrinkles -->
+      <path d="M 130 145 Q 136 143 142 145" stroke="#9a7050" stroke-width="0.7" fill="none" opacity="0.5"/>
+      <path d="M 158 145 Q 164 143 170 145" stroke="#9a7050" stroke-width="0.7" fill="none" opacity="0.5"/>
+      <!-- Gold coin accent -->
+      <circle cx="155" cy="170" r="5" fill="#ffd700" opacity="0.6"/>
+      <circle cx="155" cy="170" r="3" fill="#ffee44"/>
+    </svg>
+    <div class="room-overlay" id="overlay-vault">
+      <div class="room-overlay-header">
+        <div>
+          <div class="room-overlay-name" style="color:var(--vault)">VAULT</div>
+          <div class="room-overlay-role">Finance · Revenue · Analytics</div>
+        </div>
+        <button class="room-overlay-close" onclick="closeRoom(event,'vault')">✕ CLOSE</button>
+      </div>
+      <div class="room-chat" id="chat-vault"></div>
+      <div class="room-input-row">
+        <input class="room-input" id="input-vault" placeholder="Ask about revenue, expenses..." style="--agent-color:var(--vault)" onkeydown="if(event.key==='Enter')sendRoomChat('vault')"/>
+        <button class="room-send" style="background:var(--vault)" onclick="sendRoomChat('vault')">AUDIT</button>
+      </div>
     </div>
-    <div id="sb-result"></div>
   </div>
-</div>
 
-<!-- ── TOASTS ── -->
-<div id="toasts"></div>
+</div><!-- /#hud -->
 
 <script>
-// ═══════════════════════════════════════════════════════════
-// PIXEL ART CHARACTER SPRITES (16×16 palette-indexed)
-// ═══════════════════════════════════════════════════════════
-
-// Palette indices: 0=transparent, 1=skin, 2=hair/dark, 3=primary, 4=secondary, 5=accent, 6=white, 7=black, 8=shadow, 9=gold
-const PALETTE = {
-  ODIN: ['transparent','#f5c98a','#2a1a0a','#c9a84c','#3a2a6a','#e8c96e','#ffffff','#000000','#1a1a2e','#ffd700'],
-  HEIMDALL: ['transparent','#e8d5aa','#0a1a2a','#00d4ff','#0a3a4a','#7aeeff','#ffffff','#000000','#0a0a1e','#00ffff'],
-  VULCAN: ['transparent','#c8705a','#1a0a00','#f97316','#3a1a00','#ffb366','#ffffff','#000000','#1a0a00','#ff6600'],
-  LOKI: ['transparent','#d4b8d4','#1a0a2a','#8b5cf6','#2a0a3a','#c4a4f4','#ffffff','#000000','#0a0a1e','#cc00ff'],
-  VAULT: ['transparent','#9abf8a','#0a1a0a','#22c55e','#0a2a0a','#7afa7a','#ffffff','#000000','#0a1a0a','#00ff88'],
-  GUARDIAN: ['transparent','#e8a0c8','#1a0a1a','#ff4dff','#2a0a2a','#ffaaff','#ffffff','#000000','#1a0a1a','#ff00ff'],
+// ── CONFIG ──────────────────────────────────────────────────────────────
+const AGENTS = {
+  ODIN:     { color: '#ffd700', role: 'All-Father · Commander · Strategist' },
+  HEIMDALL: { color: '#00e5ff', role: 'Watcher · Market Research · Trends' },
+  VULCAN:   { color: '#ff6b35', role: 'Forge · Product Design · Creation' },
+  LOKI:     { color: '#c084fc', role: 'Trickster · Publishing · Content' },
+  VAULT:    { color: '#4ade80', role: 'Treasury · Finance · Analytics' },
+  GUARDIAN: { color: '#f87171', role: 'Sentinel · Security · Systems' },
 };
 
-// Sprite data: 16x16 pixels, each row is 16 palette indices
-const SPRITES = {
-  ODIN: [
-  // row 0  (top)
-  [0,0,0,0,9,9,9,9,9,9,9,9,0,0,0,0],
-  [0,0,0,9,3,3,3,3,3,3,3,3,9,0,0,0],
-  [0,0,9,3,9,9,9,9,9,9,9,9,3,9,0,0],
-  [0,0,0,3,3,3,3,3,3,3,3,3,3,0,0,0],
-  [0,0,0,2,1,1,1,1,1,1,1,1,2,0,0,0],
-  [0,0,2,1,1,5,1,1,1,5,1,1,1,2,0,0],
-  [0,0,2,1,1,1,2,2,2,1,1,1,1,2,0,0],
-  [0,0,2,1,2,1,1,1,1,1,2,1,1,2,0,0],
-  [0,0,0,2,1,1,6,6,6,1,1,1,2,0,0,0],
-  [0,0,0,0,2,2,2,1,2,2,2,2,0,0,0,0],
-  [0,0,3,3,3,3,3,3,3,3,3,3,3,3,0,0],
-  [0,3,3,4,4,3,3,3,3,3,4,4,3,3,3,0],
-  [0,3,4,4,4,4,3,3,3,4,4,4,4,3,3,0],
-  [3,3,4,4,3,4,4,3,4,4,3,4,4,3,3,3],
-  [3,3,4,3,3,3,4,3,4,3,3,3,4,3,3,3],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  ],
-  HEIMDALL: [
-  [0,0,0,0,3,3,3,3,3,3,3,3,0,0,0,0],
-  [0,0,0,3,5,5,5,5,5,5,5,5,3,0,0,0],
-  [0,0,3,3,3,3,3,3,3,3,3,3,3,3,0,0],
-  [0,0,0,2,1,1,1,1,1,1,1,1,2,0,0,0],
-  [0,0,2,1,1,3,1,1,1,3,1,1,1,2,0,0],
-  [0,0,2,1,1,1,3,3,3,1,1,1,1,2,0,0],
-  [0,0,2,1,3,1,1,1,1,1,3,1,1,2,0,0],
-  [0,0,0,2,1,1,6,6,6,1,1,1,2,0,0,0],
-  [0,0,0,0,2,2,2,2,2,2,2,2,0,0,0,0],
-  [0,0,3,4,4,4,4,4,4,4,4,4,4,3,0,0],
-  [0,3,3,4,3,3,3,4,4,3,3,3,4,3,3,0],
-  [0,3,4,3,3,3,4,3,3,4,3,3,3,4,3,0],
-  [3,3,4,3,3,3,4,3,3,4,3,3,3,4,3,3],
-  [3,3,3,4,4,4,3,3,3,3,4,4,4,3,3,3],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  ],
-  VULCAN: [
-  [0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0],
-  [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
-  [0,0,0,3,3,5,5,3,3,5,3,3,0,0,0,0],
-  [0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0],
-  [0,0,1,1,3,1,1,1,1,3,1,1,1,0,0,0],
-  [0,0,1,1,1,3,2,2,3,1,1,1,1,0,0,0],
-  [0,0,1,3,1,1,1,1,1,1,1,3,1,0,0,0],
-  [0,0,0,1,1,1,6,6,1,1,1,1,0,0,0,0],
-  [0,0,0,0,1,2,2,2,2,1,1,0,0,0,0,0],
-  [0,0,3,3,3,3,3,3,3,3,3,3,0,0,0,0],
-  [0,3,3,5,5,3,3,3,3,5,5,3,3,0,0,0],
-  [3,3,5,5,3,3,3,3,3,3,5,5,3,3,0,0],
-  [3,3,3,3,3,2,2,3,2,2,3,3,3,3,0,0],
-  [3,2,3,3,2,2,3,3,3,2,2,3,3,2,3,0],
-  [3,2,2,2,2,3,3,3,3,3,2,2,2,2,3,0],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  ],
-  LOKI: [
-  [0,0,3,3,0,0,0,0,0,0,3,3,0,0,0,0],
-  [0,0,3,3,3,3,3,3,3,3,3,3,0,0,0,0],
-  [0,3,3,5,5,3,3,3,3,5,5,3,3,0,0,0],
-  [0,3,3,3,3,3,3,3,3,3,3,3,3,0,0,0],
-  [0,0,2,1,1,1,1,1,1,1,1,1,2,0,0,0],
-  [0,2,1,1,3,1,1,1,1,3,1,1,1,2,0,0],
-  [0,2,1,1,1,3,2,2,3,1,1,1,1,2,0,0],
-  [0,2,1,2,1,1,1,1,1,1,2,1,1,2,0,0],
-  [0,0,2,1,1,1,6,6,1,1,1,1,2,0,0,0],
-  [0,0,0,2,2,2,2,1,2,2,2,2,0,0,0,0],
-  [0,0,3,3,3,3,3,3,3,3,3,3,0,0,0,0],
-  [0,3,5,3,3,3,3,3,3,3,3,5,3,0,0,0],
-  [3,3,3,5,3,3,3,3,3,3,5,3,3,3,0,0],
-  [3,3,3,3,5,5,3,3,5,5,3,3,3,3,0,0],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,0,0],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  ],
-  VAULT: [
-  [0,0,0,0,2,2,2,2,2,2,2,2,0,0,0,0],
-  [0,0,0,2,9,9,9,9,9,9,9,9,2,0,0,0],
-  [0,0,2,9,2,9,9,9,9,9,2,9,9,2,0,0],
-  [0,0,0,2,2,2,2,2,2,2,2,2,2,0,0,0],
-  [0,0,0,2,1,1,1,1,1,1,1,1,2,0,0,0],
-  [0,0,2,1,1,3,1,1,1,3,1,1,1,2,0,0],
-  [0,0,2,1,1,1,3,2,3,1,1,1,1,2,0,0],
-  [0,0,2,1,3,1,1,1,1,1,3,1,1,2,0,0],
-  [0,0,0,2,1,1,6,6,6,1,1,1,2,0,0,0],
-  [0,0,0,0,2,2,1,2,2,2,2,2,0,0,0,0],
-  [0,0,3,3,3,9,9,3,3,9,9,3,3,3,0,0],
-  [0,3,3,9,9,9,3,3,3,3,9,9,9,3,3,0],
-  [3,3,9,9,3,3,3,3,3,3,3,3,9,9,3,3],
-  [3,3,3,3,9,9,9,9,9,9,9,3,3,3,3,3],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  ],
-  GUARDIAN: [
-  [0,0,0,3,3,3,3,3,3,3,3,3,3,0,0,0],
-  [0,0,3,3,5,5,3,3,3,5,5,3,3,3,0,0],
-  [0,3,3,5,5,5,5,3,5,5,5,5,3,3,3,0],
-  [0,0,3,3,3,3,3,3,3,3,3,3,3,0,0,0],
-  [0,0,0,3,1,1,1,1,1,1,1,1,3,0,0,0],
-  [0,0,3,1,1,3,1,1,1,3,1,1,1,3,0,0],
-  [0,0,3,1,1,1,3,2,3,1,1,1,1,3,0,0],
-  [0,0,3,1,3,1,1,1,1,1,3,1,1,3,0,0],
-  [0,0,0,3,1,1,6,6,6,1,1,1,3,0,0,0],
-  [0,0,0,0,3,3,3,3,3,3,3,3,0,0,0,0],
-  [0,0,3,3,3,3,3,3,3,3,3,3,3,3,0,0],
-  [0,3,5,3,3,3,3,3,3,3,3,3,5,3,3,0],
-  [3,3,3,5,5,3,3,3,3,5,5,3,3,3,3,3],
-  [3,3,3,3,3,5,5,3,5,5,3,3,3,3,3,3],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-  ],
-};
+// Note: GUARDIAN room is in ODIN's panel tabs since we only have 4 surrounding rooms
+// (grid 3x2 = 4 side slots). GUARDIAN accessible via ODIN chat tabs.
 
-function drawSprite(canvas, agentName, scale=1) {
-  const ctx = canvas.getContext('2d');
-  const pal = PALETTE[agentName] || PALETTE.ODIN;
-  const sprite = SPRITES[agentName] || SPRITES.ODIN;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const ps = scale; // pixel size
-  for (let r = 0; r < 16; r++) {
-    for (let c = 0; c < 16; c++) {
-      const idx = sprite[r][c];
-      if (idx === 0) continue;
-      ctx.fillStyle = pal[idx];
-      ctx.fillRect(c * ps, r * ps, ps, ps);
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
-// AGENT CONFIG
-// ═══════════════════════════════════════════════════════════
-const AGENT_CONFIG = {
-  ODIN:     { title: 'THE ALLFATHER · COMMANDER', color: '#c9a84c', role: 'Commander · Strategist · All-Father' },
-  HEIMDALL: { title: 'THE WATCHMAN · RESEARCHER', color: '#00d4ff', role: 'Researcher · Scout · Analyst' },
-  VULCAN:   { title: 'THE FORGE · DESIGNER',      color: '#f97316', role: 'Designer · Creator · Craftsman' },
-  LOKI:     { title: 'THE TRICKSTER · PUBLISHER', color: '#8b5cf6', role: 'Publisher · Marketer · Strategist' },
-  VAULT:    { title: 'THE TREASURY · FINANCE',    color: '#22c55e', role: 'Finance · Tracker · Treasury' },
-  GUARDIAN: { title: 'THE SHIELD · SECURITY',     color: '#ff4dff', role: 'Security · Monitor · Protector' },
-};
-const ORDER = ['ODIN','HEIMDALL','VULCAN','LOKI','VAULT','GUARDIAN'];
-
-// ═══════════════════════════════════════════════════════════
-// STATE
-// ═══════════════════════════════════════════════════════════
-const BASE = window.location.origin;
-let ws = null;
-let agentData = {};
+// ── STATE ────────────────────────────────────────────────────────────────
 let activeAgent = 'ODIN';
-let chatHistories = {};
-let allSkills = [];
-let queueData = { ideas: [], designs: [] };
-let activeToolTab = 'log';
-let selectedSkillData = null;
-let logEntries = [];
+let histories = { ODIN:[], HEIMDALL:[], VULCAN:[], LOKI:[], VAULT:[], GUARDIAN:[] };
+let roomHistories = { heimdall:[], vulcan:[], loki:[], vault:[] };
+let ws = null;
+let wsRetry = 0;
 
-ORDER.forEach(n => { agentData[n] = { status:'idle', xp:0, level:1, tasks:0, errors:0, currentTask:'Standing by.' }; chatHistories[n] = []; });
+// ── DOM REFS ─────────────────────────────────────────────────────────────
+const chatArea   = document.getElementById('chat-area');
+const chatInput  = document.getElementById('chat-input');
+const chatSend   = document.getElementById('chat-send');
+const wsDot      = document.getElementById('ws-dot');
+const wsLabel    = document.getElementById('ws-status');
+const agentLabel = document.getElementById('active-agent-label');
+const speakAs    = document.getElementById('speak-as');
 
-// ═══════════════════════════════════════════════════════════
-// CLOCK
-// ═══════════════════════════════════════════════════════════
-function tick() {
+// ── CLOCK ────────────────────────────────────────────────────────────────
+function tickClock() {
   const now = new Date();
-  document.getElementById('hud-clock').textContent =
-    now.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
-    now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
 }
-tick(); setInterval(tick, 1000);
+setInterval(tickClock, 1000); tickClock();
 
-// ═══════════════════════════════════════════════════════════
-// ROSTER
-// ═══════════════════════════════════════════════════════════
-function buildRoster() {
-  const roster = document.getElementById('roster');
-  roster.innerHTML = ORDER.map(name => {
-    const cfg = AGENT_CONFIG[name];
-    return `<div class="roster-card ${name===activeAgent?'active':''}" id="rc-${name}" onclick="selectAgent('${name}')">
-      <div class="roster-status-dot idle" id="rd-${name}"></div>
-      <canvas class="pixel-art roster-portrait" id="rcan-${name}" width="60" height="60"></canvas>
-      <div class="roster-name">${name}</div>
-      <div class="roster-lvl" id="rlvl-${name}">LV 1</div>
-    </div>`;
-  }).join('');
-  // Draw sprites on roster canvases
-  ORDER.forEach(name => {
-    const can = document.getElementById('rcan-' + name);
-    if (can) drawSprite(can, name, 60/16);
-  });
-}
-
-// ═══════════════════════════════════════════════════════════
-// SELECT AGENT
-// ═══════════════════════════════════════════════════════════
-function selectAgent(name) {
-  activeAgent = name;
-  const cfg = AGENT_CONFIG[name];
-  const a = agentData[name] || {};
-
-  // Update roster
-  ORDER.forEach(n => {
-    document.getElementById('rc-' + n)?.classList.toggle('active', n === name);
-  });
-
-  // Update active portrait
-  const activeCan = document.getElementById('active-canvas');
-  activeCan.width = 120; activeCan.height = 120;
-  drawSprite(activeCan, name, 120/16);
-  document.getElementById('active-canvas').parentElement.style.borderColor = cfg.color;
-
-  document.getElementById('active-name').textContent = name;
-  document.getElementById('active-name').style.color = cfg.color;
-  document.getElementById('active-title').textContent = cfg.title;
-
-  // Stats
-  updateActiveStats(name);
-
-  // Chat header
-  drawSprite(document.getElementById('chat-mini-canvas'), name, 28/16);
-  document.getElementById('chat-agent-name').textContent = name;
-  document.getElementById('chat-agent-name').style.color = cfg.color;
-  document.getElementById('chat-agent-role').textContent = cfg.role + ' · Level ' + (a.level||1);
-
-  // Render stored chat
-  renderChatMessages(name);
-}
-
-function updateActiveStats(name) {
-  const a = agentData[name] || {};
-  const s = a.status || 'idle';
-  document.getElementById('active-level').textContent = a.level || 1;
-  document.getElementById('active-xp').textContent = a.xp || 0;
-  document.getElementById('active-xp-bar').style.width = Math.min(100, ((a.xp||0) % 500) / 5) + '%';
-  document.getElementById('active-tasks').textContent = a.tasks || 0;
-  document.getElementById('active-errors').textContent = a.errors || 0;
-  document.getElementById('active-task-text').textContent = a.currentTask || 'Standing by.';
-  const badge = document.getElementById('active-status-badge');
-  badge.textContent = s.toUpperCase();
-  badge.className = 'status-badge ' + s;
-}
-
-function updateRosterDots() {
-  ORDER.forEach(name => {
-    const dot = document.getElementById('rd-' + name);
-    const lvl = document.getElementById('rlvl-' + name);
-    if (!dot) return;
-    const a = agentData[name] || {};
-    const s = a.status || 'idle';
-    dot.className = 'roster-status-dot ' + s;
-    if (lvl) lvl.textContent = 'LV ' + (a.level || 1);
-  });
-  if (activeAgent) updateActiveStats(activeAgent);
-}
-
-// ═══════════════════════════════════════════════════════════
-// WEBSOCKET
-// ═══════════════════════════════════════════════════════════
+// ── WEBSOCKET ─────────────────────────────────────────────────────────────
 function connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws`);
-  ws.onopen = () => { document.getElementById('ws-dot').className = 'ws-dot connected'; };
-  ws.onmessage = e => handleWS(JSON.parse(e.data));
-  ws.onclose = () => { document.getElementById('ws-dot').className = 'ws-dot'; setTimeout(connectWS, 3000); };
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => {
+    wsDot.className = 'connected'; wsLabel.textContent = 'LIVE'; wsRetry = 0;
+  };
+  ws.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'log') addSystemMsg(d.message || JSON.stringify(d));
+    } catch {}
+  };
+  ws.onclose = () => {
+    wsDot.className = ''; wsLabel.textContent = 'OFFLINE';
+    const delay = Math.min(30000, 1000 * 2 ** wsRetry++);
+    setTimeout(connectWS, delay);
+  };
   ws.onerror = () => ws.close();
 }
+connectWS();
 
-function handleWS(msg) {
-  switch (msg.type) {
-    case 'init':
-      setFinancials(msg.vault || {});
-      if (msg.agents) { Object.assign(agentData, msg.agents); updateRosterDots(); }
-      updateQueueBadge(msg.queue || {});
-      break;
-    case 'agent_log':
-      pushLog(msg);
-      if (activeToolTab === 'log') renderToolLog();
-      break;
-    case 'xp_gain':
-      if (agentData[msg.agent]) { agentData[msg.agent].xp = msg.total; agentData[msg.agent].level = msg.level; }
-      updateRosterDots();
-      break;
-    case 'agent_status':
-      if (agentData[msg.agent]) agentData[msg.agent].status = msg.status;
-      updateRosterDots();
-      break;
-    case 'vault_update':
-      setFinancials(msg.data || {});
-      break;
-    case 'new_idea': case 'new_design': case 'queue_update':
-      loadQueue();
-      break;
-    case 'skill_result':
-      toast('Skill', msg.success ? (msg.summary||'Done') : ('Error: ' + (msg.skill||'?')), msg.success ? 'success' : 'error');
-      break;
-  }
-}
-
-function setFinancials(v) {
-  const rev = v.totalRevenue||0, net = v.netProfit||0;
-  const pct = Math.min(999, Math.round(net/200*100));
-  document.getElementById('h-rev').textContent = '$' + rev.toFixed(2);
-  document.getElementById('h-net').textContent = '$' + net.toFixed(2);
-  document.getElementById('h-goal').textContent = pct + '%';
-}
-
-function updateQueueBadge(q) {
-  const t = (q.pendingIdeas||0) + (q.pendingDesigns||0);
-  document.getElementById('h-queue').textContent = t;
-}
-
-// ═══════════════════════════════════════════════════════════
-// CHAT
-// ═══════════════════════════════════════════════════════════
-function renderChatMessages(name) {
-  const el = document.getElementById('chat-messages');
-  const hist = chatHistories[name] || [];
-  if (!hist.length) {
-    el.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:10px;letter-spacing:1px;">— ${name} ONLINE — AWAITING COMMAND —</div>`;
-    return;
-  }
-  el.innerHTML = hist.map(m => {
-    if (m.role === 'user') {
-      return `<div class="msg-user">${esc(m.content)}</div>`;
-    } else {
-      return `<div class="msg-agent"><div class="ma-name le-agent ${name}" style="color:${AGENT_CONFIG[name]?.color||'var(--gold)'}">${name}</div>${esc(m.content).replace(/\n/g,'<br>')}</div>`;
-    }
-  }).join('');
-  el.scrollTop = el.scrollHeight;
-}
-
-async function sendChat() {
-  const inp = document.getElementById('chat-input');
-  const msg = inp.value.trim();
-  if (!msg) return;
-  inp.value = '';
-  chatHistories[activeAgent] = chatHistories[activeAgent] || [];
-  chatHistories[activeAgent].push({ role: 'user', content: msg });
-  renderChatMessages(activeAgent);
-  document.getElementById('chat-typing').textContent = '► ' + activeAgent + ' processing...';
-  try {
-    const r = await fetch(`${BASE}/api/chat`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, agent: activeAgent, history: chatHistories[activeAgent].slice(-10) })
-    });
-    const data = await r.json();
-    const reply = data.reply || data.message || data.response || JSON.stringify(data);
-    chatHistories[activeAgent].push({ role: 'assistant', content: reply });
-    renderChatMessages(activeAgent);
-  } catch (e) {
-    chatHistories[activeAgent].push({ role: 'assistant', content: 'Connection error. Check Railway deployment.' });
-    renderChatMessages(activeAgent);
-  }
-  document.getElementById('chat-typing').textContent = '';
-}
-
-function clearChat() {
-  chatHistories[activeAgent] = [];
-  renderChatMessages(activeAgent);
-}
-
-function runAgentAction() {
-  document.getElementById('chat-input').value = 'Give me a status update and your current mission objectives.';
-  sendChat();
-}
-
-// ═══════════════════════════════════════════════════════════
-// TOOL PANEL
-// ═══════════════════════════════════════════════════════════
-function switchTool(tab) {
-  activeToolTab = tab;
-  document.querySelectorAll('.ttab').forEach((t, i) => {
-    const tabs = ['log','skills','queue','google','stats'];
-    t.classList.toggle('active', tabs[i] === tab);
+// ── AGENT SWITCH ──────────────────────────────────────────────────────────
+function switchAgent(name) {
+  activeAgent = name;
+  const cfg = AGENTS[name];
+  agentLabel.textContent = name;
+  speakAs.textContent = name;
+  speakAs.style.color = cfg.color;
+  chatInput.style.setProperty('--active-color', cfg.color);
+  chatSend.style.background = cfg.color;
+  chatSend.style.color = ['#ffd700','#4ade80','#00e5ff'].includes(cfg.color) ? '#000' : '#fff';
+  // Update tabs
+  document.querySelectorAll('.agent-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.agent === name);
   });
-  switch (tab) {
-    case 'log': renderToolLog(); break;
-    case 'skills': loadSkills(); break;
-    case 'queue': loadQueue(); break;
-    case 'google': loadGmail(); break;
-    case 'stats': loadStats(); break;
-  }
+  // Set CSS var for chat colors
+  document.getElementById('chat-area').style.setProperty('--active-color', cfg.color);
+  renderMainChat();
 }
 
-// ── LOG ──
-function pushLog(msg) {
-  logEntries.unshift(msg);
-  if (logEntries.length > 200) logEntries.pop();
-}
-
-function renderToolLog() {
-  const el = document.getElementById('tools-body');
-  if (!logEntries.length) {
-    el.innerHTML = '<div style="color:var(--text3);font-size:10px;padding:8px;letter-spacing:.5px;">— WAITING FOR AGENT SIGNALS —</div>';
+// ── MAIN CHAT RENDER ──────────────────────────────────────────────────────
+function renderMainChat() {
+  chatArea.innerHTML = '';
+  const hist = histories[activeAgent];
+  if (!hist.length) {
+    addSystemMsg(`${activeAgent} is ready. ${AGENTS[activeAgent].role}.`);
     return;
   }
-  el.innerHTML = logEntries.slice(0, 50).map(m => {
-    const t = new Date(m.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false });
-    return `<div class="log-entry">
-      <span style="color:var(--text3)">${t.slice(0,8)}</span>
-      <span class="le-agent ${m.agent}" style="margin:0 5px">${m.agent}</span>
-      <span style="color:${m.level==='error'?'var(--red)':m.level==='warning'?'var(--orange)':'var(--text2)'}">${esc(m.message||'')}</span>
-    </div>`;
-  }).join('');
-}
-
-// ── SKILLS ──
-async function loadSkills() {
-  const el = document.getElementById('tools-body');
-  el.innerHTML = '<div style="color:var(--text3);font-size:10px;padding:8px;">LOADING SKILLS...</div>';
-  try {
-    const r = await fetch(`${BASE}/api/skills`);
-    const data = await r.json();
-    allSkills = data.skills || [];
-    renderSkillsPanel();
-  } catch (e) {
-    el.innerHTML = `<div style="color:var(--red);font-size:10px;padding:8px;">${esc(e.message)}</div>`;
-  }
-}
-
-function renderSkillsPanel() {
-  const el = document.getElementById('tools-body');
-  const byPack = {};
-  allSkills.forEach(s => { (byPack[s.pack] = byPack[s.pack] || []).push(s); });
-  el.innerHTML = Object.entries(byPack).map(([pack, skills]) =>
-    `<div class="tool-section">
-      <div class="tool-section-title">${pack.toUpperCase()}</div>
-      ${skills.map(s => `<div class="skill-item" onclick="openSkillRunner('${esc(s.name)}')">
-        <div class="si-icon">${s.icon||'⚡'}</div>
-        <div class="si-name">${esc(s.name)}</div>
-      </div>`).join('')}
-    </div>`
-  ).join('') || '<div style="color:var(--text3);font-size:10px;padding:8px;">No skills loaded</div>';
-}
-
-// ── QUEUE ──
-async function loadQueue() {
-  try {
-    const r = await fetch(`${BASE}/api/queue`);
-    const data = await r.json();
-    queueData = { ideas: data.ideas||[], designs: data.designs||[] };
-    const pi = queueData.ideas.filter(i=>i.status==='pending').length;
-    const pd = queueData.designs.filter(d=>d.status==='pending').length;
-    updateQueueBadge({ pendingIdeas:pi, pendingDesigns:pd });
-    if (activeToolTab === 'queue') renderQueuePanel();
-  } catch (e) {}
-}
-
-function renderQueuePanel() {
-  const el = document.getElementById('tools-body');
-  const all = [...queueData.ideas.map(i=>({...i,_type:'idea'})), ...queueData.designs.map(d=>({...d,_type:'design'}))];
-  const pending = all.filter(i => i.status==='pending');
-  if (!pending.length) { el.innerHTML = '<div style="color:var(--text3);font-size:10px;padding:8px;letter-spacing:.5px;">QUEUE EMPTY — AGENTS WORKING</div>'; return; }
-  el.innerHTML = pending.map(item => `<div class="queue-item-mini">
-    <div class="qim-title">${esc(item.title||item.ideaTitle||'Untitled')}</div>
-    <div class="qim-meta">${esc(item.niche||'')} · ${item._type.toUpperCase()}</div>
-    <div class="qim-actions">
-      <button class="qim-btn approve" onclick="approveItem('${item.id}','${item._type}s')">✓ APPROVE</button>
-      <button class="qim-btn reject" onclick="rejectItem('${item.id}','${item._type}s')">✗ REJECT</button>
-    </div>
-  </div>`).join('');
-}
-
-async function approveItem(id, type) {
-  try { await fetch(`${BASE}/api/${type}/${id}/approve`, { method:'POST' }); toast('Queue','Approved','success'); loadQueue(); }
-  catch (e) { toast('Queue',e.message,'error'); }
-}
-async function rejectItem(id, type) {
-  try { await fetch(`${BASE}/api/${type}/${id}/reject`, { method:'POST' }); toast('Queue','Rejected','info'); loadQueue(); }
-  catch (e) { toast('Queue',e.message,'error'); }
-}
-
-// ── GOOGLE/GMAIL ──
-async function loadGmail() {
-  const el = document.getElementById('tools-body');
-  el.innerHTML = '<div style="color:var(--text3);font-size:10px;padding:8px;">SCANNING INBOX...</div>';
-  try {
-    const r = await fetch(`${BASE}/api/google/gmail/inbox?limit=10`);
-    const data = await r.json();
-    const emails = data.emails || [];
-    document.getElementById('h-inbox').textContent = emails.length > 0 ? emails.length + ' msgs' : '0';
-    if (!emails.length) { el.innerHTML = '<div style="color:var(--text3);font-size:10px;padding:8px;">NO EMAILS — SET GMAIL_USER + GMAIL_APP_PASSWORD</div>'; return; }
-    el.innerHTML = emails.map((e, i) => `<div class="gmail-mini" onclick="viewEmailFull(${i})">
-      <div class="gm-from">${esc((e.from||'').split('<')[0].trim())}</div>
-      <div class="gm-subj">${esc(e.subject||'(no subject)')}</div>
-    </div>`).join('');
-    el._emails = emails;
-    el.innerHTML += `<div style="margin-top:8px;"><div class="tool-section-title">COMPOSE</div>
-      <input placeholder="To..." id="g-to" style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:5px 8px;font-size:10px;font-family:var(--font);margin-bottom:4px;">
-      <input placeholder="Subject..." id="g-sub" style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:5px 8px;font-size:10px;font-family:var(--font);margin-bottom:4px;">
-      <textarea id="g-body" rows="3" placeholder="Message..." style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:5px 8px;font-size:10px;font-family:var(--font);resize:none;margin-bottom:4px;"></textarea>
-      <button onclick="sendEmailDirect()" style="width:100%;background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);font-family:var(--font);font-size:9px;padding:5px;cursor:pointer;letter-spacing:1px;">▶ TRANSMIT</button>
-    </div>`;
-  } catch (err) {
-    el.innerHTML = `<div style="color:var(--red);font-size:10px;padding:8px;">${esc(err.message)}</div>`;
-  }
-}
-
-function viewEmailFull(idx) {
-  const el = document.getElementById('tools-body');
-  const e = (el._emails||[])[idx];
-  if (!e) return;
-  el.innerHTML = `<button onclick="loadGmail()" style="background:transparent;border:1px solid var(--border2);color:var(--text3);font-family:var(--font);font-size:9px;padding:4px 8px;cursor:pointer;margin-bottom:8px;letter-spacing:1px;">← BACK</button>
-    <div style="font-size:11px;font-weight:700;margin-bottom:4px;">${esc(e.subject||'')}</div>
-    <div style="font-size:9px;color:var(--text3);margin-bottom:8px;">${esc(e.from||'')}</div>
-    <div style="font-size:10px;color:var(--text2);white-space:pre-wrap;line-height:1.6;">${esc(e.body||e.body_preview||'')}</div>`;
-}
-
-async function sendEmailDirect() {
-  const to = document.getElementById('g-to')?.value;
-  const sub = document.getElementById('g-sub')?.value;
-  const body = document.getElementById('g-body')?.value;
-  if (!to||!sub||!body) { toast('Gmail','Fill all fields','error'); return; }
-  try {
-    const r = await fetch(`${BASE}/api/google/gmail/send`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({to,subject:sub,body}) });
-    const data = await r.json();
-    if (data.success) { toast('Gmail','Sent','success'); loadGmail(); }
-    else toast('Gmail','Send failed','error');
-  } catch (e) { toast('Gmail',e.message,'error'); }
-}
-
-// ── STATS ──
-async function loadStats() {
-  const el = document.getElementById('tools-body');
-  try {
-    const r = await fetch(`${BASE}/api/os/status`);
-    const d = await r.json();
-    const v = d.vault||{};
-    const q = d.queue||{};
-    const a = d.agents||{};
-    el.innerHTML = `
-      <div class="tool-section">
-        <div class="tool-section-title">REVENUE</div>
-        <div class="metric-row"><span class="mk">GROSS</span><span class="mv">$${(v.totalRevenue||0).toFixed(2)}</span></div>
-        <div class="metric-row"><span class="mk">NET</span><span class="mv green">$${(v.netProfit||0).toFixed(2)}</span></div>
-        <div class="metric-row"><span class="mk">MARGIN</span><span class="mv">${(v.profitMarginPct||0).toFixed(1)}%</span></div>
-        <div class="metric-row"><span class="mk">GOAL $200</span><span class="mv cyan">${Math.round((v.netProfit||0)/200*100)}%</span></div>
-      </div>
-      <div class="tool-section">
-        <div class="tool-section-title">QUEUE</div>
-        <div class="metric-row"><span class="mk">IDEAS</span><span class="mv">${q.ideas||0}</span></div>
-        <div class="metric-row"><span class="mk">PENDING</span><span class="mv" style="color:var(--orange)">${q.pending_ideas||0}</span></div>
-        <div class="metric-row"><span class="mk">DESIGNS</span><span class="mv">${q.designs||0}</span></div>
-      </div>
-      <div class="tool-section">
-        <div class="tool-section-title">AGENT XP</div>
-        ${ORDER.map(n => `<div class="metric-row"><span class="mk">${n}</span><span class="mv" style="color:${AGENT_CONFIG[n].color}">${(a[n]||{}).xp||0} XP · LV${(a[n]||{}).level||1}</span></div>`).join('')}
-      </div>
-      <div class="tool-section">
-        <div class="tool-section-title">SKILLS</div>
-        <div class="metric-row"><span class="mk">LOADED</span><span class="mv">${d.skills?.count||0}</span></div>
-        <div class="metric-row"><span class="mk">PACKS</span><span class="mv">${(d.skills?.packs||[]).join(', ')||'—'}</span></div>
-      </div>`;
-  } catch (e) {
-    el.innerHTML = `<div style="color:var(--red);font-size:10px;padding:8px;">${esc(e.message)}</div>`;
-  }
-}
-
-// ── SKILL RUNNER ──
-function openSkillRunner(name) {
-  selectedSkillData = allSkills.find(s => s.name === name);
-  if (!selectedSkillData) return;
-  document.getElementById('sb-title').textContent = (selectedSkillData.icon||'⚡') + ' ' + selectedSkillData.name.toUpperCase();
-  const schema = selectedSkillData.args_schema || {};
-  document.getElementById('sb-args').innerHTML = Object.entries(schema).map(([k,v]) =>
-    `<div class="sb-arg"><label>${k.toUpperCase()}</label><input type="text" id="sba-${k}" placeholder="${esc(v)}"></div>`
-  ).join('') || '<div style="font-size:10px;color:var(--text3);">No arguments required</div>';
-  document.getElementById('sb-result').style.display = 'none';
-  document.getElementById('skill-overlay').classList.add('show');
-}
-
-function closeSkillOverlay() {
-  document.getElementById('skill-overlay').classList.remove('show');
-  selectedSkillData = null;
-}
-
-async function executeSkill() {
-  if (!selectedSkillData) return;
-  const args = {};
-  for (const k of Object.keys(selectedSkillData.args_schema||{})) {
-    const v = document.getElementById('sba-'+k)?.value||'';
-    if (v) args[k] = v;
-  }
-  const res = document.getElementById('sb-result');
-  res.style.display = 'block'; res.textContent = 'EXECUTING...'; res.style.color = 'var(--text3)';
-  try {
-    const r = await fetch(`${BASE}/api/skills/run`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:selectedSkillData.name,args}) });
-    const data = await r.json();
-    if (data.success) {
-      const out = data.output;
-      res.textContent = typeof out==='string' ? out : JSON.stringify(out, null, 2);
-      res.style.color = 'var(--green)';
-      toast('Skill', data.summary||'Completed', 'success');
-    } else {
-      res.textContent = 'ERROR: ' + (data.error||'Unknown');
-      res.style.color = 'var(--red)';
+  hist.forEach(m => {
+    const el = document.createElement('div');
+    el.className = `msg ${m.role === 'user' ? 'user' : 'agent'}`;
+    el.style.setProperty('--active-color', AGENTS[activeAgent].color);
+    if (m.role !== 'user') {
+      const nm = document.createElement('div');
+      nm.className = 'msg-name';
+      nm.textContent = activeAgent;
+      nm.style.color = AGENTS[activeAgent].color;
+      el.appendChild(nm);
     }
-  } catch (e) {
-    res.textContent = 'ERROR: ' + e.message;
-    res.style.color = 'var(--red)';
-  }
+    const txt = document.createElement('div');
+    txt.textContent = m.content;
+    el.appendChild(txt);
+    chatArea.appendChild(el);
+  });
+  chatArea.scrollTop = chatArea.scrollHeight;
 }
 
-// ═══════════════════════════════════════════════════════════
-// UTILS
-// ═══════════════════════════════════════════════════════════
-function toast(title, msg, type='info') {
+function addSystemMsg(text) {
   const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.innerHTML = `<div class="t-title">${esc(title)}</div><div class="t-msg">${esc(msg)}</div>`;
-  document.getElementById('toasts').appendChild(el);
-  setTimeout(() => { el.style.animation = 'tout .3s ease forwards'; setTimeout(() => el.remove(), 300); }, 4000);
+  el.className = 'msg system';
+  el.textContent = `// ${text}`;
+  chatArea.appendChild(el);
+  chatArea.scrollTop = chatArea.scrollHeight;
 }
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// ── SEND MAIN CHAT ────────────────────────────────────────────────────────
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  chatInput.value = '';
+  const agent = activeAgent;
+  const cfg = AGENTS[agent];
 
-// ═══════════════════════════════════════════════════════════
-// BOOT
-// ═══════════════════════════════════════════════════════════
-async function boot() {
-  buildRoster();
-  selectAgent('ODIN');
-  connectWS();
+  histories[agent].push({ role: 'user', content: text });
+  renderMainChat();
+
+  // thinking indicator
+  const thinking = document.createElement('div');
+  thinking.className = 'msg agent thinking';
+  thinking.style.setProperty('--active-color', cfg.color);
+  thinking.style.borderLeftColor = cfg.color;
+  const nm2 = document.createElement('div');
+  nm2.className = 'msg-name'; nm2.textContent = agent; nm2.style.color = cfg.color;
+  thinking.appendChild(nm2);
+  const tdot = document.createElement('div'); tdot.textContent = 'thinking';
+  thinking.appendChild(tdot);
+  chatArea.appendChild(thinking);
+  chatArea.scrollTop = chatArea.scrollHeight;
 
   try {
-    const r = await fetch(`${BASE}/api/os/status`);
-    const data = await r.json();
-    if (data.vault) setFinancials(data.vault);
-    if (data.agents) { Object.assign(agentData, data.agents); updateRosterDots(); }
-    if (data.queue) updateQueueBadge(data.queue);
-  } catch (e) {
-    toast('Pantheon', 'Server offline — deploy to Railway', 'warning');
-  }
-
-  // ODIN boot message
-  setTimeout(() => {
-    chatHistories['ODIN'].push({ role:'assistant', content:
-      "All systems online, Commander.\n\n" +
-      "Six agents standing by:\n" +
-      "⚡ ODIN — Strategy & Command\n" +
-      "👁 HEIMDALL — Research & Intelligence\n" +
-      "🔥 VULCAN — Design & Creation\n" +
-      "🃏 LOKI — Publishing & Marketing\n" +
-      "💰 VAULT — Finance & Tracking\n" +
-      "🛡 GUARDIAN — Security & Monitoring\n\n" +
-      "Select an agent from the roster. What are your orders?"
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ agent, message: text, history: histories[agent].slice(-10) })
     });
-    renderChatMessages('ODIN');
-  }, 600);
-
-  // Start live log polling
-  setInterval(() => {
-    if (activeToolTab === 'log') renderToolLog();
-  }, 3000);
+    const data = await resp.json();
+    thinking.remove();
+    const reply = data.response || data.message || JSON.stringify(data);
+    histories[agent].push({ role: 'assistant', content: reply });
+    renderMainChat();
+  } catch(err) {
+    thinking.remove();
+    const errEl = document.createElement('div');
+    errEl.className = 'msg system';
+    errEl.textContent = `// Connection error: ${err.message}`;
+    chatArea.appendChild(errEl);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
 }
 
-boot();
+// ── ROOM TOGGLE ───────────────────────────────────────────────────────────
+let activeRoom = null;
+function toggleRoom(name) {
+  if (activeRoom === name) { closeRoom(null, name); return; }
+  if (activeRoom) closeRoom(null, activeRoom);
+  activeRoom = name;
+  document.getElementById(`room-${name}`).classList.add('active');
+  document.getElementById(`overlay-${name}`).querySelector('.room-chat').innerHTML = '';
+  // Load room history
+  if (roomHistories[name] && roomHistories[name].length) {
+    renderRoomChat(name);
+  } else {
+    const rChat = document.getElementById(`chat-${name}`);
+    const sys = document.createElement('div');
+    sys.className = 'msg system';
+    sys.textContent = `// ${name.toUpperCase()} standing by. ${AGENTS[name.toUpperCase()]?.role || ''}`;
+    rChat.appendChild(sys);
+  }
+  setTimeout(() => document.getElementById(`input-${name}`)?.focus(), 100);
+}
+
+function closeRoom(e, name) {
+  if (e) e.stopPropagation();
+  activeRoom = null;
+  document.getElementById(`room-${name}`).classList.remove('active');
+}
+
+// ── ROOM CHAT RENDER ──────────────────────────────────────────────────────
+function renderRoomChat(name) {
+  const rChat = document.getElementById(`chat-${name}`);
+  rChat.innerHTML = '';
+  const agentName = name.toUpperCase();
+  const cfg = AGENTS[agentName] || {};
+  roomHistories[name].forEach(m => {
+    const el = document.createElement('div');
+    el.className = `msg ${m.role === 'user' ? 'user' : 'agent'}`;
+    el.style.setProperty('--active-color', cfg.color || '#fff');
+    el.style.fontSize = '11px';
+    if (m.role !== 'user') {
+      const nm = document.createElement('div');
+      nm.className = 'msg-name'; nm.textContent = agentName; nm.style.color = cfg.color;
+      el.appendChild(nm);
+    }
+    const txt = document.createElement('div'); txt.textContent = m.content;
+    el.appendChild(txt);
+    rChat.appendChild(el);
+  });
+  rChat.scrollTop = rChat.scrollHeight;
+}
+
+// ── SEND ROOM CHAT ────────────────────────────────────────────────────────
+async function sendRoomChat(name) {
+  const input = document.getElementById(`input-${name}`);
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  const agentName = name.toUpperCase();
+  const cfg = AGENTS[agentName] || { color: '#fff' };
+  roomHistories[name].push({ role: 'user', content: text });
+  renderRoomChat(name);
+
+  const rChat = document.getElementById(`chat-${name}`);
+  const thinking = document.createElement('div');
+  thinking.className = 'msg agent thinking';
+  thinking.style.setProperty('--active-color', cfg.color);
+  const nm2 = document.createElement('div');
+  nm2.className = 'msg-name'; nm2.textContent = agentName; nm2.style.color = cfg.color;
+  thinking.appendChild(nm2);
+  const tdot = document.createElement('div'); tdot.textContent = 'thinking';
+  thinking.appendChild(tdot);
+  rChat.appendChild(thinking);
+  rChat.scrollTop = rChat.scrollHeight;
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ agent: agentName, message: text, history: roomHistories[name].slice(-10) })
+    });
+    const data = await resp.json();
+    thinking.remove();
+    const reply = data.response || data.message || JSON.stringify(data);
+    roomHistories[name].push({ role: 'assistant', content: reply });
+    renderRoomChat(name);
+  } catch(err) {
+    thinking.remove();
+    const e = document.createElement('div');
+    e.className = 'msg system'; e.textContent = `// Error: ${err.message}`;
+    rChat.appendChild(e);
+  }
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+switchAgent('ODIN');
 </script>
 </body>
 </html>
