@@ -9,6 +9,8 @@ Supported platforms:
   - Redbubble (stub — no public API; returns manual instructions)
   - Amazon Merch by Amazon (stub — no public API; returns manual instructions)
 """
+from __future__ import annotations
+
 
 import asyncio
 from datetime import datetime

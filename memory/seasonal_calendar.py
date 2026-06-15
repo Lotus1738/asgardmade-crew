@@ -3,6 +3,8 @@ Seasonal / holiday calendar for AsgardMade POD niche research.
 HEIMDALL uses this to shift research toward upcoming demand spikes
 so listings go live 4-6 weeks before peak search volume.
 """
+from __future__ import annotations
+
 
 from datetime import date, timedelta
 

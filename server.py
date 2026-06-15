@@ -2,6 +2,8 @@
 AsgardMade Pantheon — FastAPI server
 WebSocket + REST API + background agent loops
 """
+from __future__ import annotations
+
 
 import asyncio
 import json

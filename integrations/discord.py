@@ -10,6 +10,8 @@ Events supported:
   - Morning briefing   → notify_briefing()
   - Generic           → notify()
 """
+from __future__ import annotations
+
 
 import logging
 import os

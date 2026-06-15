@@ -9,6 +9,8 @@ Rewritten with:
 - Auto-approval decision framework
 - Prompt self-rewriting capability (ODIN only)
 """
+from __future__ import annotations
+
 
 # Injected at the BEGINNING of every agent's system prompt.
 # Claude weights early instructions more heavily.

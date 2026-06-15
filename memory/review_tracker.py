@@ -8,6 +8,8 @@ Functions:
   get_flagged_listings()  — listings with avg rating < 3.5 or 2+ negatives
   get_review_pattern()    — detects if a product type keeps getting negatives
 """
+from __future__ import annotations
+
 
 import json
 from datetime import datetime

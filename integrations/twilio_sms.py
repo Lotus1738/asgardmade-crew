@@ -16,6 +16,8 @@ API reference: https://www.twilio.com/docs/messaging/api/message-resource
 Endpoint: POST https://api.twilio.com/2010-04-01/Accounts/{SID}/Messages.json
 Auth: HTTP Basic — username=ACCOUNT_SID, password=AUTH_TOKEN
 """
+from __future__ import annotations
+
 
 import os
 import httpx

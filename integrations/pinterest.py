@@ -5,6 +5,8 @@ Required env vars:
   PINTEREST_TOKEN    — Pinterest API OAuth bearer token
   PINTEREST_BOARD_ID — Target board ID to pin to
 """
+from __future__ import annotations
+
 
 import logging
 import os

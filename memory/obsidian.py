@@ -8,6 +8,8 @@ All functions fail silently if the vault path doesn't exist (Railway safety).
 Vault path is set via OBSIDIAN_VAULT_PATH env var, defaulting to
 C:\\Users\\Mario\\AsgardMade HQ
 """
+from __future__ import annotations
+
 
 import os
 import traceback
