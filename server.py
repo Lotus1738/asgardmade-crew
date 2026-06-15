@@ -2898,6 +2898,37 @@ async def pipeline_status():
     }
 
 
+@app.get("/api/debug/printify/providers/{blueprint_id}")
+async def debug_printify_providers(blueprint_id: int):
+    """List all print providers that support a given blueprint ID — use to find working combos."""
+    import httpx
+    api_key = os.getenv("PRINTIFY_API_KEY", "")
+    if not api_key:
+        raise HTTPException(503, detail="PRINTIFY_API_KEY not set")
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"https://api.printify.com/v1/catalog/blueprints/{blueprint_id}/print_providers.json",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        if resp.status_code != 200:
+            return {"error": resp.status_code, "body": resp.text[:500]}
+        providers = resp.json()
+        return {"blueprint_id": blueprint_id, "providers": providers}
+
+
+@app.get("/api/debug/printify/variants/{blueprint_id}/{provider_id}")
+async def debug_printify_variants(blueprint_id: int, provider_id: int):
+    """Show first 10 variants for a blueprint/provider combo — verify it works before hardcoding."""
+    from integrations.printify import _fetch_variants
+    variants = await _fetch_variants(blueprint_id, provider_id)
+    return {
+        "blueprint_id": blueprint_id,
+        "provider_id": provider_id,
+        "count": len(variants),
+        "sample": variants[:10],
+    }
+
+
 # ─── Skills API ──────────────────────────────────────────────────────────────
 
 @app.get("/api/skills")
