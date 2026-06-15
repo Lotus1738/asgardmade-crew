@@ -7,21 +7,31 @@ import httpx
 
 BASE_URL = "https://api.printify.com/v1"
 
-# Blueprint IDs — verified popular providers (Printify catalog as of 2024-2025)
-# print_provider_id 99 = Printify Choice (aggregated best-price fulfillment)
-# print_provider_id 29 = FYBY (t-shirts, reliable US fulfillment)
-# These are the most commonly available — we fetch real variant IDs at runtime.
+# Blueprint IDs — Printify catalog (provider 99 = Printify Choice, auto-selects cheapest fulfiller).
+#
+# CONFIRMED WORKING (real products verified in live Printify store):
+#   blueprint 6  + provider 99  → Gildan 5000 / Bella+Canvas T-Shirt  ✅
+#   blueprint 92 + provider 99  → Hoodie (AWDIS or similar)            ✅
+#
+# UNCONFIRMED — use /api/debug/printify/catalog to verify.
+# If a blueprint has no variants, _get_best_variants() falls back to CONFIRMED_FALLBACK
+# (blueprint 6 t-shirt) so the pipeline always produces a real product, not an error.
 BLUEPRINTS = {
-    "t-shirt":    {"blueprint_id": 6,   "print_provider_id": 99},
-    "hoodie":     {"blueprint_id": 92,  "print_provider_id": 99},
-    "mug":        {"blueprint_id": 68,  "print_provider_id": 99},
-    "tote bag":   {"blueprint_id": 77,  "print_provider_id": 99},
-    "poster":     {"blueprint_id": 45,  "print_provider_id": 99},
-    "wall art":   {"blueprint_id": 45,  "print_provider_id": 99},
-    "sticker":    {"blueprint_id": 358, "print_provider_id": 99},
-    "phone case": {"blueprint_id": 5,   "print_provider_id": 99},
-    "sweatshirt": {"blueprint_id": 92,  "print_provider_id": 99},
+    "t-shirt":    {"blueprint_id": 6,   "print_provider_id": 99},   # ✅ Confirmed working
+    "hoodie":     {"blueprint_id": 92,  "print_provider_id": 99},   # ✅ Confirmed working
+    "sweatshirt": {"blueprint_id": 92,  "print_provider_id": 99},   # Same as hoodie
+    "mug":        {"blueprint_id": 462, "print_provider_id": 99},   # 11oz ceramic mug — verify via /catalog
+    "tote bag":   {"blueprint_id": 532, "print_provider_id": 99},   # Canvas tote — verify via /catalog
+    "poster":     {"blueprint_id": 446, "print_provider_id": 99},   # Premium matte poster — verify
+    "wall art":   {"blueprint_id": 446, "print_provider_id": 99},   # Same as poster
+    "phone case": {"blueprint_id": 5,   "print_provider_id": 99},   # Phone case — verify
+    "sticker":    {"blueprint_id": 358, "print_provider_id": 99},   # Sticker sheet — verify
+    "canvas":     {"blueprint_id": 242, "print_provider_id": 99},   # Canvas print — verify
 }
+
+# Guaranteed fallback when product-specific blueprint has no variants.
+# Blueprint 6 (t-shirt) is confirmed to always have variants with provider 99.
+CONFIRMED_FALLBACK = {"blueprint_id": 6, "print_provider_id": 99}
 
 DEFAULT_BLUEPRINT = {"blueprint_id": 6, "print_provider_id": 99}
 
@@ -115,16 +125,29 @@ async def _fetch_variants(blueprint_id: int, provider_id: int) -> list:
 async def _get_best_variants(blueprint_id: int, provider_id: int, max_variants: int = 5) -> list[int]:
     """
     Return up to max_variants IDs for the most popular sizes/colors.
-    Falls back to trying alternative popular print providers if primary fails.
+
+    Fallback chain:
+    1. Try requested blueprint + provider
+    2. Try same blueprint with providers 29 (Monster Digital) and 3 (Printful)
+    3. If still nothing, fall back to CONFIRMED_FALLBACK (blueprint 6 t-shirt + provider 99)
+       so the pipeline always creates a real product instead of returning demo_novaria.
     """
     variants = await _fetch_variants(blueprint_id, provider_id)
 
-    # If primary provider has no variants, try provider 29 (FYBY) then 3 (Printful)
-    if not variants:
+    # Try alternative providers for the SAME blueprint before giving up
+    if not variants and blueprint_id != CONFIRMED_FALLBACK["blueprint_id"]:
         for fallback_provider in [29, 3, 75]:
             variants = await _fetch_variants(blueprint_id, fallback_provider)
             if variants:
+                print(f"[PRINTIFY] Blueprint {blueprint_id}: no variants for provider {provider_id}, using provider {fallback_provider}")
                 break
+
+    # Last resort: fall back to confirmed t-shirt blueprint so we always ship something
+    if not variants:
+        fb_bp = CONFIRMED_FALLBACK["blueprint_id"]
+        fb_pv = CONFIRMED_FALLBACK["print_provider_id"]
+        print(f"[PRINTIFY] Blueprint {blueprint_id} has no variants — falling back to confirmed t-shirt (blueprint {fb_bp})")
+        variants = await _fetch_variants(fb_bp, fb_pv)
 
     if not variants:
         return []

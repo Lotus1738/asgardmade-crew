@@ -2945,6 +2945,65 @@ async def debug_printify_variants(blueprint_id: int, provider_id: int):
         }
 
 
+@app.get("/api/debug/printify/catalog")
+async def debug_printify_catalog():
+    """
+    Discover which Printify blueprint IDs actually have variants available for Printify Choice (provider 99).
+    Tests the common product blueprints and returns which ones work so we can update BLUEPRINTS mapping.
+    """
+    import httpx
+    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()
+    if not api_key:
+        return {"error": "PRINTIFY_API_KEY not set"}
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    # Blueprint IDs to test — common Printify product types
+    candidates = {
+        "t-shirt (6)":      (6,    99),
+        "hoodie (92)":      (92,   99),
+        "mug_11oz (462)":   (462,  99),
+        "mug_11oz (461)":   (461,  99),
+        "mug_11oz (68)":    (68,   99),
+        "tote_bag (77)":    (77,   99),
+        "tote_bag (532)":   (532,  99),
+        "poster (45)":      (45,   99),
+        "poster (446)":     (446,  99),
+        "poster (459)":     (459,  99),
+        "wall_art (242)":   (242,  99),
+        "phone_case (5)":   (5,    99),
+        "sticker (358)":    (358,  99),
+        "sweatshirt (146)": (146,  99),
+        "crewneck (92)":    (92,   29),
+    }
+
+    results = {}
+    async with httpx.AsyncClient(timeout=15) as client:
+        for label, (blueprint_id, provider_id) in candidates.items():
+            try:
+                r = await client.get(
+                    f"https://api.printify.com/v1/catalog/blueprints/{blueprint_id}/print_providers/{provider_id}/variants.json",
+                    headers=headers,
+                )
+                if r.status_code == 200:
+                    variants = r.json().get("variants", [])
+                    available = [v for v in variants if v.get("is_available", True)]
+                    results[label] = {
+                        "blueprint_id": blueprint_id,
+                        "provider_id": provider_id,
+                        "variant_count": len(available),
+                        "works": len(available) > 0,
+                        "sample": available[0].get("title", "") if available else None,
+                    }
+                else:
+                    results[label] = {"blueprint_id": blueprint_id, "works": False, "http": r.status_code}
+            except Exception as e:
+                results[label] = {"blueprint_id": blueprint_id, "works": False, "error": str(e)}
+
+    working = {k: v for k, v in results.items() if v.get("works")}
+    return {"working_blueprints": working, "all_results": results}
+
+
 @app.get("/api/debug/printify/test_create")
 async def debug_printify_test_create():
     """

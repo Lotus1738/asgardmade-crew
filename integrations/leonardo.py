@@ -47,56 +47,128 @@ def leonardo_available() -> bool:
     return bool(os.getenv("LEONARDO_API_KEY"))
 
 
-_PRODUCT_MOCKUP_TEMPLATES = {
-    "t-shirt": (
-        "A flat-lay product photography mockup of a white t-shirt on a clean light background, "
-        "with a custom graphic print centered on the chest showing '{design}' ({niche} theme). "
-        "Professional Etsy product photo, sharp details, soft shadows, photorealistic."
-    ),
-    "hoodie": (
-        "A flat-lay product photography mockup of a black pullover hoodie on a clean background, "
-        "front graphic print showing '{design}' ({niche} theme). "
-        "Professional Etsy product photo, photorealistic, sharp focus."
-    ),
-    "mug": (
-        "A product photography mockup of a white ceramic coffee mug on a wooden table, "
-        "with '{design}' ({niche} theme) printed on the side. "
-        "Professional Etsy product photo, warm lighting, photorealistic."
-    ),
-    "poster": (
-        "A product photography mockup of a framed art print hanging on a white wall, "
-        "artwork shows '{design}' ({niche} theme). "
-        "Professional Etsy product photo, clean minimalist staging, photorealistic."
-    ),
-    "tote bag": (
-        "A product photography mockup of a natural canvas tote bag on a clean white background, "
-        "with '{design}' ({niche} theme) screen-printed on the front. "
-        "Professional Etsy product photo, photorealistic."
-    ),
-    "phone case": (
-        "A product photography mockup of a clear/white smartphone phone case, "
-        "with '{design}' ({niche} theme) printed design. "
-        "Professional Etsy product photo, clean background, photorealistic."
-    ),
+# ── Niche → Art Style Mapping ─────────────────────────────────────────────────
+# Maps niche keywords to visual art style descriptions.
+# The more specific the style, the better Leonardo produces recognizable, saleable artwork.
+_NICHE_STYLE_MAP = {
+    "cottagecore":   "whimsical vintage botanical watercolor, honeybees and wildflowers, warm honey-golden and sage-green palette, folk art ink linework",
+    "dark academia": "moody gothic ink illustration, library books and candlelight motifs, sepia and charcoal tones, antique copper-plate engraving style",
+    "gaming":        "bold retro vector pixel art, vibrant neon RGB palette, 8-bit arcade era, sharp clean outlines",
+    "gamer":         "bold retro vector pixel art, vibrant neon RGB palette, 8-bit arcade era, sharp clean outlines",
+    "patriotic":     "bold americana vintage graphic, distressed texture, red white and blue, eagle and stars-and-stripes motifs, vintage travel poster style",
+    "4th of july":   "bold americana graphic, fireworks and stars motifs, red white and blue palette, festive retro poster style",
+    "pet":           "charming loose watercolor animal illustration, warm cozy tones, expressive breed-accurate pet portrait",
+    "dog":           "detailed dog breed illustration, warm earthy tones, expressive friendly portrait, fine ink outlines",
+    "cat":           "cute minimalist cat illustration, clean playful lines, soft pastel palette",
+    "sustainable":   "clean eco-conscious minimalist line art, botanical leaf motifs, muted earth tones, hand-drawn feel",
+    "mental health": "uplifting typography-focused design, soft gradient background, positive affirmation aesthetic, clean sans-serif style",
+    "family":        "elegant vintage typography, floral ornamental border, warm ivory and gold color palette, hand-lettered feel",
+    "grandpa":       "classic americana badge design, bold serif lettering, navy and gold tones, vintage emblem with banner ribbon",
+    "grandma":       "elegant floral typography, soft floral wreath border, warm rose and cream palette, grandmother aesthetic",
+    "graduation":    "elegant achievement design, mortarboard cap and diploma scroll, gold and navy, clean serif typography",
+    "birthday":      "festive celebration illustration, confetti and ribbon, bright cheerful colors, birthday cake motif",
+    "christmas":     "classic holiday illustration, pine trees and snowflakes, cozy red and green palette, vintage Christmas card style",
+    "halloween":     "spooky-cute illustration, pumpkin and bat motifs, bold orange and black, playful haunted aesthetic",
+    "floral":        "detailed botanical fine art illustration, lush vibrant blooms, watercolor wash style, museum-quality print",
+    "botanical":     "scientific botanical illustration, precise ink linework, natural muted tones, pressed-flower aesthetic",
+    "vintage":       "retro vintage distressed poster, muted warm palette, aged letterpress texture, classic Americana",
+    "minimalist":    "ultra-clean minimalist vector, single accent color on white, precise geometric forms, Swiss design style",
+    "funny":         "bold comedic cartoon graphic, bright saturated colors, clean comic book linework, exaggerated expression",
+    "motivation":    "strong typographic poster, bold high-contrast black and gold, geometric shapes, inspirational aesthetic",
+    "adventure":     "rugged vintage travel poster, mountain and wilderness motifs, earthy tones, retro outdoor illustration",
+    "hiking":        "vintage national park poster style, mountain and trail motifs, earthy muted tones, bold serif type",
+    "ocean":         "coastal watercolor illustration, waves and marine life, turquoise and deep navy palette, breezy nautical feel",
+    "space":         "cosmic detailed illustration, stars and nebula, deep navy and gold palette, celestial mystical style",
+    "celestial":     "mystical celestial illustration, moon phases and constellations, deep navy and gold leaf, art nouveau inspired",
+    "music":         "bold music-themed graphic, dynamic musical notes and instrument silhouettes, vibrant colors, concert poster style",
+    "coffee":        "warm cafe illustration, coffee beans and steam curl, rich espresso-brown and cream palette, cozy morning aesthetic",
+    "latte":         "warm cafe illustration, latte art and coffee steam, rich brown and cream palette, cozy coffee shop aesthetic",
+    "yoga":          "serene zen illustration, lotus flower and mandala motifs, soft pastel sunrise tones, spiritual minimalist",
+    "fitness":       "bold athletic graphic, dynamic motion blur lines, high-contrast black and white with one accent color",
+    "cooking":       "charming kitchen illustration, herbs, spices, and utensil motifs, warm inviting earthy tones",
+    "witch":         "mystical witchy illustration, moon and crystal motifs, deep purple and black, celestial feminine aesthetic",
+    "crystal":       "mystical gemstone illustration, sparkling crystal clusters, deep jewel-tone palette, spiritual aesthetic",
+    "mahjong":       "elegant Asian-inspired tile illustration, clean lines, traditional red and gold palette, cultural detail",
+    "pride":         "bold rainbow celebration graphic, vibrant spectrum colors, inclusive love-wins aesthetic",
+    "teacher":       "warm educational illustration, apple and pencil motifs, cheerful primary colors, appreciation aesthetic",
+    "nurse":         "clean medical appreciation graphic, heart and stethoscope motifs, navy and white palette, professional aesthetic",
 }
 
-_DEFAULT_MOCKUP = (
-    "A product photography mockup of a {product_type} with '{design}' ({niche} theme) print design. "
-    "Professional Etsy product photo, clean background, photorealistic, sharp details."
-)
+# ── Print Composition Rules by Product Type ───────────────────────────────────
+# Tells Leonardo HOW to compose the design for each print surface.
+_PRODUCT_COMPOSITION_MAP = {
+    "t-shirt":    "centered chest print graphic, bold and readable at arm's length, strong silhouette, white or transparent background, designed for direct-to-garment printing",
+    "hoodie":     "large centered front graphic, high contrast for printing on dark fabric, impactful bold design with clear focal point, transparent background",
+    "mug":        "wide horizontal panoramic illustration (landscape format), bold shapes that read clearly at ceramic scale, centered focal element flanked by decorative side motifs, high contrast",
+    "tote bag":   "bold centered graphic, high contrast screen-print aesthetic, strong readable silhouette at medium size, white background",
+    "poster":     "full rich illustrated composition, decorative frame or border treatment, gallery art print aesthetic, sophisticated color palette, fine detail rewarded",
+    "wall art":   "full detailed art print, gallery-quality composition, frameable fine-art aesthetic, rich color depth and layered detail",
+    "phone case": "portrait-format centered graphic (2:3 ratio), clean focal design with white background, detail that photographs well",
+    "sticker":    "clean vector illustration with defined crisp outline, vibrant flat colors, die-cut friendly silhouette, white or transparent background",
+    "sweatshirt": "large centered chest graphic, high contrast for printing, bold and impactful, similar to hoodie format",
+    "canvas":     "full rich painting composition, gallery-wrapped edge consideration, fine-art aesthetic, vibrant painterly style",
+}
+
+_DEFAULT_COMPOSITION = "centered graphic design artwork, white background, bold and print-ready"
 
 
 def _build_pod_prompt(idea_title: str, niche: str, style_hint: str = "", product_type: str = "t-shirt") -> str:
-    """Build a product mockup prompt so the generated image shows the actual Etsy product."""
-    pt_lower = product_type.lower().strip()
-    template = _PRODUCT_MOCKUP_TEMPLATES.get(pt_lower, _DEFAULT_MOCKUP)
-    prompt = template.format(
-        design=idea_title,
-        niche=niche,
-        product_type=product_type,
+    """
+    Build a print-on-demand DESIGN ARTWORK prompt for Leonardo.
+
+    Generates the graphic artwork that gets PRINTED ON the product.
+    NOT a product mockup photo — Printify auto-generates mockup photos separately.
+
+    Key principle: the output should be clean artwork/illustration on white/transparent
+    background — exactly like a professional designer would provide to a print shop.
+    """
+    # Find art style from niche keywords
+    niche_lower = (niche or "").lower()
+    art_style = ""
+    for keyword, style in _NICHE_STYLE_MAP.items():
+        if keyword in niche_lower:
+            art_style = style
+            break
+
+    # Also scan the idea title if niche didn't match
+    if not art_style:
+        title_lower = idea_title.lower()
+        for keyword, style in _NICHE_STYLE_MAP.items():
+            if keyword in title_lower:
+                art_style = style
+                break
+
+    if not art_style:
+        art_style = "professional graphic design illustration, bold colors, clean composition, Etsy bestseller aesthetic"
+
+    # Get composition rules for this product type
+    composition = _PRODUCT_COMPOSITION_MAP.get(
+        product_type.lower().strip(),
+        _DEFAULT_COMPOSITION,
     )
+
+    # Strip product-type words from title to get the core design concept
+    concept = idea_title
+    for strip_word in [
+        " T-Shirt", " Hoodie", " Mug", " Poster", " Tote Bag", " Tote",
+        " Sticker", " Phone Case", " Wall Art", " Canvas Print", " Canvas",
+        " Sweatshirt", " Collection", " Series", " Set",
+    ]:
+        concept = concept.replace(strip_word, "").replace(strip_word.lower(), "")
+    concept = concept.strip(" ,.-")
+
+    prompt = (
+        f"Print-on-demand graphic design artwork: {concept}. "
+        f"Art style: {art_style}. "
+        f"Composition: {composition}. "
+        f"Rules: pure artwork only — absolutely NO product photos, NO t-shirt photo, "
+        f"NO mug photo, NO model wearing clothing, NO product mockup, NO photography. "
+        f"Deliver clean design artwork on white background, ready for print-on-demand upload."
+    )
+
     if style_hint:
-        prompt += f" {style_hint}"
+        prompt += f" Extra direction: {style_hint}"
+
     return prompt
 
 
@@ -203,8 +275,13 @@ async def generate_design(
     payload = {
         "prompt": prompt,
         "negative_prompt": (
-            "blurry, low quality, watermark, text, signature, logo, "
-            "distorted, ugly, poorly drawn, bad anatomy, duplicate"
+            "blurry, low quality, watermark, signature, "
+            "photo of t-shirt, t-shirt mockup, photo of mug, mug mockup, "
+            "photo of hoodie, product photography, flat lay photo, "
+            "model wearing clothing, person in shirt, garment photograph, "
+            "commercial retail photography, stock photo of product, "
+            "text garbled, distorted letters, illegible text, "
+            "distorted, ugly, poorly drawn, bad anatomy, duplicate, extra limbs"
         ),
         "modelId": POD_MODEL_ID,
         "width": width,

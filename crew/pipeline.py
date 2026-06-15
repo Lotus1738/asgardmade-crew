@@ -49,12 +49,20 @@ async def _cache_image_locally(url: str, design_id: str) -> str:
     return url
 
 
-async def generate_variants(prompt: str, n: int = 2, product_type: str = "t-shirt") -> list:
-    """Generate product mockup image URLs — Leonardo primary, DALL-E fallback.
-    Images are cached locally immediately to avoid CDN expiry issues."""
+async def generate_variants(idea_title: str, niche: str = "", n: int = 2, product_type: str = "t-shirt") -> list:
+    """
+    Generate print-on-demand design artwork — Leonardo primary, DALL-E fallback.
+
+    Passes idea_title and niche SEPARATELY so Leonardo can build niche-specific
+    art styles rather than treating the full title string as both fields.
+    Images are cached locally to Railway volume immediately to avoid CDN expiry.
+    """
     import uuid as _uuid
+    effective_niche = niche or idea_title
     if leonardo_available():
-        result = await _leonardo_generate(prompt, prompt, product_type=product_type, num_images=n)
+        result = await _leonardo_generate(
+            idea_title, effective_niche, product_type=product_type, num_images=n
+        )
         if result.get("success") and result.get("images"):
             urls = []
             for img in result["images"]:
@@ -65,7 +73,7 @@ async def generate_variants(prompt: str, n: int = 2, product_type: str = "t-shir
             return urls
     if _DALLE_AVAILABLE:
         try:
-            return await _dalle_generate(prompt, n)
+            return await _dalle_generate(idea_title, n)
         except Exception:
             pass
     return []
@@ -128,7 +136,7 @@ async def run_idea_pipeline(
         "https://via.placeholder.com/1024x1024/1a1a2e/gold?text=Demo+Design+2",
     ]
     try:
-        raw_urls = await generate_variants(f"{title} — {niche}", n=2, product_type=product_type)
+        raw_urls = await generate_variants(title, niche=niche, n=2, product_type=product_type)
         if raw_urls:
             variants = [{"url": u, "prompt": f"{title} variant {i+1}", "demo": False} for i, u in enumerate(raw_urls)]
         else:
@@ -695,7 +703,7 @@ async def run_autonomous_daily_pipeline(
             await _log(manager, "LOKI", f"Idea {i+1}/{listings_per_run}: {title}", "info")
 
             await _update_status(manager, state, "VULCAN", "working", f"Generating design: {title}")
-            images = await generate_variants(title, n=1)
+            images = await generate_variants(title, niche=niche, n=1)
 
             if not images:
                 await _log(manager, "VULCAN", f"No image generated for '{title}' — skipping", "warning")
