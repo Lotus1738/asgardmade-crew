@@ -15,7 +15,7 @@ import traceback
 import anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 load_dotenv()
@@ -539,6 +539,9 @@ async def chat_named(agent_name: str, req: ChatRequest):
 
 @app.get("/api/status")
 async def get_status():
+    from integrations.etsy import _has_credentials, _can_write
+    from integrations.printify import printify_available
+    etsy_tokens = _load_etsy_tokens()
     return {
         "agents": state.agents,
         "metrics": state.metrics,
@@ -548,6 +551,16 @@ async def get_status():
         },
         "connected_clients": len(manager.active),
         "strategy_count": state.strategy_count,
+        "integrations": {
+            "etsy": _can_write(),
+            "etsy_read": _has_credentials(),
+            "etsy_oauth": bool(etsy_tokens),
+            "printify": bool(os.getenv("PRINTIFY_API_KEY") and os.getenv("PRINTIFY_SHOP_ID")),
+            "dalle": bool(os.getenv("OPENAI_API_KEY")),
+            "serper": bool(os.getenv("SERPER_API_KEY")),
+            "discord": bool(os.getenv("DISCORD_WEBHOOK_URL")),
+            "anthropic": bool(os.getenv("ANTHROPIC_API_KEY")),
+        }
     }
 
 
@@ -2620,19 +2633,130 @@ async def sheets_read(range_: str = "Sheet1!A1:Z100"):
         return {"data": [], "error": str(e)}
 
 
+# ─── Etsy OAuth Flow ─────────────────────────────────────────────────────────
+# One-click Connect button in the HUD handles the full OAuth flow automatically.
+# Tokens are saved to data/etsy_tokens.json and auto-refreshed every hour.
+
+import hashlib, base64, secrets, time
+_etsy_pkce: dict = {}
+
+def _etsy_app_url() -> str:
+    url = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+    if url:
+        return f"https://{url}"
+    return os.getenv("APP_URL", "http://localhost:8000")
+
+def _etsy_tokens_path() -> Path:
+    return DATA_DIR / "etsy_tokens.json"
+
+def _load_etsy_tokens() -> dict:
+    p = _etsy_tokens_path()
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            pass
+    return {}
+
+def _save_etsy_tokens(data: dict):
+    _etsy_tokens_path().write_text(json.dumps(data, indent=2))
+
+async def _refresh_etsy_token(refresh_token: str):
+    import httpx
+    client_id = os.getenv("ETSY_API_KEY", "").split(":")[0]
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            resp = await client.post(
+                "https://api.etsy.com/v3/public/oauth/token",
+                data={"grant_type": "refresh_token", "client_id": client_id, "refresh_token": refresh_token},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                data["expires_at"] = time.time() + data.get("expires_in", 3600)
+                existing = _load_etsy_tokens()
+                existing.update(data)
+                _save_etsy_tokens(existing)
+                os.environ["ETSY_OAUTH_TOKEN"] = data["access_token"]
+                return data
+        except Exception as e:
+            print(f"[ETSY] Token refresh error: {e}")
+    return None
+
+@app.get("/etsy/connect")
+async def etsy_connect():
+    client_id = os.getenv("ETSY_API_KEY", "").split(":")[0]
+    if not client_id:
+        return JSONResponse({"error": "ETSY_API_KEY not set in Railway environment variables"}, status_code=400)
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(16)
+    _etsy_pkce[state] = code_verifier
+    redirect_uri = f"{_etsy_app_url()}/etsy/callback"
+    scopes = "listings_r listings_w transactions_r shops_r"
+    url = (
+        f"https://www.etsy.com/oauth/connect"
+        f"?response_type=code&client_id={client_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&scope={scopes.replace(' ','%20')}"
+        f"&state={state}&code_challenge={code_challenge}&code_challenge_method=S256"
+    )
+    return RedirectResponse(url)
+
+@app.get("/etsy/callback")
+async def etsy_callback(code: str = "", state: str = "", error: str = ""):
+    import httpx
+    if error:
+        return JSONResponse({"error": f"Etsy denied: {error}"}, status_code=400)
+    code_verifier = _etsy_pkce.pop(state, None)
+    if not code_verifier:
+        return JSONResponse({"error": "Invalid state. Try connecting again."}, status_code=400)
+    client_id = os.getenv("ETSY_API_KEY", "").split(":")[0]
+    redirect_uri = f"{_etsy_app_url()}/etsy/callback"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            "https://api.etsy.com/v3/public/oauth/token",
+            data={"grant_type": "authorization_code", "client_id": client_id,
+                  "redirect_uri": redirect_uri, "code": code, "code_verifier": code_verifier},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    if resp.status_code != 200:
+        return JSONResponse({"error": f"Token exchange failed: {resp.text}"}, status_code=400)
+    data = resp.json()
+    data["expires_at"] = time.time() + data.get("expires_in", 3600)
+    data["connected_at"] = datetime.utcnow().isoformat()
+    _save_etsy_tokens(data)
+    os.environ["ETSY_OAUTH_TOKEN"] = data["access_token"]
+    print(f"[ETSY] OAuth connected. Token valid for {data.get('expires_in',3600)}s.")
+    return RedirectResponse("/?etsy=connected")
+
+@app.get("/api/etsy/status")
+async def etsy_status():
+    tokens = _load_etsy_tokens()
+    if not tokens:
+        return {"connected": False, "message": "Not connected. Click Connect Etsy in the Integrations tab."}
+    is_expired = time.time() > tokens.get("expires_at", 0) - 60
+    return {"connected": True, "is_expired": is_expired, "connected_at": tokens.get("connected_at","unknown")}
+
+@app.post("/api/etsy/refresh")
+async def etsy_force_refresh():
+    tokens = _load_etsy_tokens()
+    if not tokens or not tokens.get("refresh_token"):
+        return {"success": False, "error": "Not connected to Etsy."}
+    result = await _refresh_etsy_token(tokens["refresh_token"])
+    return {"success": bool(result), "expires_in": result.get("expires_in", 3600) if result else 0}
+
+
 # ─── Skills API ──────────────────────────────────────────────────────────────
 
 @app.get("/api/skills")
 async def list_skills_endpoint(pack: str = ""):
     try:
         import skills as skill_registry
-        return {
-            "skills": skill_registry.list_skills(pack=pack or None),
-            "packs": skill_registry.list_packs(),
-        }
+        return {"skills": skill_registry.list_skills(pack=pack or None), "packs": skill_registry.list_packs()}
     except Exception as e:
         raise HTTPException(500, detail=str(e))
-
 
 class SkillRunRequest(BaseModel):
     name: str
@@ -2643,17 +2767,12 @@ async def run_skill_endpoint(req: SkillRunRequest):
     try:
         import skills as skill_registry
         result = await skill_registry.run_skill(req.name, req.args)
-        await manager.broadcast({
-            "type": "skill_result",
-            "skill": req.name,
-            "success": result.success,
-            "summary": result.summary,
-            "timestamp": datetime.now().isoformat(),
-        })
+        await manager.broadcast({"type": "skill_result", "skill": req.name,
+                                  "success": result.success, "summary": result.summary,
+                                  "timestamp": datetime.now().isoformat()})
         return result.to_dict()
     except Exception as e:
         raise HTTPException(500, detail=str(e))
-
 
 @app.get("/api/skills/log")
 async def skill_run_log(limit: int = 20):
@@ -2669,12 +2788,8 @@ async def skill_run_log(limit: int = 20):
 @app.get("/api/vault/status")
 async def vault_status():
     import memory.obsidian as _mem
-    return {
-        "available": _mem.vault_available(),
-        "vault_path": str(_mem.VAULT),
-        "preferences": _mem.read_preferences()[:500] if _mem.vault_available() else "",
-    }
-
+    return {"available": _mem.vault_available(), "vault_path": str(_mem.VAULT),
+            "preferences": _mem.read_preferences()[:500] if _mem.vault_available() else ""}
 
 @app.get("/api/vault/folder")
 async def vault_folder(path: str = "Odin Intelligence", limit: int = 10):
@@ -2682,13 +2797,11 @@ async def vault_folder(path: str = "Odin Intelligence", limit: int = 10):
     files = _mem.read_folder(path, limit=limit)
     return {"files": files, "folder": path, "count": len(files)}
 
-
 @app.get("/api/vault/read")
 async def vault_read_file(path: str):
     import memory.obsidian as _mem
     content = _mem.read(path)
     return {"content": content, "path": path, "found": content is not None}
-
 
 class VaultWriteRequest(BaseModel):
     path: str
@@ -2718,19 +2831,18 @@ async def os_status():
         packs = []
     gs = _gs()
     return {
-        "agents": state.agents,
-        "vault_available": _mem.vault_available(),
+        "agents": state.agents, "vault_available": _mem.vault_available(),
         "google": {**gs, "unread": get_unread_count() if gmail_available() else -1},
         "skills": {"count": skill_count, "packs": packs},
         "queue": {
             "ideas": len(state.queue.get("ideas", [])),
             "designs": len(state.queue.get("designs", [])),
-            "pending_ideas": len([i for i in state.queue.get("ideas", []) if i.get("status") == "pending"]),
-            "pending_designs": len([d for d in state.queue.get("designs", []) if d.get("status") == "pending"]),
+            "pending_ideas": len([i for i in state.queue.get("ideas",[]) if i.get("status")=="pending"]),
+            "pending_designs": len([d for d in state.queue.get("designs",[]) if d.get("status")=="pending"]),
         },
-        "vault": state.vault,
-        "metrics": state.metrics,
+        "vault": state.vault, "metrics": state.metrics,
     }
+
 
 # Static file catch-all (must be LAST route)
 @app.get("/{path:path}")

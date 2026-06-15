@@ -1325,6 +1325,7 @@ const PixelBuilding = (() => {
       <button class="tab-btn active" onclick="switchTab('vault')">◈ VAULT P&amp;L</button>
       <button class="tab-btn" onclick="switchTab('designs')">◈ DESIGN QUEUE <span class="tab-badge" id="designs-badge">0</span></button>
       <button class="tab-btn" onclick="switchTab('ideas')">◈ IDEA QUEUE <span class="tab-badge" id="ideas-badge">0</span></button>
+      <button class="tab-btn" onclick="switchTab('integrations')">◈ INTEGRATIONS</button>
     </div>
     <div class="tab-content active" id="vault-tab">
       <div class="vault-metrics">
@@ -1341,6 +1342,68 @@ const PixelBuilding = (() => {
     </div>
     <div class="tab-content" id="designs-tab"></div>
     <div class="tab-content" id="ideas-tab"></div>
+    <div class="tab-content" id="integrations-tab">
+      <div style="padding:12px;display:flex;flex-direction:column;gap:10px;max-width:700px">
+        <div style="font-size:8px;letter-spacing:3px;color:var(--c1);margin-bottom:4px">INTEGRATIONS — CONNECT YOUR BUSINESS ACCOUNTS</div>
+
+        <!-- Etsy -->
+        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
+          <div style="font-size:20px">🛍</div>
+          <div style="flex:1">
+            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">ETSY</div>
+            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="etsy-status-text">Checking connection...</div>
+          </div>
+          <button id="etsy-connect-btn" onclick="connectEtsy()"
+            style="background:rgba(201,168,76,.15);border:1px solid var(--c1);color:var(--c1);font-family:inherit;font-size:9px;font-weight:bold;letter-spacing:2px;padding:6px 14px;border-radius:2px;cursor:pointer">
+            CONNECT
+          </button>
+        </div>
+
+        <!-- Printify -->
+        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
+          <div style="font-size:20px">🖨</div>
+          <div style="flex:1">
+            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">PRINTIFY</div>
+            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="printify-status-text">Requires PRINTIFY_API_KEY + PRINTIFY_SHOP_ID in Railway</div>
+          </div>
+          <div id="printify-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
+        </div>
+
+        <!-- OpenAI / DALL-E -->
+        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
+          <div style="font-size:20px">🎨</div>
+          <div style="flex:1">
+            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">DALL-E (DESIGN GENERATION)</div>
+            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="dalle-status-text">Requires OPENAI_API_KEY in Railway</div>
+          </div>
+          <div id="dalle-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
+        </div>
+
+        <!-- Serper -->
+        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
+          <div style="font-size:20px">🔍</div>
+          <div style="flex:1">
+            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">SERPER (MARKET RESEARCH)</div>
+            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="serper-status-text">Requires SERPER_API_KEY in Railway · free at serper.dev</div>
+          </div>
+          <div id="serper-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
+        </div>
+
+        <!-- Discord -->
+        <div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);border-radius:3px;padding:10px;display:flex;align-items:center;gap:12px">
+          <div style="font-size:20px">💬</div>
+          <div style="flex:1">
+            <div style="font-weight:bold;font-size:11px;color:var(--c1);letter-spacing:2px">DISCORD ALERTS</div>
+            <div style="font-size:9px;color:var(--txt2);margin-top:2px" id="discord-status-text">Requires DISCORD_WEBHOOK_URL in Railway</div>
+          </div>
+          <div id="discord-dot" style="width:8px;height:8px;border-radius:50%;background:var(--txt3)"></div>
+        </div>
+
+        <div style="font-size:8px;color:var(--txt3);margin-top:4px;line-height:1.6">
+          All keys except Etsy are added in Railway → your project → Variables tab. Etsy uses the Connect button above — click it and it handles everything automatically.
+        </div>
+      </div>
+    </div>
   </div>
 
 </div><!-- /app -->
@@ -2875,10 +2938,93 @@ function updateArgusBar(metrics){
   setAgentChips('GUARDIAN',[{label:'CPU',val:cpu+'%'},{label:'RAM',val:ram+'%'},{label:'DISK',val:disk+'%'},{label:'NET↓',val:(network.rx||0)+'KB/s'}]);
 }
 
+const TAB_NAMES = ['vault','designs','ideas','integrations'];
 function switchTab(name){
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['vault','designs','ideas'][i]===name));
-  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',['vault-tab','designs-tab','ideas-tab'][i]===`${name}-tab`));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',TAB_NAMES[i]===name));
+  document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',TAB_NAMES[i]+'-tab'===`${name}-tab`));
+  if(name==='integrations') checkIntegrations();
 }
+
+// ── Integration status checks ────────────────────────────────────────────────
+async function checkIntegrations(){
+  // Etsy
+  try {
+    const r = await fetch('/api/etsy/status');
+    const d = await r.json();
+    const btn = document.getElementById('etsy-connect-btn');
+    const txt = document.getElementById('etsy-status-text');
+    if(d.connected && !d.is_expired){
+      txt.textContent = '✓ Connected — token valid, auto-refreshes automatically';
+      txt.style.color = 'var(--green)';
+      btn.textContent = 'RECONNECT';
+      btn.style.borderColor = 'var(--green)';
+      btn.style.color = 'var(--green)';
+    } else if(d.connected && d.is_expired){
+      txt.textContent = '⚠ Connected but token expired — click Reconnect';
+      txt.style.color = 'var(--orange)';
+      btn.textContent = 'RECONNECT';
+    } else {
+      txt.textContent = 'Not connected — click Connect to authorize your Etsy shop';
+      btn.textContent = 'CONNECT';
+    }
+  } catch(e){ /* offline */ }
+
+  // Status endpoint for others
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const integs = d.integrations || {};
+
+    setDot('printify-dot','printify-status-text', integs.printify,
+      '✓ Connected — Vulcan can push designs automatically',
+      'Add PRINTIFY_API_KEY + PRINTIFY_SHOP_ID in Railway → Variables');
+
+    setDot('dalle-dot','dalle-status-text', integs.dalle || integs.openai,
+      '✓ Connected — Vulcan can generate AI designs',
+      'Add OPENAI_API_KEY in Railway → Variables (platform.openai.com)');
+
+    setDot('serper-dot','serper-status-text', integs.serper,
+      '✓ Connected — Heimdall uses real Google search results',
+      'Add SERPER_API_KEY in Railway → Variables (free at serper.dev)');
+
+    setDot('discord-dot','discord-status-text', integs.discord,
+      '✓ Connected — you\'ll get pinged on every sale and alert',
+      'Add DISCORD_WEBHOOK_URL in Railway → Variables');
+  } catch(e){ /* offline */ }
+}
+
+function setDot(dotId, txtId, connected, okMsg, failMsg){
+  const dot = document.getElementById(dotId);
+  const txt = document.getElementById(txtId);
+  if(!dot||!txt) return;
+  if(connected){
+    dot.style.background='var(--green)';
+    dot.style.boxShadow='0 0 6px var(--green)';
+    txt.textContent=okMsg;
+    txt.style.color='var(--green)';
+  } else {
+    dot.style.background='var(--red)';
+    txt.textContent=failMsg;
+    txt.style.color='var(--txt2)';
+  }
+}
+
+function connectEtsy(){
+  // Open the OAuth flow in the same window — Etsy will redirect back to /?etsy=connected
+  window.location.href = '/etsy/connect';
+}
+
+// Auto-show success banner if redirected back after Etsy connect
+(function(){
+  const params = new URLSearchParams(window.location.search);
+  if(params.get('etsy')==='connected'){
+    history.replaceState({}, '', '/');
+    setTimeout(()=>{
+      addLog('SYSTEM','✓ Etsy connected successfully — LOKI can now publish real listings','success');
+      switchTab('integrations');
+    }, 1200);
+  }
+})();
 
 function initFromState(s,strategy){
   if(!s) return;
