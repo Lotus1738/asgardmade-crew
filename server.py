@@ -2433,6 +2433,213 @@ async def _weekly_email_report_loop():
             print(f"[WEEKLY EMAIL] error: {type(e).__name__}: {e}")
 
 
+
+# ─── Google Suite API ────────────────────────────────────────────────────────
+
+@app.get("/api/google/status")
+async def google_status_endpoint():
+    try:
+        from integrations.google import google_status as _gs
+        from integrations.google.gmail import gmail_available, get_unread_count
+        status = _gs()
+        status["unread_count"] = get_unread_count() if gmail_available() else -1
+        return status
+    except Exception as e:
+        return {"error": str(e), "any_credentials": False}
+
+
+@app.get("/api/google/gmail/inbox")
+async def gmail_inbox(limit: int = 10):
+    try:
+        from integrations.google.gmail import get_inbox
+        return {"emails": get_inbox(limit=limit)}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/api/google/gmail/search")
+async def gmail_search(q: str, limit: int = 5):
+    try:
+        from integrations.google.gmail import search_emails
+        return {"emails": search_emails(q, limit=limit)}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+class EmailRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+    html: bool = False
+
+@app.post("/api/google/gmail/send")
+async def gmail_send(req: EmailRequest):
+    try:
+        from integrations.google.gmail import send_email
+        ok = await send_email(req.to, req.subject, req.body, req.html)
+        return {"success": ok}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/api/google/calendar")
+async def calendar_events(days: int = 7):
+    try:
+        from integrations.google.calendar import get_upcoming_events
+        return {"events": get_upcoming_events(days=days)}
+    except Exception as e:
+        return {"events": [], "error": str(e)}
+
+
+class EventRequest(BaseModel):
+    title: str
+    start: str
+    end: str = ""
+    description: str = ""
+
+@app.post("/api/google/calendar/create")
+async def calendar_create(req: EventRequest):
+    try:
+        from integrations.google.calendar import create_event
+        from datetime import datetime as _dt
+        start = _dt.fromisoformat(req.start)
+        end = _dt.fromisoformat(req.end) if req.end else None
+        event = create_event(req.title, start, end, req.description)
+        return {"event": event, "success": bool(event)}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/api/google/drive")
+async def drive_files(limit: int = 20, query: str = ""):
+    try:
+        from integrations.google.drive import list_files
+        return {"files": list_files(limit=limit, query=query)}
+    except Exception as e:
+        return {"files": [], "error": str(e)}
+
+
+@app.get("/api/google/sheets")
+async def sheets_read(range_: str = "Sheet1!A1:Z100"):
+    try:
+        from integrations.google.sheets import read_range
+        return {"data": read_range(range_)}
+    except Exception as e:
+        return {"data": [], "error": str(e)}
+
+
+# ─── Skills API ──────────────────────────────────────────────────────────────
+
+@app.get("/api/skills")
+async def list_skills_endpoint(pack: str = ""):
+    try:
+        import skills as skill_registry
+        return {
+            "skills": skill_registry.list_skills(pack=pack or None),
+            "packs": skill_registry.list_packs(),
+        }
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+class SkillRunRequest(BaseModel):
+    name: str
+    args: dict = {}
+
+@app.post("/api/skills/run")
+async def run_skill_endpoint(req: SkillRunRequest):
+    try:
+        import skills as skill_registry
+        result = await skill_registry.run_skill(req.name, req.args)
+        await manager.broadcast({
+            "type": "skill_result",
+            "skill": req.name,
+            "success": result.success,
+            "summary": result.summary,
+            "timestamp": datetime.now().isoformat(),
+        })
+        return result.to_dict()
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/api/skills/log")
+async def skill_run_log(limit: int = 20):
+    try:
+        import skills as skill_registry
+        return {"log": skill_registry.get_run_log(limit=limit)}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+# ─── Memory Vault API ────────────────────────────────────────────────────────
+
+@app.get("/api/vault/status")
+async def vault_status():
+    import memory.obsidian as _mem
+    return {
+        "available": _mem.vault_available(),
+        "vault_path": str(_mem.VAULT),
+        "preferences": _mem.read_preferences()[:500] if _mem.vault_available() else "",
+    }
+
+
+@app.get("/api/vault/folder")
+async def vault_folder(path: str = "Odin Intelligence", limit: int = 10):
+    import memory.obsidian as _mem
+    files = _mem.read_folder(path, limit=limit)
+    return {"files": files, "folder": path, "count": len(files)}
+
+
+@app.get("/api/vault/read")
+async def vault_read_file(path: str):
+    import memory.obsidian as _mem
+    content = _mem.read(path)
+    return {"content": content, "path": path, "found": content is not None}
+
+
+class VaultWriteRequest(BaseModel):
+    path: str
+    content: str
+    append: bool = False
+
+@app.post("/api/vault/write")
+async def vault_write_file(req: VaultWriteRequest):
+    import memory.obsidian as _mem
+    result = _mem.write(req.path, req.content, req.append)
+    return {"success": bool(result), "path": req.path}
+
+
+# ─── OS System State ─────────────────────────────────────────────────────────
+
+@app.get("/api/os/status")
+async def os_status():
+    from integrations.google import google_status as _gs
+    from integrations.google.gmail import gmail_available, get_unread_count
+    import memory.obsidian as _mem
+    try:
+        import skills as skill_registry
+        skill_count = len(skill_registry.list_skills())
+        packs = skill_registry.list_packs()
+    except Exception:
+        skill_count = 0
+        packs = []
+    gs = _gs()
+    return {
+        "agents": state.agents,
+        "vault_available": _mem.vault_available(),
+        "google": {**gs, "unread": get_unread_count() if gmail_available() else -1},
+        "skills": {"count": skill_count, "packs": packs},
+        "queue": {
+            "ideas": len(state.queue.get("ideas", [])),
+            "designs": len(state.queue.get("designs", [])),
+            "pending_ideas": len([i for i in state.queue.get("ideas", []) if i.get("status") == "pending"]),
+            "pending_designs": len([d for d in state.queue.get("designs", []) if d.get("status") == "pending"]),
+        },
+        "vault": state.vault,
+        "metrics": state.metrics,
+    }
+
 # Static file catch-all (must be LAST route)
 @app.get("/{path:path}")
 async def serve_static(path: str):
@@ -2469,9 +2676,3 @@ async def startup():
     asyncio.create_task(_ab_test_resolver_loop())
     asyncio.create_task(_review_monitor_loop())
     asyncio.create_task(_weekly_email_report_loop())
-
-    try:
-        log_file = Path("logs") / f"pantheon_{datetime.now().strftime('%Y%m%d')}.log"
-        log_file.write_text(f"[{datetime.now().isoformat()}] AsgardMade Pantheon started\n")
-    except Exception:
-        pass
