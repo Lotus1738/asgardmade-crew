@@ -2945,6 +2945,92 @@ async def debug_printify_variants(blueprint_id: int, provider_id: int):
         }
 
 
+@app.get("/api/debug/printify/test_create")
+async def debug_printify_test_create():
+    """
+    End-to-end Printify pipeline test.
+    Steps: upload test image → fetch variants → create product → return result.
+    Safe: creates a real draft product (not published) so you can see it in Printify.
+    """
+    import httpx, base64
+    api_key = os.getenv("PRINTIFY_API_KEY", "").strip()
+    shop_id = os.getenv("PRINTIFY_SHOP_ID", "").strip()
+    if not api_key or not shop_id:
+        return {"error": "PRINTIFY_API_KEY or PRINTIFY_SHOP_ID not set"}
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    # Step 1: Upload a minimal 1×1 black PNG as test image
+    png_1x1 = base64.b64encode(bytes([
+        0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x00,0x00,0x00,0x0d,0x49,0x48,0x44,0x52,
+        0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,
+        0xde,0x00,0x00,0x00,0x0c,0x49,0x44,0x41,0x54,0x08,0xd7,0x63,0x60,0x60,0x60,0x00,
+        0x00,0x00,0x04,0x00,0x01,0x27,0x07,0x15,0x43,0x00,0x00,0x00,0x00,0x49,0x45,0x4e,
+        0x44,0xae,0x42,0x60,0x82
+    ])).decode()
+
+    upload_result = None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                "https://api.printify.com/v1/uploads/images.json",
+                headers=headers,
+                json={"file_name": "debug_test.png", "contents": png_1x1},
+            )
+            upload_result = {"status": r.status_code, "body": r.json() if r.status_code < 300 else r.text[:300]}
+            if r.status_code >= 300:
+                return {"step": "upload_image", "FAILED": True, **upload_result}
+            image_id = r.json()["id"]
+    except Exception as e:
+        return {"step": "upload_image", "FAILED": True, "error": str(e)}
+
+    # Step 2: Fetch variants for blueprint 6 / provider 99
+    variant_ids = []
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(
+                "https://api.printify.com/v1/catalog/blueprints/6/print_providers/99/variants.json",
+                headers=headers,
+            )
+            variants = r.json().get("variants", [])
+            variant_ids = [v["id"] for v in variants[:3]]
+    except Exception as e:
+        return {"step": "fetch_variants", "FAILED": True, "error": str(e), "upload_ok": True, "image_id": image_id}
+
+    if not variant_ids:
+        return {"step": "fetch_variants", "FAILED": True, "error": "No variants returned", "upload_ok": True}
+
+    # Step 3: Create product (draft, not published)
+    payload = {
+        "title": "DEBUG TEST — AsgardMade Pipeline Check",
+        "description": "Automated pipeline test — safe to delete.",
+        "blueprint_id": 6,
+        "print_provider_id": 99,
+        "variants": [{"id": vid, "price": 2499, "is_enabled": True} for vid in variant_ids],
+        "print_areas": [{
+            "variant_ids": variant_ids,
+            "placeholders": [{"position": "front", "images": [{"id": image_id, "x": 0.5, "y": 0.5, "scale": 1.0, "angle": 0}]}],
+        }],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(
+                f"https://api.printify.com/v1/shops/{shop_id}/products.json",
+                headers=headers,
+                json=payload,
+            )
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text[:500]
+            return {
+                "upload_ok": True, "image_id": image_id,
+                "variants_found": len(variant_ids), "variant_ids_sample": variant_ids,
+                "create_product_status": r.status_code,
+                "create_product_body": body,
+                "SUCCESS": r.status_code in (200, 201),
+            }
+    except Exception as e:
+        return {"step": "create_product", "FAILED": True, "error": str(e), "upload_ok": True, "image_id": image_id}
+
+
 # ─── Skills API ──────────────────────────────────────────────────────────────
 
 @app.get("/api/skills")
