@@ -39,7 +39,7 @@ class EtsyPrintifyModule(BusinessModule):
         """Research trending niches and return a product idea."""
         from crew.tools import generate_niche_idea
 
-        raw = await generate_niche_idea()
+        raw = generate_niche_idea()  # sync function - no await
         if not raw:
             # Fallback idea so the pipeline never stalls
             return IdeaResult(

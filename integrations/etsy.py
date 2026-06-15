@@ -139,144 +139,135 @@ def build_tags(niche: str, keywords: list, product_type: str = "t-shirt") -> lis
     pt_variants = _PRODUCT_SEARCH_TERMS.get(pt, [pt, f"{pt} gift", f"custom {pt}"])
     tags.extend(pt_variants[:2])
 
-    # 2. Niche + product combos (2 tags)
+    # 2. Niche + product combos (3 tags)
     tags.append(f"{niche_lower} {pt}"[:20])
     tags.append(f"{niche_lower} gift"[:20])
+    tags.append(f"{niche_lower} lover"[:20])
 
-    # 3. Gift persona tag (1 tag)
+    # 3. Gift persona tags (2 tags)
     persona = _get_persona(niche, keywords)
+    tags.append(f"gift for {persona}"[:20])
     tags.append(f"{persona} gift"[:20])
 
-    # 4. Occasion tags (2 tags)
-    tags.append("birthday gift")
-    tags.append("christmas gift")
-
-    # 5. Keywords from idea (fill remaining slots up to 13)
-    for kw in keywords:
+    # 4. Keyword-based tags (3 tags)
+    for kw in keywords[:3]:
         kw_clean = kw.lower().strip()[:20]
-        if kw_clean and kw_clean not in tags and len(tags) < 13:
+        if kw_clean and kw_clean not in tags:
             tags.append(kw_clean)
 
-    # 6. Fill with niche-adjacent tags if still under 13
-    fillers = ["unique gift idea", "gift for her", "gift for him",
-               "novelty gift", f"{niche_lower} lover"[:20], "funny gift",
-               "cute gift", "trendy gift"]
-    for f in fillers:
+    # 5. Occasion tags (fill to 13)
+    for occ in _OCCASIONS:
         if len(tags) >= 13:
             break
-        if f[:20] not in tags:
-            tags.append(f[:20])
+        occ_clean = occ[:20]
+        if occ_clean not in tags:
+            tags.append(occ_clean)
 
-    return tags[:13]
+    # Deduplicate, enforce <=20 chars, exactly 13
+    seen = set()
+    unique = []
+    for t in tags:
+        t = t[:20].strip()
+        if t and t not in seen:
+            seen.add(t)
+            unique.append(t)
+    return unique[:13]
 
 
-def build_description(idea_title: str, niche: str, keywords: list,
-                      product_type: str = "t-shirt", price_usd: float = 24.99) -> str:
+def build_description(
+    title: str,
+    niche: str,
+    keywords: list,
+    product_type: str = "t-shirt",
+    price_usd: float = 0.0,
+) -> str:
     """
-    Build an SEO-rich Etsy description.
-    First 160 chars indexed most heavily — lead with main keyword phrase.
-    Include all tag keywords naturally. Format for Etsy's mobile-first audience.
+    Build an SEO-optimised Etsy description.
+    First 160 chars are most important for search - lead with primary keyword.
     """
-    keywords = keywords or []
-    pt = product_type.lower()
+    pt = product_type.lower().strip()
     persona = _get_persona(niche, keywords)
-    kw_list = ", ".join(k.lower() for k in keywords[:6]) if keywords else niche.lower()
+    kw_str = ", ".join(keywords[:5]) if keywords else niche
+    price_line = f"Price: ${price_usd:.2f}" if price_usd else ""
 
-    # First 160 chars are the Etsy SEO goldmine
-    first_line = (
-        f"✨ {idea_title} — {niche.title()} {pt.title()} | Perfect {persona.title()} gift!\n\n"
+    desc = (
+        f"{title} - the perfect {pt} for any {persona}.\n\n"
+        f"A unique, print-on-demand {niche} design that makes a great gift "
+        f"for birthdays, holidays, and every occasion.\n\n"
+        f"Keywords: {kw_str}\n\n"
+        f"\u2705 High-quality print-on-demand {pt}\n"
+        f"\u2705 Ships directly to your door\n"
+        f"\u2705 Makes a perfect gift for {persona}s\n"
+        f"\u2705 Unique design - not sold in stores\n\n"
     )
-
-    body = (
-        f"Looking for the perfect {niche.lower()} gift? This {pt} features a bold, "
-        f"one-of-a-kind design that {persona}s absolutely love. "
-        f"Whether it's a birthday, Christmas, holiday, or 'just because' gift — "
-        f"this {pt} delivers every time.\n\n"
-        f"⭐ WHAT YOU'LL LOVE:\n"
-        f"• Unique {niche.lower()} design — not sold in stores\n"
-        f"• Premium print quality — vibrant colors that last\n"
-        f"• Printed on demand — made fresh just for you\n"
-        f"• Makes the perfect gift for: {kw_list}\n\n"
-        f"📦 SHIPPING:\n"
-        f"• Production: 2-5 business days\n"
-        f"• Delivery: 5-10 business days (US)\n"
-        f"• Ships worldwide\n\n"
-        f"💬 QUESTIONS? Message us — we respond within 24 hours.\n\n"
-        f"🔍 Also search: {niche.lower()} {pt}, {persona} gift, "
-        f"{niche.lower()} lover gift, funny {niche.lower()} {pt}, "
-        f"cute {niche.lower()} gift, {pt} for {persona}"
+    if price_line:
+        desc += f"{price_line}\n\n"
+    desc += (
+        "Please allow 3-7 business days for production + shipping. "
+        "Message us with any questions!"
     )
+    return desc[:2000]
 
-    return (first_line + body)[:4000]
 
-
-async def create_listing(title, description, tags, price_usd=24.99, quantity=999):
+async def create_listing(
+    title: str,
+    description: str,
+    tags: list,
+    price_usd: float = 34.99,
+    image_ids: list | None = None,
+) -> dict:
+    """
+    Create an Etsy listing via OAuth token (LOKI).
+    Falls back to demo mode when OAuth token is not present.
+    Returns {"listing_id": str, "url": str, "demo": bool}.
+    """
     if not _can_write():
-        import random
-        listing_id = random.randint(1000000000, 9999999999)
-        return {"listing_id": listing_id, "title": title, "price": price_usd,
-                "url": "https://www.etsy.com/listing/" + str(listing_id), "demo": True}
+        import uuid as _uuid
+        fake_id = str(_uuid.uuid4().int)[:9]
+        return {
+            "listing_id": fake_id,
+            "url": f"https://www.etsy.com/listing/{fake_id}",
+            "demo": True,
+            "title_b": None,
+        }
 
+    shop_id = _shop_id()
     payload = {
-        "quantity": quantity, "title": title, "description": description,
-        "price": price_usd, "who_made": "i_did", "when_made": "made_to_order",
-        "taxonomy_id": 1, "tags": tags[:13], "materials": ["polyester", "cotton"],
-        "shipping_profile_id": None, "state": "active",
+        "title": title[:140],
+        "description": description[:2000],
+        "price": round(price_usd, 2),
+        "quantity": 999,
+        "who_made": "i_did",
+        "when_made": "made_to_order",
+        "is_supply": False,
+        "state": "active",
+        "taxonomy_id": 116,
+        "tags": [t[:20] for t in tags[:13]],
+        "materials": ["cotton"],
+        "should_auto_renew": True,
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            BASE_URL + "/application/shops/" + _shop_id() + "/listings",
-            headers=_headers(write=True), json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return {"listing_id": data.get("listing_id"), "title": title,
-                "price": price_usd, "url": data.get("url", ""), "demo": False}
-
-
-async def get_recent_reviews(min_rating=1, max_rating=2, limit=25):
-    if not _has_credentials():
-        return []
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            resp = await client.get(
-                BASE_URL + "/application/shops/" + _shop_id() + "/reviews",
-                headers=_headers(), params={"limit": limit, "offset": 0},
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{BASE_URL}/application/shops/{shop_id}/listings",
+                headers=_headers(write=True),
+                json=payload,
             )
-            if resp.status_code != 200:
-                return []
-            data = resp.json()
-            filtered = []
-            for r in data.get("results", []):
-                rating = r.get("rating", 5)
-                if min_rating <= rating <= max_rating:
-                    filtered.append({
-                        "review_id": str(r.get("review_id", "")),
-                        "listing_id": str(r.get("listing_id", "")),
-                        "listing_title": r.get("title", "Unknown Listing"),
-                        "rating": rating,
-                        "review": r.get("review", ""),
-                        "create_timestamp": r.get("create_timestamp", 0),
-                        "reviewer": r.get("buyer_user_id", "anonymous"),
-                    })
-            return filtered
-        except Exception:
-            return []
-
-
-async def get_shop_stats():
-    if not _has_credentials():
-        return {"active_listings": 0, "total_orders": 0, "today_revenue": 0.0, "demo": True}
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            resp = await client.get(
-                BASE_URL + "/application/shops/" + _shop_id(),
-                headers=_headers(),
-            )
-            data = resp.json() if resp.status_code == 200 else {}
-            return {"active_listings": data.get("listing_active_count", 0),
-                    "total_orders": data.get("transaction_sold_count", 0),
-                    "today_revenue": 0.0, "demo": False}
-        except Exception:
-            return {"active_listings": 0, "total_orders": 0, "today_revenue": 0.0, "demo": True}
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                listing_id = str(data.get("listing_id", ""))
+                url = data.get("url", f"https://www.etsy.com/listing/{listing_id}")
+                return {"listing_id": listing_id, "url": url, "demo": False}
+            else:
+                body = resp.text[:300]
+                print(f"[ETSY] create_listing {resp.status_code}: {body}")
+                import uuid as _uuid
+                fake_id = str(_uuid.uuid4().int)[:9]
+                return {"listing_id": fake_id, "url": "", "demo": True,
+                        "error": f"HTTP {resp.status_code}: {body}"}
+    except Exception as e:
+        print(f"[ETSY] create_listing error: {type(e).__name__}: {e}")
+        import uuid as _uuid
+        fake_id = str(_uuid.uuid4().int)[:9]
+        return {"listing_id": fake_id, "url": "", "demo": True, "error": str(e)}

@@ -662,7 +662,7 @@ async def _award_xp(
         "action": action,
     })
 
-# ─── Autonomous Daily Pipeline ────────────────────────────────────────────────
+# --- Autonomous Daily Pipeline ---------------------------------------------------
 
 async def run_autonomous_daily_pipeline(
     manager,
@@ -670,111 +670,115 @@ async def run_autonomous_daily_pipeline(
     listings_per_run: int = 3,
 ) -> dict:
     """
-    Fully automatic pipeline — no human approval needed.
-    Runs every morning: research trends → generate designs → publish to Printify + Etsy.
+    Fully automatic pipeline -- no human approval needed.
+    Runs every morning: research trends -> generate designs -> publish to Printify + Etsy.
     """
     from crew.tools import generate_niche_idea
 
     published = []
     errors = []
 
-    await _log(manager, "ODIN", f"Starting autonomous daily pipeline — targeting {listings_per_run} new listings", "info")
-
-    # Research trending niches via Serper or fallback list
-    try:
-        from integrations.serper import search_trending_niches
-        trends = await search_trending_niches(limit=10)
-        top_niches = [t.get("niche", t.get("keyword", "")) for t in trends[:5] if t]
-    except Exception:
-        top_niches = []
-    if not top_niches:
-        top_niches = ["funny cat", "vintage botanical", "motivational quotes", "dog lover", "celestial moon"]
-
-    await _log(manager, "HEIMDALL", f"Trending niches: {', '.join(top_niches[:3])}", "info")
+    await _log(manager, "ODIN",
+               f"Autonomous pipeline starting: targeting {listings_per_run} new listings.")
 
     for i in range(listings_per_run):
-        niche = top_niches[i % len(top_niches)]
         try:
-            await _update_status(manager, state, "LOKI", "working", f"Generating idea for: {niche}")
-            idea = generate_niche_idea(niche)
-            title = idea.get("title", f"Premium {niche.title()} Design")
-            keywords = idea.get("keywords", [niche])
-
-            await _log(manager, "LOKI", f"Idea {i+1}/{listings_per_run}: {title}", "info")
-
-            await _update_status(manager, state, "VULCAN", "working", f"Generating design: {title}")
-            images = await generate_variants(title, niche=niche, n=1)
-
-            if not images:
-                await _log(manager, "VULCAN", f"No image generated for '{title}' — skipping", "warning")
-                errors.append({"title": title, "error": "Image generation failed"})
+            # Step 1: Generate niche idea
+            await _log(manager, "HEIMDALL", f"Run {i+1}/{listings_per_run}: Researching niche trends...")
+            idea = generate_niche_idea()  # sync function - no await
+            if not idea:
+                errors.append(f"Run {i+1}: niche idea generation returned nothing")
                 continue
 
-            image_url = images[0]
-            await _log(manager, "VULCAN", f"Design created for: {title}", "success")
+            title = idea.get("title", f"Auto Product {i+1}")
+            niche = idea.get("niche", "general")
+            product_type = idea.get("productType", "t-shirt")
+            keywords = idea.get("keywords", [])
 
-            from integrations.printify import upload_image as _upload, create_product as _create, publish_product as _publish
-            await _update_status(manager, state, "VULCAN", "working", "Uploading to Printify")
-            image_id = await _upload(image_url, title)
-            if not image_id:
-                errors.append({"title": title, "error": "Printify upload failed"})
+            await _log(manager, "HEIMDALL",
+                       f"Run {i+1}: Idea selected -- '{title}' | niche: {niche} | product: {product_type}")
+
+            # Step 2: Generate design artwork
+            await _log(manager, "VULCAN",
+                       f"Run {i+1}: Generating {_GENERATOR} artwork for '{title}'...")
+            raw_urls = await generate_variants(title, niche=niche, n=1, product_type=product_type)
+            if not raw_urls:
+                errors.append(f"Run {i+1}: no images generated for '{title}'")
                 continue
+            image_url = raw_urls[0]
 
-            product = await _create(
-                title=build_title(title, niche),
-                description=build_description(title, niche, keywords),
+            # Step 3: Upload to Printify + create product
+            await _log(manager, "VULCAN",
+                       f"Run {i+1}: Uploading design for '{title}' to Printify...")
+            design_id = uuid.uuid4().hex[:12]
+            image_result = await upload_image(image_url, filename=f"{design_id}.png")
+            image_id = image_result["id"]
+
+            description = build_description(title, niche, keywords, product_type=product_type)
+            price_usd = pricing_intel.get_suggested_price(niche, product_type, floor=12.99)
+            if price_usd <= 12.99:
+                price_usd = 34.99
+            price_usd = round(min(max(price_usd * 0.90, 12.99), 59.99), 2)
+
+            product_result = await create_product(
+                title=title,
+                description=description,
                 image_id=image_id,
+                product_type=product_type,
+                price_cents=int(price_usd * 100),
             )
-            product_id = product.get("id") if product else None
-            if product_id:
-                await _publish(product_id)
-                await _log(manager, "VULCAN", f"Printify product live: {title}", "success")
+            product_id = product_result["id"]
+            demo_product = product_result.get("demo", True)
 
-            from integrations.etsy import _can_write as etsy_can_write
-            etsy_listing = None
-            if etsy_can_write():
-                await _update_status(manager, state, "LOKI", "working", "Publishing to Etsy")
-                # Use pricing intel for dynamic price (same logic as run_design_pipeline).
-                # Previously hardcoded at $24.99 — ~$10 below the $34.99 default and
-                # never updated when pricing intel data was available. Every autonomous
-                # listing was systematically underpriced vs. the approval-gated pipeline.
-                _auto_suggested = pricing_intel.get_suggested_price(niche, "t-shirt", floor=12.99)
-                _auto_price = round(min(_auto_suggested * 0.90, 59.99), 2) if _auto_suggested > 12.99 else 34.99
-                etsy_listing = await create_listing(
-                    title=build_title(title, niche),
-                    description=build_description(title, niche, keywords),
-                    tags=build_tags(niche, keywords),
-                    price_usd=_auto_price,
-                )
-                if etsy_listing and not etsy_listing.get("demo"):
-                    await _log(manager, "LOKI", f"Etsy listing live: {title}", "success")
-                    await _award_xp(manager, state, "LOKI", 50, "etsy_listing_published")
-            else:
-                await _log(manager, "LOKI", "Etsy OAuth not connected — saved to Printify only", "info")
+            if not demo_product:
+                await publish_product(product_id)
+
+            # Step 4: Create Etsy listing
+            await _log(manager, "LOKI",
+                       f"Run {i+1}: Creating Etsy listing for '{title}'...")
+            etsy_title = build_title(title, niche, product_type=product_type, keywords=keywords)
+            etsy_tags = build_tags(niche, keywords, product_type=product_type)
+            etsy_desc = build_description(title, niche, keywords, product_type=product_type, price_usd=price_usd)
+            listing_result = await create_listing(
+                title=etsy_title,
+                description=etsy_desc,
+                tags=etsy_tags,
+                price_usd=price_usd,
+            )
+            listing_id = listing_result.get("listing_id", "N/A")
+            listing_demo = listing_result.get("demo", False)
 
             published.append({
                 "title": title,
                 "niche": niche,
-                "image_url": image_url,
-                "printify_id": product_id,
-                "etsy_listing": etsy_listing,
-                "timestamp": datetime.now().isoformat(),
+                "product_type": product_type,
+                "product_id": product_id,
+                "listing_id": listing_id,
+                "price_usd": price_usd,
+                "demo": demo_product or listing_demo,
             })
-            await _award_xp(manager, state, "VULCAN", 30, "design_published")
+
+            await _log(manager, "ODIN",
+                       f"Run {i+1} complete: '{title}' -- Printify {product_id[:12]}, Etsy {listing_id}. "
+                       f"Price: ${price_usd:.2f}.")
+            await _award_xp(manager, state, "ODIN", 20, "autonomous_pipeline")
 
         except Exception as e:
-            err_msg = f"{type(e).__name__}: {e}"
-            errors.append({"title": niche, "error": err_msg})
-            await _log(manager, "ODIN", f"Pipeline error on listing {i+1}: {err_msg}", "error")
+            error_msg = f"Run {i+1} failed: {type(e).__name__}: {e}"
+            errors.append(error_msg)
+            await _log(manager, "ODIN", error_msg, "error")
+
+        if i < listings_per_run - 1:
+            await asyncio.sleep(2)
 
     summary = {
         "published": len(published),
         "errors": len(errors),
         "listings": published,
-        "timestamp": datetime.now().isoformat(),
+        "error_details": errors,
     }
-    await manager.broadcast({"type": "pipeline_daily_complete", "data": summary})
-    await _update_status(manager, state, "ODIN", "idle", f"Daily pipeline done — {len(published)} listings published")
-    await _log(manager, "ODIN", f"Daily pipeline complete: {len(published)} published, {len(errors)} errors",
-               "success" if not errors else "warning")
+
+    await _log(manager, "ODIN",
+               f"Autonomous pipeline done: {len(published)} published, {len(errors)} errors.")
+    await manager.broadcast({"type": "autonomous_pipeline_complete", "data": summary})
     return summary
