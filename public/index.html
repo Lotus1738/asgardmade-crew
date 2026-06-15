@@ -2777,25 +2777,68 @@ function updateVault(r){
   });
 }
 
+/* Product-type icon map for design card placeholders */
+const _PRODUCT_ICONS={
+  'tote bag':'🛍','hoodie':'🧥','mug':'☕','poster':'🖼','phone case':'📱',
+  'sticker':'✨','wall art':'🖼','t-shirt':'👕','sweatshirt':'🧥',
+};
+function _productIcon(pt){ return _PRODUCT_ICONS[(pt||'').toLowerCase()]||'📦'; }
+
+/* Inline SVG placeholder — never fails to load */
+function _designPlaceholderSVG(title, pt){
+  const icon=_productIcon(pt);
+  const label=(pt||'Product').toUpperCase().slice(0,16);
+  const t=(title||'').slice(0,28);
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="%230e0903"/><stop offset="100%" stop-color="%231a1005"/></linearGradient></defs>
+      <rect width="240" height="140" fill="url(%23g)" rx="4"/>
+      <rect x="1" y="1" width="238" height="138" fill="none" stroke="%23c9a84c" stroke-width=".5" stroke-opacity=".3" rx="3"/>
+      <text x="120" y="52" text-anchor="middle" font-size="34" font-family="serif">${icon}</text>
+      <text x="120" y="76" text-anchor="middle" fill="%23c9a84c" font-size="8" font-family="monospace" letter-spacing="2">${label}</text>
+      <text x="120" y="92" text-anchor="middle" fill="%23896b30" font-size="7" font-family="monospace">${t}</text>
+      <text x="120" y="112" text-anchor="middle" fill="%23555" font-size="6" font-family="monospace">⟳ REGENERATE TO SEE MOCKUP</text>
+    </svg>`
+  )}`;
+}
+
 function renderDesigns(designs){
   const pend=designs.filter(d=>d.status==='pending');
   document.getElementById('designs-badge').textContent=pend.length;
   const tab=document.getElementById('designs-tab'); tab.innerHTML='';
   updateMissionStrip();
   if(!pend.length){ tab.innerHTML=`<div class="empty-state"><div class="e-icon">⚒</div><div class="e-text">NO PENDING DESIGNS<br>VULCAN STANDING BY</div></div>`; return; }
+
+  /* Clear queue button at top */
+  const clearBtn=document.createElement('div');
+  clearBtn.style.cssText='width:100%;display:flex;justify-content:flex-end;padding:0 4px 6px;box-sizing:border-box';
+  clearBtn.innerHTML=`<button onclick="clearDesignQueue()" style="background:rgba(200,0,0,.1);border:1px solid rgba(200,0,0,.3);color:#ff6b6b;font-size:7px;padding:4px 10px;border-radius:3px;cursor:pointer;letter-spacing:.8px">✕ CLEAR ALL STALE</button>`;
+  tab.appendChild(clearBtn);
+
   pend.forEach(d=>{
+    const fallback=_designPlaceholderSVG(d.ideaTitle, d.productType);
     const c=document.createElement('div'); c.className='approval-card'; c.id=`design-${d.id}`;
-    c.innerHTML=`<img class="approval-img" src="${esc(d.imageUrl)}" alt="${esc(d.ideaTitle)}" style="object-fit:cover;border-radius:4px;width:100%;max-height:160px" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-      <div style="display:none;align-items:center;justify-content:center;height:100px;background:rgba(201,168,76,.06);border:1px dashed rgba(201,168,76,.2);border-radius:4px;color:var(--txt2);font-size:8px;letter-spacing:1px;margin-bottom:6px">📦 ${esc(d.productType||'Product').toUpperCase()} MOCKUP LOADING</div>
+    c.innerHTML=`<img class="approval-img" src="${esc(d.imageUrl||'')}" alt="${esc(d.ideaTitle)}"
+        style="object-fit:cover;border-radius:4px;width:100%;max-height:160px;display:block"
+        onerror="this.src='${fallback}'">
       <div class="approval-title">${esc(d.ideaTitle||'Untitled')}</div>
-      <span class="approval-badge">📦 ${esc(d.productType||'Product').toUpperCase()}</span>
-      <div class="approval-meta">Variant #${d.variantIndex||1} · ${d.demo?'DEMO MODE':'AI Mockup'}</div>
+      <span class="approval-badge">${_productIcon(d.productType)} ${esc((d.productType||'Product').toUpperCase())}</span>
+      <div class="approval-meta">Variant #${d.variantIndex||1} · ${d.demo?'DEMO — reject &amp; regenerate':'AI Mockup'}</div>
       <div class="approval-actions">
         <button class="btn-approve" onclick="approveDesign('${d.id}')">✓ APPROVE</button>
         <button class="btn-reject"  onclick="rejectItem('design','${d.id}')">✗ REJECT</button>
       </div>`;
     tab.appendChild(c);
   });
+}
+
+function clearDesignQueue(){
+  if(!confirm('Clear all pending design cards? New ones will generate when you approve ideas.')) return;
+  ws&&ws.send(JSON.stringify({type:'clear_design_queue'}));
+  document.getElementById('designs-tab').innerHTML='<div class="empty-state"><div class="e-icon">⚒</div><div class="e-text">QUEUE CLEARED<br>APPROVE IDEAS TO REGENERATE</div></div>';
+  document.getElementById('designs-badge').textContent='0';
+  addLog('COMMANDER','Design queue cleared. Approve pending ideas to generate fresh mockups.','info');
 }
 
 function renderIdeas(ideas){

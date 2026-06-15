@@ -65,6 +65,20 @@ async def run_idea_pipeline(
 
     await asyncio.sleep(0.5)
 
+    # ── Niche saturation check ────────────────────────────────────────────────
+    saturation = await check_niche_saturation(niche, product_type)
+    sat_level = saturation.get("level", "unknown")
+    sat_count = saturation.get("count", -1)
+    sat_label = f"{sat_count:,}" if sat_count >= 0 else "unknown"
+    if saturation.get("skip"):
+        await _log(manager, "HEIMDALL",
+                   f"⚠ Niche '{niche}' is SATURATED ({sat_label} Etsy results). "
+                   f"Continuing anyway — use unique angle to stand out.", "warning")
+    else:
+        sat_emoji = "🟢" if sat_level == "low" else ("🟡" if sat_level == "medium" else "⚪")
+        await _log(manager, "HEIMDALL",
+                   f"{sat_emoji} Niche check: '{niche} {product_type}' — {sat_label} Etsy listings ({sat_level} competition).")
+
     await _log(manager, "VULCAN",
                f"Received brief from Heimdall. Generating 2 {_GENERATOR} variants for '{title}'.")
     await _update_status(manager, state, "VULCAN", "working",
@@ -201,7 +215,7 @@ async def run_design_pipeline(
                f"Image uploaded {'(demo)' if demo_mode else ''}. Creating Printify product.")
 
     try:
-        description = build_description(title, niche, keywords)
+        description = build_description(title, niche, keywords, product_type=product_type)
         product_result = await create_product(
             title=title,
             description=description,
@@ -264,9 +278,9 @@ async def run_design_pipeline(
                          f"Creating Etsy listing for '{title}'")
 
     try:
-        etsy_title = build_title(title, niche)
-        etsy_tags = build_tags(niche, keywords)
-        etsy_desc = build_description(title, niche, keywords)
+        etsy_title = build_title(title, niche, product_type=product_type, keywords=keywords)
+        etsy_tags = build_tags(niche, keywords, product_type=product_type)
+        etsy_desc = build_description(title, niche, keywords, product_type=product_type, price_usd=price_usd)
         listing_result = await create_listing(
             title=etsy_title,
             description=etsy_desc,
@@ -447,6 +461,45 @@ async def run_design_pipeline(
         "data": {"strategy": strategy_text, "strategyCount": state.strategy_count},
     })
     await _award_xp(manager, state, "ODIN", 15, "pipeline_confirmed")
+
+
+async def check_niche_saturation(niche: str, product_type: str = "t-shirt") -> dict:
+    """
+    Use Serper to estimate Etsy listing count for a niche+product combo.
+    Returns: {"count": int, "level": "low"|"medium"|"high", "skip": bool}
+    - low  (<10k)  → green light, low competition
+    - medium (10k–80k) → proceed, decent opportunity
+    - high  (>80k)  → saturated, suggest pivoting
+    """
+    serper_key = os.getenv("SERPER_API_KEY", "")
+    if not serper_key:
+        return {"count": -1, "level": "unknown", "skip": False}
+    try:
+        import httpx as _httpx
+        query = f'site:etsy.com "{niche}" "{product_type}"'
+        async with _httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": serper_key, "Content-Type": "application/json"},
+                json={"q": query, "gl": "us", "num": 1},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                count = data.get("searchInformation", {}).get("totalResults", 0)
+                try:
+                    count = int(str(count).replace(",", ""))
+                except (ValueError, TypeError):
+                    count = 0
+                if count < 10_000:
+                    level = "low"
+                elif count < 80_000:
+                    level = "medium"
+                else:
+                    level = "high"
+                return {"count": count, "level": level, "skip": level == "high"}
+    except Exception:
+        pass
+    return {"count": -1, "level": "unknown", "skip": False}
 
 
 def _make_title_b_fallback(title_a: str) -> str:

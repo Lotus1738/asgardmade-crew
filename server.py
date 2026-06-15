@@ -335,6 +335,13 @@ async def _handle_ws_message(msg: dict, ws: WebSocket):
                 pass
             await manager.broadcast({"type": "queue_update", "data": {"category": "designs", "id": item_id, "status": "rejected"}})
 
+    elif msg_type == "clear_design_queue":
+        count = len([d for d in state.queue["designs"] if d.get("status") == "pending"])
+        state.queue["designs"] = [d for d in state.queue["designs"] if d.get("status") != "pending"]
+        state.save_queue()
+        await manager.broadcast({"type": "log", "agent": "ODIN", "level": "info",
+                                  "message": f"Design queue cleared — {count} stale card(s) removed. Approve ideas to regenerate fresh mockups."})
+
 
 # ─── REST Endpoints ──────────────────────────────────────────────────────────
 
@@ -2480,6 +2487,19 @@ async def _review_monitor_loop():
                             )
                         except Exception:
                             pass
+                    elif is_new and rating == 3:
+                        # 3-star = mediocre. Not bad enough to alert, but signals a gap
+                        # between buyer expectation and reality. LOKI should learn from these
+                        # to adjust title/description accuracy and set clearer expectations.
+                        try:
+                            brain.record_outcome(
+                                "LOKI",
+                                f"Mediocre review (3 star) on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
+                                f"3 star: {rev.get('review','')[:100]} — consider improving title clarity or description expectations",
+                                4,
+                            )
+                        except Exception:
+                            pass
                     elif is_new and rating >= 4:
                         # Brain feedback for positive reviews so LOKI learns which listing
                         # styles, niches, and product types generate happy customers.
@@ -2490,6 +2510,17 @@ async def _review_monitor_loop():
                                 "LOKI",
                                 f"Positive review on '{rev.get('listing_title','?')}' ({rev.get('product_type','?')})",
                                 f"{rating} star: {rev.get('review','')[:100]}",
+                                9 if rating == 5 else 7,
+                            )
+                        except Exception:
+                            pass
+                        # GUARDIAN learns which product types generate satisfied customers —
+                        # helps calibrate what to protect vs. flag in future scans.
+                        try:
+                            brain.record_outcome(
+                                "GUARDIAN",
+                                f"Positive review on product type '{rev.get('product_type','?')}' listing '{rev.get('listing_title','?')}'",
+                                f"{rating} star — this product type is working well for customers",
                                 9 if rating == 5 else 7,
                             )
                         except Exception:
